@@ -5,10 +5,12 @@
 import tkinter as tk
 from gui import App
 from dcln_gui_patch import install as install_dcln_gui
+from room_gui_patch import install as install_room_gui
 from uuid_gui_patch import install as install_uuid_gui
 from windows_compat import configure_root, setup_windows_process
 
 install_dcln_gui(App)
+install_room_gui(App)
 install_uuid_gui(App)
 
 def main():
