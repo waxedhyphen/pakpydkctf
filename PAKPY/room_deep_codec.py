@@ -1,6 +1,7 @@
 from pathlib import Path
 from collections import Counter, defaultdict
 from room_scene_codec import parse_room_asset, export_room_package as export_room_package_base, format_room_info_lines as format_room_info_lines_base, format_uuid_hex, first_parent_transform, transform_text
+from room_preview_codec import write_room_scene_preview
 from pak_core import get_entry_asset
 
 def asset_uuid_map(parsed):
@@ -135,8 +136,10 @@ def export_room_package(parsed, entry, out_dir):
     write_asset_refs_tsv(asset_refs_path, deep['component_refs'])
     write_head_refs_tsv(head_refs_path, deep['head_refs'])
     append_deep_report(result['report_path'], deep['component_refs'], deep['head_refs'])
+    preview = write_room_scene_preview(parsed, entry, package_dir)
     result['asset_refs_path'] = str(asset_refs_path)
     result['head_refs_path'] = str(head_refs_path)
     result['component_asset_ref_count'] = len(deep['component_refs'])
     result['head_asset_ref_count'] = len(deep['head_refs'])
+    result.update(preview)
     return result
