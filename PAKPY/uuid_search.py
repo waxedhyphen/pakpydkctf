@@ -1,6 +1,6 @@
 import re
 from pak_core import PakError, get_entry_asset
-from room_codec import describe_room_hit, format_room_hit_extra
+from room_scene_codec import describe_room_hit, format_room_hit_extra
 
 def normalize_uuid_query(text):
     raw = (text or '').strip()
