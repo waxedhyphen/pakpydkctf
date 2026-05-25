@@ -1,0 +1,17 @@
+Modell: 52449c3cb0c4455c9713ad229a6fd1d3
+Typ: SMDL
+OBJ: 52449c3cb0c4455c9713ad229a6fd1d3_smdl.obj
+MTL: 52449c3cb0c4455c9713ad229a6fd1d3_smdl.mtl
+Bearbeitbare PNGs: 8
+Nur Roh-Sicherung: 1
+
+Texturen:
+- model:Fugu_Body_phong | DIFTTXTR | 67f772e513784053a6399f0e4ea25b73 | PNG+RAW | model_Fugu_Body_phong__difttxtr__67f772e513784053a6399f0e4ea25b73.png | model_Fugu_Body_phong__difttxtr__67f772e513784053a6399f0e4ea25b73.txtr.bin
+- model:Fugu_Body_phong | NMAPTXTR | db9bda239f3a419bba606265171df28a | PNG+RAW | model_Fugu_Body_phong__nmaptxtr__db9bda239f3a419bba606265171df28a.png | model_Fugu_Body_phong__nmaptxtr__db9bda239f3a419bba606265171df28a.txtr.bin
+- model:Fugu_Body_phong | SPCTTXTR | b14764194cdb4c35ba0f218792b90f9d | PNG+RAW | model_Fugu_Body_phong__spcttxtr__b14764194cdb4c35ba0f218792b90f9d.png | model_Fugu_Body_phong__spcttxtr__b14764194cdb4c35ba0f218792b90f9d.txtr.bin
+- model:phong1 | DIFTTXTR | 7b35970a4d1d4989ad0dcb0c8f368941 | PNG+RAW | model_phong1__difttxtr__7b35970a4d1d4989ad0dcb0c8f368941.png | model_phong1__difttxtr__7b35970a4d1d4989ad0dcb0c8f368941.txtr.bin
+- model:phong1 | ICANTXTR | e2d5d9ac03824b49b757b697965bd9ba | PNG+RAW | model_phong1__icantxtr__e2d5d9ac03824b49b757b697965bd9ba.png | model_phong1__icantxtr__e2d5d9ac03824b49b757b697965bd9ba.txtr.bin
+- model:phong1 | SPCTTXTR | 9f67a65b99e84d53bdf3779b19f5d419 | RAW | model_phong1__spcttxtr__9f67a65b99e84d53bdf3779b19f5d419.txtr.bin | Expected at least 512 bytes but found 14 bytes
+- model:Fugu_Head_01_5_phong | DIFTTXTR | 1c27c3cda58e4322a3f3e2a4142938dc | PNG+RAW | model_Fugu_Head_01_5_phong__difttxtr__1c27c3cda58e4322a3f3e2a4142938dc.png | model_Fugu_Head_01_5_phong__difttxtr__1c27c3cda58e4322a3f3e2a4142938dc.txtr.bin
+- model:Fugu_Head_01_5_phong | NMAPTXTR | 1159ab4373fe4d49be6ddd00762c8414 | PNG+RAW | model_Fugu_Head_01_5_phong__nmaptxtr__1159ab4373fe4d49be6ddd00762c8414.png | model_Fugu_Head_01_5_phong__nmaptxtr__1159ab4373fe4d49be6ddd00762c8414.txtr.bin
+- model:Fugu_Head_01_5_phong | SPCTTXTR | 10002d4dc4194fc0bd54516e5d8d3ce5 | PNG+RAW | model_Fugu_Head_01_5_phong__spcttxtr__10002d4dc4194fc0bd54516e5d8d3ce5.png | model_Fugu_Head_01_5_phong__spcttxtr__10002d4dc4194fc0bd54516e5d8d3ce5.txtr.bin

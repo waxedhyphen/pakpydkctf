@@ -1,0 +1,40 @@
+discovered formats:
+- MSBT
+- CSMP (game audio)
+- CAUD (audio dependencies für CSMP)
+
+semi-discovered formats:
+- txtr -> noch keine conversion
+
+unknown:
+- ANIM
+- CHAR
+- CMDL <- static models
+- DCLN
+- FSMC
+- GENP
+- MTRL
+- ROOM
+- SKEL
+- SMDL
+- WMDL
+
+
+NEUER STAND 9.4.26 02:19 UHR
+ - texturen ändern an models geht siehe 1-1 pfad am anfang
+ - models konvertieren geht glaube noch nicht also kein obj zurück in zb cmdl oder wmdl ohne komplikationen
+ - extrem viele txts sagen das hier:        Verlinktes TXTR im aktuellen PAK nicht gefunden
+        ===>>> GEFIXT: die requireten dateien befinden sich in der dazugehörigen pakdatei wie zb befinden sich die
+                        WMDLs von "l01_secret_jumpingBlocks.pak" in "w0y_Secret.pak"
+
+
+
+
+TODO:
+
+alpha values rausbekommen von models. siehe 1. smdl von maplevel.pak
+
+
+1 -51 92 9
+2 -83 70 9
+3 -131 108 -13

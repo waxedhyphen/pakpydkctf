@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "source_pak": "b00_ocean_fugu_model_repacked.pak",
+  "entry_index": 163,
+  "entry_type": "WMDL",
+  "entry_uuid_hex": "3f27244f828b410ca22ff16a1345bfcc",
+  "entry_name": "3f27244f828b410ca22ff16a1345bfcc",
+  "obj_name": "3f27244f828b410ca22ff16a1345bfcc_wmdl.obj",
+  "obj_sha1": "0543b7fdb47744e0ad776cc8484cf6ca9b2d00a0",
+  "mtl_name": "3f27244f828b410ca22ff16a1345bfcc_wmdl.mtl",
+  "mtl_sha1": "c2db26b7e1f36d1f625d26e50711f1cb696401d1",
+  "editable_png_count": 1,
+  "raw_only_count": 0,
+  "textures": [
+    {
+      "missing": false,
+      "txtr_entry_index": -1,
+      "txtr_uuid_hex": "c4931c8eed5c425f880121884c8f0662",
+      "txtr_name": "c4931c8eed5c425f880121884c8f0662",
+      "material_index": 0,
+      "material_name": "pasted__water_surface_lambert",
+      "ref_tag": "DIFTTXTR",
+      "mtl_slot": "map_Kd",
+      "png_name": "pasted__water_surface_lambert__difttxtr__c4931c8eed5c425f880121884c8f0662.png",
+      "png_sha1": "d8a90ccda989633ad3810922c0503bded7f36d61",
+      "raw_name": "pasted__water_surface_lambert__difttxtr__c4931c8eed5c425f880121884c8f0662.txtr.bin",
+      "raw_sha1": "a24cca13aa3c0a9c38ff86b2d9b07eafb278efc0",
+      "editable_png": true,
+      "export_error": "",
+      "source_kind": "require",
+      "source_path": "/Users/jakob/Documents/roms/Switch/dkctf dump/Worlds/w04_ocean/w04_ocean.pak"
+    }
+  ]
+}

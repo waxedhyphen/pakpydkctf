@@ -1,0 +1,7 @@
+newmtl pasted__water_surface_lambert
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd pasted__water_surface_lambert__difttxtr__c4931c8eed5c425f880121884c8f0662.png
+

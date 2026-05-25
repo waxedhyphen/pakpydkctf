@@ -1,0 +1,26 @@
+newmtl model:phong1
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd model_phong1__difttxtr__7b35970a4d1d4989ad0dcb0c8f368941.png
+map_Ke model_phong1__icantxtr__e2d5d9ac03824b49b757b697965bd9ba.png
+
+newmtl model:Fugu_Body_03_phong
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd model_Fugu_Body_03_phong__difttxtr__6e6dbfc52c8d4730a4f69ca599f74417.png
+map_Bump model_Fugu_Body_03_phong__nmaptxtr__db9bda239f3a419bba606265171df28a.png
+map_Ks model_Fugu_Body_03_phong__spcttxtr__b14764194cdb4c35ba0f218792b90f9d.png
+
+newmtl model:Fugu_Head_03_phong
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd model_Fugu_Head_03_phong__difttxtr__0fd7fe93ec1f41b4bc3f585868e280a3.png
+map_Bump model_Fugu_Head_03_phong__nmaptxtr__1159ab4373fe4d49be6ddd00762c8414.png
+map_Ks model_Fugu_Head_03_phong__spcttxtr__10002d4dc4194fc0bd54516e5d8d3ce5.png
+

@@ -1,0 +1,9 @@
+Modell: 3f27244f828b410ca22ff16a1345bfcc
+Typ: WMDL
+OBJ: 3f27244f828b410ca22ff16a1345bfcc_wmdl.obj
+MTL: 3f27244f828b410ca22ff16a1345bfcc_wmdl.mtl
+Bearbeitbare PNGs: 1
+Nur Roh-Sicherung: 0
+
+Texturen:
+- pasted__water_surface_lambert | DIFTTXTR | c4931c8eed5c425f880121884c8f0662 | PNG+RAW | pasted__water_surface_lambert__difttxtr__c4931c8eed5c425f880121884c8f0662.png | pasted__water_surface_lambert__difttxtr__c4931c8eed5c425f880121884c8f0662.txtr.bin

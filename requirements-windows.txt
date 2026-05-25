@@ -1,0 +1,4 @@
+Pillow
+texture2ddecoder
+py-tegra-swizzle
+astc-encoder-py

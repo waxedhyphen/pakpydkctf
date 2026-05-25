@@ -1,0 +1,628 @@
+newmtl Boat_Windows
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd Boat_Windows__difttxtr__7271da298fff4d3898079c0cb5ed8970.png
+map_Bump Boat_Windows__nmaptxtr__46f548dc64004780bf09f0f9513505a6.png
+map_Ks Boat_Windows__spcttxtr__673efc3cfd764b60a22da2bcefe95008.png
+
+newmtl Brain_Coral_02
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd Brain_Coral_02__difttxtr__fc97dcbcfd6d4af3898abc2ff4563369.png
+map_Bump Brain_Coral_02__nmaptxtr__4405b2c1895f485397fa52c189d3fb02.png
+map_Ks Brain_Coral_02__spcttxtr__c1ac3d4841934f8ea3f5e051c3eca21c.png
+
+newmtl GreenSponge
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd GreenSponge__difttxtr__b6e883b1022a416d8585cd22526ff404.png
+map_Bump GreenSponge__nmaptxtr__b25c8a9a1f6d4d01b49aac4a40728a1c.png
+map_Ks GreenSponge__spcttxtr__b2aa45beb9524607a7f69274ec7c34ef.png
+
+newmtl MushroomTentacleStalk
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd MushroomTentacleStalk__difttxtr__3ef6ccdd90b2405e81003eeac4486e35.png
+map_Bump MushroomTentacleStalk__nmaptxtr__832eef4f98ed4a628b93fd3c11bfd893.png
+
+newmtl Purplebush
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd Purplebush__difttxtr__53f9f37ce8b3477bbd964424266d221e.png
+map_Bump Purplebush__nmaptxtr__8befa9d18aef42b99fc0c0abd9f72535.png
+map_Ks Purplebush__spcttxtr__eb20de46ef074ee98823ed7708a89142.png
+
+newmtl TwigRedbloom
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd TwigRedbloom__difttxtr__401df634ceb8471e8491e7a36cf5d875.png
+map_Bump TwigRedbloom__nmaptxtr__c14aa3367e9845fd8489411b962540a4.png
+map_Ks TwigRedbloom__spcttxtr__780a2f50517e44749a4473724cb670d9.png
+
+newmtl anemone_retBot_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd anemone_retBot_01__difttxtr__feb61f3692ac4046b41ca939dc6a7e67.png
+map_Bump anemone_retBot_01__nmaptxtr__6a446648fb144aa2b23ea30bc654fdf9.png
+map_Ks anemone_retBot_01__spcttxtr__ba0710929b314b8dbf0e04485955b8e5.png
+
+newmtl anemone_retBot_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd anemone_retBot_01__difttxtr__feb61f3692ac4046b41ca939dc6a7e67.png
+map_Bump anemone_retBot_01__nmaptxtr__6a446648fb144aa2b23ea30bc654fdf9.png
+map_Ks anemone_retBot_01__spcttxtr__ba0710929b314b8dbf0e04485955b8e5.png
+
+newmtl barnacle_orange_1
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd barnacle_orange_1__difttxtr__ab2f2a2d29c54abd888cf194c11c14c9.png
+map_Bump barnacle_orange_1__nmaptxtr__0ca9b7867620444aab4ee395a597a1f0.png
+map_Ks barnacle_orange_1__spcttxtr__3fb6927895b94730812ccae7db6d0862.png
+
+newmtl coral_ruffled
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd coral_ruffled__difttxtr__967e82d53534486bb575fef026a6d607.png
+map_Bump coral_ruffled__nmaptxtr__c9f70ff7ab38412e8059d1392e737fe8.png
+map_Ks coral_ruffled__spcttxtr__f2286db8724d4d50a1fb8202fcdfb4bf.png
+
+newmtl coral_stoneTrim_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd coral_stoneTrim_01__difttxtr__8a14b64648c1495ea67da2636191f123.png
+map_Bump coral_stoneTrim_01__nmaptxtr__a599c7fe32664dd28eea8febf33bcf78.png
+map_Ks coral_stoneTrim_01__spcttxtr__8f59d1aead2f4d7eb6660154289faaa7.png
+
+newmtl coral_stoneTrim_02
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd coral_stoneTrim_02__difttxtr__a9a7508d6fcb47dda36f55d6b1705c6b.png
+map_Bump coral_stoneTrim_02__nmaptxtr__a599c7fe32664dd28eea8febf33bcf78.png
+map_Ks coral_stoneTrim_02__spcttxtr__5d57c3f3e2364443aae22e62d7837304.png
+
+newmtl coral_stoneTrim_02
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd coral_stoneTrim_02__difttxtr__a9a7508d6fcb47dda36f55d6b1705c6b.png
+map_Bump coral_stoneTrim_02__nmaptxtr__a599c7fe32664dd28eea8febf33bcf78.png
+map_Ks coral_stoneTrim_02__spcttxtr__5d57c3f3e2364443aae22e62d7837304.png
+
+newmtl coral_stone_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd coral_stone_01__difttxtr__6265d94b7e8d483aad64c7d295af2e7a.png
+map_Bump coral_stone_01__nmaptxtr__73f954c6489145829c924b7991c7509e.png
+map_Ks coral_stone_01__spcttxtr__178d138bd01843799d07e983d8c9b9f5.png
+
+newmtl coral_stone_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd coral_stone_01__difttxtr__6265d94b7e8d483aad64c7d295af2e7a.png
+map_Bump coral_stone_01__nmaptxtr__73f954c6489145829c924b7991c7509e.png
+map_Ks coral_stone_01__spcttxtr__178d138bd01843799d07e983d8c9b9f5.png
+
+newmtl coral_tree_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd coral_tree_01__difttxtr__74b129a6eaa54edc8d00ce12aa0d178f.png
+map_Bump coral_tree_01__nmaptxtr__a447b04e5c1547a88c4d0984d7084c03.png
+map_Ks coral_tree_01__spcttxtr__63b8867924054913af04eccfdcfe68bd.png
+
+newmtl gpBlocks_vikingCrate_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd gpBlocks_vikingCrate_01__difttxtr__fbba90f6cd6541f1a3172ff69394f600.png
+map_Bump gpBlocks_vikingCrate_01__nmaptxtr__6d13e7e2654a4938beeed93ef21a1c63.png
+
+newmtl metal_viking_bombs
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd metal_viking_bombs__difttxtr__733f71e461a04dd7a8ee766d7869e9b3.png
+map_Bump metal_viking_bombs__nmaptxtr__0955ce6ab4f24feb91325ee6e378fa8c.png
+map_Ks metal_viking_bombs__spcttxtr__d2a605cc755544dabb8564ead574b530.png
+
+newmtl palm_bark_HI
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_bark_HI__difttxtr__8928e5e7fd4d4cf483c3b09fd1efe5dc.png
+map_Bump palm_bark_HI__nmaptxtr__99bd3c573a694672aa3fe608837163a3.png
+map_Ks palm_bark_HI__spcttxtr__b912fbab76484d59803dcbefe13ebc23.png
+
+newmtl palm_bark_HI
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_bark_HI__difttxtr__8928e5e7fd4d4cf483c3b09fd1efe5dc.png
+map_Bump palm_bark_HI__nmaptxtr__99bd3c573a694672aa3fe608837163a3.png
+map_Ks palm_bark_HI__spcttxtr__b912fbab76484d59803dcbefe13ebc23.png
+
+newmtl palm_bark_HI
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_bark_HI__difttxtr__8928e5e7fd4d4cf483c3b09fd1efe5dc.png
+map_Bump palm_bark_HI__nmaptxtr__99bd3c573a694672aa3fe608837163a3.png
+map_Ks palm_bark_HI__spcttxtr__b912fbab76484d59803dcbefe13ebc23.png
+
+newmtl palm_coconutInnards_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_coconutInnards_01__difttxtr__9718870ed02842dc80a95a9eaa2b5eb8.png
+map_Bump palm_coconutInnards_01__nmaptxtr__e16bb94d04e841a4bb9244d3d9ed09b7.png
+map_Ks palm_coconutInnards_01__spcttxtr__60910ba2d91e4c3b841ff4389da79ab2.png
+map_Ke palm_coconutInnards_01__icantxtr__9782ef34a3b54a009d1bdd9e12a4a017.png
+
+newmtl palm_coconutInnards_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_coconutInnards_01__difttxtr__9718870ed02842dc80a95a9eaa2b5eb8.png
+map_Bump palm_coconutInnards_01__nmaptxtr__e16bb94d04e841a4bb9244d3d9ed09b7.png
+map_Ks palm_coconutInnards_01__spcttxtr__60910ba2d91e4c3b841ff4389da79ab2.png
+map_Ke palm_coconutInnards_01__icantxtr__9782ef34a3b54a009d1bdd9e12a4a017.png
+
+newmtl palm_coconutInnards_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_coconutInnards_01__difttxtr__9718870ed02842dc80a95a9eaa2b5eb8.png
+map_Bump palm_coconutInnards_01__nmaptxtr__e16bb94d04e841a4bb9244d3d9ed09b7.png
+map_Ks palm_coconutInnards_01__spcttxtr__60910ba2d91e4c3b841ff4389da79ab2.png
+map_Ke palm_coconutInnards_01__icantxtr__9782ef34a3b54a009d1bdd9e12a4a017.png
+
+newmtl palm_coconut_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_coconut_01__difttxtr__d33bc91da6fb46bbb90812e706297b80.png
+map_Bump palm_coconut_01__nmaptxtr__7ae1d9566de04353869624335b26ba12.png
+map_Ks palm_coconut_01__spcttxtr__99aa4120226241ebb1c53145978e3e28.png
+
+newmtl palm_coconut_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_coconut_01__difttxtr__d33bc91da6fb46bbb90812e706297b80.png
+map_Bump palm_coconut_01__nmaptxtr__7ae1d9566de04353869624335b26ba12.png
+map_Ks palm_coconut_01__spcttxtr__99aa4120226241ebb1c53145978e3e28.png
+
+newmtl palm_coconut_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_coconut_01__difttxtr__d33bc91da6fb46bbb90812e706297b80.png
+map_Bump palm_coconut_01__nmaptxtr__7ae1d9566de04353869624335b26ba12.png
+map_Ks palm_coconut_01__spcttxtr__99aa4120226241ebb1c53145978e3e28.png
+
+newmtl palm_leaf
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_leaf__difttxtr__8b0ef04906f142409279d281ec944de4.png
+map_Bump palm_leaf__nmaptxtr__b839bac0d863496c91efce93b065b3c4.png
+map_Ks palm_leaf__spcttxtr__c4872da089ea43d783484e86b7db2b7e.png
+
+newmtl palm_leaf
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd palm_leaf__difttxtr__8b0ef04906f142409279d281ec944de4.png
+map_Bump palm_leaf__nmaptxtr__b839bac0d863496c91efce93b065b3c4.png
+map_Ks palm_leaf__spcttxtr__c4872da089ea43d783484e86b7db2b7e.png
+
+newmtl plant_beachLeaf_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_beachLeaf_01__difttxtr__a90be90a27a24fe8b636612b70ab9109.png
+map_Bump plant_beachLeaf_01__nmaptxtr__a730022093e24445a060977b3f284e96.png
+map_Ks plant_beachLeaf_01__spcttxtr__72d779c0ae6e49f5b52ac94f3f467e03.png
+
+newmtl plant_beachLeaf_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_beachLeaf_01__difttxtr__a90be90a27a24fe8b636612b70ab9109.png
+map_Bump plant_beachLeaf_01__nmaptxtr__a730022093e24445a060977b3f284e96.png
+map_Ks plant_beachLeaf_01__spcttxtr__72d779c0ae6e49f5b52ac94f3f467e03.png
+
+newmtl plant_grassblade_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_grassblade_01__difttxtr__1195186c5b324cba8377fee914d48fa6.png
+map_Bump plant_grassblade_01__nmaptxtr__afa38eb4ac55469e9ae3c144d5f9a58c.png
+map_Ks plant_grassblade_01__spcttxtr__8f1393b79a574c6f97125c87373fdab3.png
+
+newmtl plant_grassblade_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_grassblade_01__difttxtr__1195186c5b324cba8377fee914d48fa6.png
+map_Bump plant_grassblade_01__nmaptxtr__afa38eb4ac55469e9ae3c144d5f9a58c.png
+map_Ks plant_grassblade_01__spcttxtr__8f1393b79a574c6f97125c87373fdab3.png
+
+newmtl plant_grassblade_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_grassblade_01__difttxtr__1195186c5b324cba8377fee914d48fa6.png
+map_Bump plant_grassblade_01__nmaptxtr__afa38eb4ac55469e9ae3c144d5f9a58c.png
+map_Ks plant_grassblade_01__spcttxtr__8f1393b79a574c6f97125c87373fdab3.png
+
+newmtl plant_grassblade_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_grassblade_01__difttxtr__1195186c5b324cba8377fee914d48fa6.png
+map_Bump plant_grassblade_01__nmaptxtr__afa38eb4ac55469e9ae3c144d5f9a58c.png
+map_Ks plant_grassblade_01__spcttxtr__8f1393b79a574c6f97125c87373fdab3.png
+
+newmtl plant_grassblade_02
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_grassblade_02__difttxtr__e1a8fd5bbedc43ee83ac07377c42866d.png
+map_Bump plant_grassblade_02__nmaptxtr__afa38eb4ac55469e9ae3c144d5f9a58c.png
+map_Ks plant_grassblade_02__spcttxtr__8f1393b79a574c6f97125c87373fdab3.png
+
+newmtl plant_kelpleaf_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_kelpleaf_01__difttxtr__23a93fe54c2f4b67b4a006a73677b5a0.png
+map_Bump plant_kelpleaf_01__nmaptxtr__2ad9f05de7cc4fd68df01967b01a2a32.png
+map_Ks plant_kelpleaf_01__spcttxtr__3d8c1709b3d448e18319c9e4239524c7.png
+
+newmtl plant_kelpleaf_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_kelpleaf_01__difttxtr__23a93fe54c2f4b67b4a006a73677b5a0.png
+map_Bump plant_kelpleaf_01__nmaptxtr__2ad9f05de7cc4fd68df01967b01a2a32.png
+map_Ks plant_kelpleaf_01__spcttxtr__3d8c1709b3d448e18319c9e4239524c7.png
+
+newmtl plaster_weight_jug_02
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plaster_weight_jug_02__difttxtr__c9b44e21ab214b008b15b1d00de47ee9.png
+map_Bump plaster_weight_jug_02__nmaptxtr__dc3a9238fac44e209cb5bdff7e117525.png
+map_Ks plaster_weight_jug_02__spcttxtr__266784e4e4994ff2a691348fde411961.png
+
+newmtl rock_upperStrata_1
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd rock_upperStrata_1__difttxtr__4cd92a3c45b0414aa3260e2eb356a06d.png
+map_Bump rock_upperStrata_1__nmaptxtr__80699c5a89c4410396d331477bb659f1.png
+map_Ks rock_upperStrata_1__spcttxtr__2777872b93f24e89b1802760193ca39e.png
+
+newmtl rock_upperStrata_2
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd rock_upperStrata_2__difttxtr__7b55298554d841398fc18a4d117a794a.png
+map_Bump rock_upperStrata_2__nmaptxtr__80699c5a89c4410396d331477bb659f1.png
+map_Ks rock_upperStrata_2__spcttxtr__2777872b93f24e89b1802760193ca39e.png
+
+newmtl rock_upperStrata_2
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd rock_upperStrata_2__difttxtr__7b55298554d841398fc18a4d117a794a.png
+map_Bump rock_upperStrata_2__nmaptxtr__80699c5a89c4410396d331477bb659f1.png
+map_Ks rock_upperStrata_2__spcttxtr__2777872b93f24e89b1802760193ca39e.png
+
+newmtl rock_upperStrata_2
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd rock_upperStrata_2__difttxtr__7b55298554d841398fc18a4d117a794a.png
+map_Bump rock_upperStrata_2__nmaptxtr__80699c5a89c4410396d331477bb659f1.png
+map_Ks rock_upperStrata_2__spcttxtr__2777872b93f24e89b1802760193ca39e.png
+
+newmtl rock_upperStrata_4
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd rock_upperStrata_4__difttxtr__4cd92a3c45b0414aa3260e2eb356a06d.png
+map_Bump rock_upperStrata_4__nmaptxtr__74d154fdabb9442d9fd805ca82e4c6ca.png
+map_Ks rock_upperStrata_4__spcttxtr__2777872b93f24e89b1802760193ca39e.png
+
+newmtl rock_upperStrata_4
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd rock_upperStrata_4__difttxtr__4cd92a3c45b0414aa3260e2eb356a06d.png
+map_Bump rock_upperStrata_4__nmaptxtr__74d154fdabb9442d9fd805ca82e4c6ca.png
+map_Ks rock_upperStrata_4__spcttxtr__2777872b93f24e89b1802760193ca39e.png
+
+newmtl sand_path_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd sand_path_01__difttxtr__3135cbaf4f834d95a9edf2b9ef63a9b4.png
+map_Bump sand_path_01__nmaptxtr__5d7d812047524351aa4249d363022bd3.png
+map_Ks sand_path_01__spcttxtr__90d1b1cf99b64a908a4b9313618bf359.png
+
+newmtl sand_path_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd sand_path_01__difttxtr__3135cbaf4f834d95a9edf2b9ef63a9b4.png
+map_Bump sand_path_01__nmaptxtr__5d7d812047524351aa4249d363022bd3.png
+map_Ks sand_path_01__spcttxtr__90d1b1cf99b64a908a4b9313618bf359.png
+
+newmtl sand_tile_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd sand_tile_01__difttxtr__1ffab22433da4d8fa29d2555276c7cb6.png
+map_Bump sand_tile_01__nmaptxtr__22ab1eb0002a40c7bff1af1830e819cc.png
+map_Ks sand_tile_01__spcttxtr__38e60c86e27a473086faa889a33e077c.png
+
+newmtl sand_tile_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd sand_tile_01__difttxtr__1ffab22433da4d8fa29d2555276c7cb6.png
+map_Bump sand_tile_01__nmaptxtr__22ab1eb0002a40c7bff1af1830e819cc.png
+map_Ks sand_tile_01__spcttxtr__38e60c86e27a473086faa889a33e077c.png
+
+newmtl stone_boulderPlat_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd stone_boulderPlat_01__difttxtr__5a7cb8a988c24cfdab4ba66d50494167.png
+map_Bump stone_boulderPlat_01__nmaptxtr__9cb3ab78261d46519b075749343fb9eb.png
+map_Ks stone_boulderPlat_01__spcttxtr__49e60420860d4f14a7cfc861392f2141.png
+
+newmtl stone_boulder_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd stone_boulder_01__difttxtr__cc6285f641554b88b4e4e745a3b06167.png
+map_Bump stone_boulder_01__nmaptxtr__fe183bf5fd9b45878b749293392693d2.png
+map_Ks stone_boulder_01__spcttxtr__57513cd88a3046aaa35f1902298058e2.png
+
+newmtl stone_boulder_02
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd stone_boulder_02__difttxtr__514f8287e1e94416bae5829ac6744e35.png
+map_Bump stone_boulder_02__nmaptxtr__0c37ea3d65734725a1c686b13d39e2e3.png
+map_Ks stone_boulder_02__spcttxtr__8ff082442f3b4a47b020deafb42e617f.png
+
+newmtl stone_boulder_03
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd stone_boulder_03__difttxtr__85a9d768251b421886096200c8822309.png
+map_Bump stone_boulder_03__nmaptxtr__bc76ef98baed4010a29d2331445710a9.png
+map_Ks stone_boulder_03__spcttxtr__9d3bbfb4d33d436bac38bfd8c09b0c95.png
+
+newmtl stone_surfaceTile_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd stone_surfaceTile_01__difttxtr__467f06a0966f49a58c657321c88aa0b0.png
+map_Bump stone_surfaceTile_01__nmaptxtr__5f76b7fccb994dc18d1ec7839f1066cd.png
+map_Ks stone_surfaceTile_01__spcttxtr__bd931c9fbc0042b3b7b8c97ff4eb66d3.png
+
+newmtl stone_surfaceTile_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd stone_surfaceTile_01__difttxtr__467f06a0966f49a58c657321c88aa0b0.png
+map_Bump stone_surfaceTile_01__nmaptxtr__5f76b7fccb994dc18d1ec7839f1066cd.png
+map_Ks stone_surfaceTile_01__spcttxtr__bd931c9fbc0042b3b7b8c97ff4eb66d3.png
+
+newmtl stripe_tube_coral
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd stripe_tube_coral__difttxtr__c093121936af4d1f98fbacf6a650b29b.png
+map_Bump stripe_tube_coral__nmaptxtr__2bf93a9a4917434180e15ae9f59e3bb5.png
+map_Ks stripe_tube_coral__spcttxtr__f3c5cb6f7f9c4097a32c26028a69f353.png
+
+newmtl thundercoral01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd thundercoral01__difttxtr__263f1c0c553d4ec5b62fe2fc2855593e.png
+map_Bump thundercoral01__nmaptxtr__8eb585824f444b798550464e7a4457fc.png
+map_Ks thundercoral01__spcttxtr__00266fa51fac44539c2d1ea4ec0dbfba.png
+
+newmtl tube_coral_05
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd tube_coral_05__difttxtr__38cd161f4cd640daa77da3cb9900080d.png
+map_Bump tube_coral_05__nmaptxtr__2f40e986f9f248f7b989982c1deb59d8.png
+map_Ks tube_coral_05__spcttxtr__1743e5467139483f8e4e0374ad1f8d43.png
+
+newmtl warus_shield_shield
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd warus_shield_shield__difttxtr__2f432f9981cc409aba5e2932ba6faf7a.png
+map_Bump warus_shield_shield__nmaptxtr__7ea2ee5cc4c14a50b9441dfbaadabfe3.png
+map_Ks warus_shield_shield__spcttxtr__e8386820bc494c40b305839f2f3b6435.png
+
+newmtl wood_vikingTrim_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd wood_vikingTrim_01__difttxtr__82b457bd480a4296a112f4613437976a.png
+map_Bump wood_vikingTrim_01__nmaptxtr__fe74d82d9d7a4478beba00f445792940.png
+
+newmtl wood_vikingTrim_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd wood_vikingTrim_01__difttxtr__82b457bd480a4296a112f4613437976a.png
+map_Bump wood_vikingTrim_01__nmaptxtr__fe74d82d9d7a4478beba00f445792940.png
+
+newmtl wood_vikingTrim_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd wood_vikingTrim_01__difttxtr__82b457bd480a4296a112f4613437976a.png
+map_Bump wood_vikingTrim_01__nmaptxtr__fe74d82d9d7a4478beba00f445792940.png
+
+newmtl cloth_viking_banner
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd cloth_viking_banner__difttxtr__e6d1fa82752042fba9d83962150be5cc.png
+map_Bump cloth_viking_banner__nmaptxtr__63623a7b390d45f9b7e9f889911e7573.png
+map_Ks cloth_viking_banner__spcttxtr__f4e16667791f4465a7438ce9bee5a8e1.png
+
+newmtl plant_kelp_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_kelp_01__difttxtr__8a982b27b9ae40a989f0a17ad68ff775.png
+map_Bump plant_kelp_01__nmaptxtr__5635b571efb94267a9e92db463a2ec52.png
+map_Ks plant_kelp_01__spcttxtr__f3763db3ef4c4a1f8a9254325dfa2d3e.png
+
+newmtl plant_kelp_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_kelp_01__difttxtr__8a982b27b9ae40a989f0a17ad68ff775.png
+map_Bump plant_kelp_01__nmaptxtr__5635b571efb94267a9e92db463a2ec52.png
+map_Ks plant_kelp_01__spcttxtr__f3763db3ef4c4a1f8a9254325dfa2d3e.png
+
+newmtl plant_kelproot_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_kelproot_01__difttxtr__2774c71f4543438792053e7222bdc515.png
+map_Bump plant_kelproot_01__nmaptxtr__53b5ea5ac3d1472aba4dba1a51589835.png
+map_Ks plant_kelproot_01__spcttxtr__c45f67894a9c4559b22fb3d040a20b1b.png
+
+newmtl plant_kelpstalk_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_kelpstalk_01__difttxtr__03dd2b84221c46bfb638e2eb36f5dd98.png
+map_Bump plant_kelpstalk_01__nmaptxtr__664d4a6fe55d4e2abf796b26e28d158c.png
+map_Ks plant_kelpstalk_01__spcttxtr__c5171c552eb74800995dbadd28d31566.png
+
+newmtl plant_leafyBrush_02
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_leafyBrush_02__difttxtr__061207a2fc17444d8df49850b32adc4b.png
+map_Bump plant_leafyBrush_02__nmaptxtr__1f5e34f93ffa4769b873d1f5c880aae5.png
+map_Ks plant_leafyBrush_02__spcttxtr__4b40a223f83446b6b5863b1474f5b999.png
+
+newmtl plant_seaoat_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd plant_seaoat_01__difttxtr__b4c889b96bf342ba92836776909da003.png
+map_Bump plant_seaoat_01__nmaptxtr__832e9afcabcd4cf7bad221324ab2b557.png
+map_Ks plant_seaoat_01__spcttxtr__153a50cd6d9b4ed59b39447ebdfb4aa6.png
+
+newmtl sand_shells_01
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+d 1
+map_Kd sand_shells_01__difttxtr__3b59d951f8724daf9d325ca5734b853a.png
+map_Bump sand_shells_01__nmaptxtr__0fbc13186a324d0a9e1b74ee98cc86a5.png
+map_Ks sand_shells_01__spcttxtr__326c0eaccbed4b6a9f36159f0c03443b.png
+

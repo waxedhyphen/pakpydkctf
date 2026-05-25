@@ -1,0 +1,9 @@
+Modell: 3474a92d27b84210802e1f2b39f882d8
+Typ: WMDL
+OBJ: 3474a92d27b84210802e1f2b39f882d8_wmdl.obj
+MTL: 3474a92d27b84210802e1f2b39f882d8_wmdl.mtl
+Bearbeitbare PNGs: 1
+Nur Roh-Sicherung: 0
+
+Texturen:
+- pasted__water_curtain_lambert | DIFTTXTR | 662add8b630f43ff87be44abb9f80952 | PNG+RAW | pasted__water_curtain_lambert__difttxtr__662add8b630f43ff87be44abb9f80952.png | pasted__water_curtain_lambert__difttxtr__662add8b630f43ff87be44abb9f80952.txtr.bin
