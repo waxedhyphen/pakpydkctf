@@ -1,6 +1,6 @@
 from tkinter import filedialog, messagebox
 from pak_core import PakError, get_entry_asset, get_entry_payload, format_meta_lines
-from room_codec import format_room_info_lines, export_room_package
+from room_deep_codec import format_room_info_lines, export_room_package
 
 def install(App):
     original_show_context_menu = App.show_context_menu
@@ -50,12 +50,16 @@ def install(App):
                     f'Manifest: {result["manifest_path"]}',
                     f'Komponenten: {result["components_path"]}',
                     f'DCLN-Referenzen: {result["dcln_refs_path"]}',
+                    f'Asset-Referenzen: {result["asset_refs_path"]}',
+                    f'HEAD-Referenzen: {result["head_refs_path"]}',
                     f'Report: {result["report_path"]}',
                     f'Collision-Debug-OBJ: {result["collision_obj_path"]}',
                     '',
                     f'Layer: {result["layer_count"]}',
                     f'Komponenten: {result["component_count"]}',
                     f'DCLN-Referenzen: {result["dcln_ref_count"]}',
+                    f'Asset-Referenzen aus Komponenten: {result["component_asset_ref_count"]}',
+                    f'Asset-Referenzen aus HEAD: {result["head_asset_ref_count"]}',
                     f'DCLN im aktuellen PAK auflösbar: {result["resolved_dcln_ref_count"]}',
                     f'Als Debug-OBJ exportiert: {result["exported_collision_count"]}'
                 ]
