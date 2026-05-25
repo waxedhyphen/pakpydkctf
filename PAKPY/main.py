@@ -4,7 +4,10 @@
 
 import tkinter as tk
 from gui import App
+from dcln_gui_patch import install as install_dcln_gui
 from windows_compat import configure_root, setup_windows_process
+
+install_dcln_gui(App)
 
 def main():
     setup_windows_process()
