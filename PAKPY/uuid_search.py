@@ -1,5 +1,6 @@
 import re
-from pak_core import PakError
+from pak_core import PakError, get_entry_asset
+from room_codec import describe_room_hit, format_room_hit_extra
 
 def normalize_uuid_query(text):
     raw = (text or '').strip()
@@ -83,15 +84,22 @@ def archive_area(parsed, off):
         return 'Archivstruktur nach den Assets'
     return 'Lücke zwischen Assets'
 
-def hit_record(parsed, off, needle_label):
+def hit_record(parsed, off, needle_label, uuid_hex):
     entry = find_entry_at_offset(parsed, off)
     if entry is None:
-        return {'offset': off, 'needle': needle_label, 'entry': None, 'child': None, 'area': archive_area(parsed, off), 'entry_offset': None, 'child_offset': None}
+        return {'offset': off, 'needle': needle_label, 'entry': None, 'child': None, 'area': archive_area(parsed, off), 'entry_offset': None, 'child_offset': None, 'room_extra': None}
     child = child_at_offset(entry, off)
     child_offset = None
     if child is not None:
         child_offset = off - (entry['offset'] + 32 + child['off'])
-    return {'offset': off, 'needle': needle_label, 'entry': entry, 'child': child, 'area': None, 'entry_offset': off - entry['offset'], 'child_offset': child_offset}
+    room_extra = None
+    if entry.get('type') == 'ROOM':
+        try:
+            asset = get_entry_asset(parsed, entry)
+            room_extra = describe_room_hit(asset, off - entry['offset'], uuid_hex)
+        except Exception:
+            room_extra = None
+    return {'offset': off, 'needle': needle_label, 'entry': entry, 'child': child, 'area': None, 'entry_offset': off - entry['offset'], 'child_offset': child_offset, 'room_extra': room_extra}
 
 def search_uuid_references(parsed, query):
     hex_text = normalize_uuid_query(query)
@@ -108,7 +116,7 @@ def search_uuid_references(parsed, query):
             if key in seen:
                 continue
             seen.add(key)
-            hits.append(hit_record(parsed, off, label))
+            hits.append(hit_record(parsed, off, label, hex_text))
     hits.sort(key=lambda item: item['offset'])
     return {'uuid_hex': hex_text, 'uuid_dashed': dashed_uuid(hex_text), 'direct_entries': direct_entries, 'hits': hits}
 
@@ -155,6 +163,9 @@ def format_uuid_search_lines(parsed, query, max_hits=400):
             child = hit['child']
             if child is not None:
                 part += f' | child {child["segment_tag"]} {child["inner_kind"]}+0x{hit["child_offset"]:X}'
+            extra = format_room_hit_extra(hit.get('room_extra'))
+            if extra:
+                part += f' | {extra}'
             lines.append(f'- {part}')
         if len(result['hits']) > max_hits:
             lines.append(f'... {len(result["hits"]) - max_hits} weitere Treffer')
