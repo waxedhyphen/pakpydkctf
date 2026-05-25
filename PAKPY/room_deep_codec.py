@@ -1,10 +1,10 @@
 from pathlib import Path
 from collections import Counter, defaultdict
-from room_codec import parse_room_asset, export_room_package as export_room_package_base, format_room_info_lines as format_room_info_lines_base, format_uuid_hex
+from room_scene_codec import parse_room_asset, export_room_package as export_room_package_base, format_room_info_lines as format_room_info_lines_base, format_uuid_hex, first_parent_transform, transform_text
 from pak_core import get_entry_asset
 
 def asset_uuid_map(parsed):
-    wanted = {'WMDL', 'SMDL', 'CMDL', 'CHAR', 'CLSN', 'DCLN', 'TXTR', 'MTRL', 'CSMP', 'CAUD'}
+    wanted = {'WMDL', 'SMDL', 'CMDL', 'CHAR', 'CLSN', 'DCLN', 'TXTR', 'MTRL', 'CSMP', 'CAUD', 'GENP', 'FSMC', 'RSTC', 'LPRB', 'LPRR'}
     out = {}
     for entry in parsed.get('entries', []):
         kind = entry.get('type')
@@ -35,23 +35,12 @@ def collect_room_asset_references(parsed, entry):
     refs = []
     for component in info['components']:
         body = component_body_bytes(component)
+        transform = first_parent_transform(component)
+        parent_names = '; '.join(parent['name'] for parent in component.get('parents', []))
         for uuid_hex, ref_entry in known.items():
             needle = bytes.fromhex(uuid_hex)
             for rel in find_all(body, needle):
-                refs.append({
-                    'uuid_hex': uuid_hex,
-                    'entry_index': ref_entry['index'],
-                    'entry_type': ref_entry['type'],
-                    'entry_name': ref_entry.get('display_name') or ref_entry.get('name') or ref_entry['uuid_hex'],
-                    'component_name': component['name'],
-                    'component_uuid_hex': component['uuid_hex'],
-                    'component_type_hash': component['type_hash'],
-                    'component_off': component['off'],
-                    'body_rel': rel,
-                    'layer_index': component['layer_index'],
-                    'layer_name': component['layer_name'],
-                    'kind': 'component_body'
-                })
+                refs.append({'uuid_hex': uuid_hex, 'entry_index': ref_entry['index'], 'entry_type': ref_entry['type'], 'entry_name': ref_entry.get('display_name') or ref_entry.get('name') or ref_entry['uuid_hex'], 'component_name': component['name'], 'component_uuid_hex': component['uuid_hex'], 'component_type_hash': component['type_hash'], 'component_off': component['off'], 'body_rel': rel, 'layer_index': component['layer_index'], 'layer_name': component['layer_name'], 'parent_names': parent_names, 'parent_position': transform_text(transform, 'position'), 'parent_rotation': transform_text(transform, 'rotation'), 'parent_scale': transform_text(transform, 'scale'), 'kind': 'component_body'})
     head_refs = []
     head = next((section for section in info['sections'] if section['type'] == 'HEAD'), None)
     if head is not None:
@@ -59,21 +48,13 @@ def collect_room_asset_references(parsed, entry):
         for uuid_hex, ref_entry in known.items():
             needle = bytes.fromhex(uuid_hex)
             for rel in find_all(head_data, needle):
-                head_refs.append({
-                    'uuid_hex': uuid_hex,
-                    'entry_index': ref_entry['index'],
-                    'entry_type': ref_entry['type'],
-                    'entry_name': ref_entry.get('display_name') or ref_entry.get('name') or ref_entry['uuid_hex'],
-                    'head_rel': rel,
-                    'asset_off': head['off'] + rel,
-                    'kind': 'head_dependency'
-                })
+                head_refs.append({'uuid_hex': uuid_hex, 'entry_index': ref_entry['index'], 'entry_type': ref_entry['type'], 'entry_name': ref_entry.get('display_name') or ref_entry.get('name') or ref_entry['uuid_hex'], 'head_rel': rel, 'asset_off': head['off'] + rel, 'kind': 'head_dependency'})
     return {'info': info, 'component_refs': refs, 'head_refs': head_refs}
 
 def write_asset_refs_tsv(path, refs):
-    lines = ['index\ttype\tuuid\tentry_index\tentry_name\tlayer\tcomponent\tcomponent_type_hash\tcomponent_offset\tbody_offset']
+    lines = ['index\ttype\tuuid\tentry_index\tentry_name\tlayer\tcomponent\tcomponent_type_hash\tcomponent_offset\tbody_offset\tparent_actor\tparent_position\tparent_rotation\tparent_scale']
     for index, ref in enumerate(refs):
-        lines.append(f'{index}\t{ref["entry_type"]}\t{format_uuid_hex(ref["uuid_hex"])}\t{ref["entry_index"]}\t{ref["entry_name"]}\t{ref["layer_name"]}\t{ref["component_name"]}\t{ref["component_type_hash"]}\t0x{ref["component_off"]:X}\t0x{ref["body_rel"]:X}')
+        lines.append(f'{index}\t{ref["entry_type"]}\t{format_uuid_hex(ref["uuid_hex"])}\t{ref["entry_index"]}\t{ref["entry_name"]}\t{ref["layer_name"]}\t{ref["component_name"]}\t{ref["component_type_hash"]}\t0x{ref["component_off"]:X}\t0x{ref["body_rel"]:X}\t{ref["parent_names"]}\t{ref["parent_position"]}\t{ref["parent_rotation"]}\t{ref["parent_scale"]}')
     Path(path).write_text('\n'.join(lines), encoding='utf-8', newline='\n')
 
 def write_head_refs_tsv(path, refs):
@@ -110,7 +91,9 @@ def append_deep_report(path, refs, head_refs):
             names = ', '.join(f'{ref["entry_type"]}:{format_uuid_hex(ref["uuid_hex"])}' for ref in items[:8])
             if len(items) > 8:
                 names += f', ... +{len(items) - 8}'
-            lines.append(f'- {layer} | {component} | {type_hash} | {names}')
+            parent = items[0].get('parent_names', '')
+            pos = items[0].get('parent_position', '')
+            lines.append(f'- {layer} | {component} | {type_hash} | Parent {parent} | Pos {pos} | {names}')
     Path(path).write_text('\n'.join(lines), encoding='utf-8', newline='\n')
 
 def format_room_info_lines(parsed, entry):
@@ -138,7 +121,7 @@ def format_room_info_lines(parsed, entry):
         base.append('')
         base.append('Beispiele aus Komponenten:')
         for ref in refs[:80]:
-            base.append(f'- {ref["entry_type"]} {format_uuid_hex(ref["uuid_hex"])} | Layer {ref["layer_name"]} | {ref["component_name"]} | {ref["component_type_hash"]}')
+            base.append(f'- {ref["entry_type"]} {format_uuid_hex(ref["uuid_hex"])} | Layer {ref["layer_name"]} | {ref["component_name"]} | Parent {ref["parent_names"]} | Pos {ref["parent_position"]}')
         if len(refs) > 80:
             base.append(f'... {len(refs) - 80} weitere')
     return base
