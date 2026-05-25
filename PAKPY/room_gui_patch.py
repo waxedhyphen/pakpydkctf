@@ -54,12 +54,17 @@ def install(App):
                     f'HEAD-Referenzen: {result["head_refs_path"]}',
                     f'Report: {result["report_path"]}',
                     f'Collision-Debug-OBJ: {result["collision_obj_path"]}',
+                    f'Scene-Preview-OBJ: {result["preview_obj_path"]}',
+                    f'Scene-Preview-MTL: {result["preview_mtl_path"]}',
+                    f'Scene-Preview-Tabelle: {result["preview_tsv_path"]}',
                     '',
                     f'Layer: {result["layer_count"]}',
                     f'Komponenten: {result["component_count"]}',
                     f'DCLN-Referenzen: {result["dcln_ref_count"]}',
                     f'Asset-Referenzen aus Komponenten: {result["component_asset_ref_count"]}',
                     f'Asset-Referenzen aus HEAD: {result["head_asset_ref_count"]}',
+                    f'Scene-Preview-Referenzen: {result["preview_ref_count"]}',
+                    f'Scene-Preview-Zählung: {result["preview_counts"]}',
                     f'DCLN im aktuellen PAK auflösbar: {result["resolved_dcln_ref_count"]}',
                     f'Als Debug-OBJ exportiert: {result["exported_collision_count"]}'
                 ]
