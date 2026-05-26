@@ -1,6 +1,6 @@
 from pathlib import Path
 import json
-import math
+import mimetypes
 import struct
 from pak_core import PakError, get_entry_asset, safe_name, sha1_bytes
 from pak_extract import parse_chunks, parse_head, parse_meshes, parse_vbufs, parse_ibufs, parse_material_names, decompress_gpu_blocks, decode_gpu_block_data, parse_indices, build_faces, read_half
@@ -47,7 +47,7 @@ def _parse_vertices(vertex_buffer, raw_vertex_data):
     weights = []
     normal_semantics = {1}
     tangent_semantics = {2, 3, 12, 13}
-    uv_semantics = {4, 5, 6, 7}
+    uv_semantics = {4, 5, 6, 7, 8}
     for index in range(actual_vertex_count):
         base = index * stride
         position = [0.0, 0.0, 0.0]
@@ -69,7 +69,7 @@ def _parse_vertices(vertex_buffer, raw_vertex_data):
                     weight = _normalise_weights(value)
                 elif typ in tangent_semantics and normal == [0.0, 0.0, 1.0]:
                     normal = value[:3]
-            elif fmt == 20 and typ in uv_semantics and entry + 4 <= len(raw_vertex_data):
+            elif fmt in (20, 21) and typ in uv_semantics and entry + 4 <= len(raw_vertex_data):
                 uv = [read_half(raw_vertex_data, entry), 1.0 - read_half(raw_vertex_data, entry + 2)]
             elif fmt == 22 and typ == 9 and entry + 4 <= len(raw_vertex_data):
                 joint = _read_u8x4(raw_vertex_data, entry)
@@ -129,7 +129,7 @@ def _fallback_bones(count):
         count = 1
     bones = []
     for index in range(count):
-        bones.append({'index': index, 'name': f'bone_{index:03d}', 'parent_index': 0 if index > 0 else -1, 'head': [0.0, 0.0, round(index * 0.035, 6)], 'tail': [0.0, 0.0, round((index + 1) * 0.035, 6)]})
+        bones.append({'index': index, 'name': f'bone_{index:03d}', 'parent_index': -1 if index == 0 else 0, 'head': [0.0, 0.0, 0.0], 'tail': [0.0, 0.0, 0.035]})
     return bones
 
 def _load_skeleton(parsed, model, require_store, skeleton_refs):
@@ -185,14 +185,45 @@ def _mesh_arrays(model, bone_count):
         raise PakError('GLB-Export erzeugte 0 Faces')
     return positions, normals, uvs, joints, weights, primitives, face_count
 
-def _accessor_type_size(typ):
-    return {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}[typ]
+def _inverse_translation_matrix(t):
+    return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -float(t[0]), -float(t[1]), -float(t[2]), 1.0]
 
-def _write_glb(path, model, bones, entry_name):
+def _global_bind_positions(bones):
+    out = []
+    for index, bone in enumerate(bones):
+        head = bone.get('head') or [0.0, 0.0, 0.0]
+        parent = bone.get('parent_index', -1)
+        if parent >= 0 and parent < len(out):
+            p = out[parent]
+            out.append([p[0] + head[0], p[1] + head[1], p[2] + head[2]])
+        else:
+            out.append(list(head))
+    return out
+
+def _normalise_bone_nodes(bones):
+    out = []
+    for index, bone in enumerate(bones):
+        parent = bone.get('parent_index', -1)
+        if parent == index:
+            parent = -1
+        head = bone.get('head') or [0.0, 0.0, 0.0]
+        tail = bone.get('tail') or [head[0], head[1], head[2] + 0.035]
+        if head == tail:
+            tail = [head[0], head[1], head[2] + 0.035]
+        local = [head[0], head[1], head[2]]
+        out.append({'index': index, 'name': bone.get('name') or f'bone_{index:03d}', 'parent_index': parent, 'head': local, 'tail': tail})
+    return out
+
+def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=None):
+    bones = _normalise_bone_nodes(bones)
     positions, normals, uvs, joints, weights, primitives, face_count = _mesh_arrays(model, len(bones))
+    texture_map = texture_map or {}
+    texture_root = Path(texture_root) if texture_root else None
     bin_blob = bytearray()
     buffer_views = []
     accessors = []
+    images = []
+    textures = []
     def add_view(data, target=None):
         nonlocal bin_blob
         while len(bin_blob) % 4:
@@ -213,6 +244,18 @@ def _write_glb(path, model, bones, entry_name):
             accessor['max'] = max_value
         accessors.append(accessor)
         return len(accessors) - 1
+    def add_image(path_text):
+        if not texture_root or not path_text:
+            return None
+        image_path = texture_root / path_text
+        if not image_path.is_file():
+            return None
+        data = image_path.read_bytes()
+        view = add_view(data)
+        mime = mimetypes.guess_type(str(image_path))[0] or 'image/png'
+        images.append({'bufferView': view, 'mimeType': mime, 'name': image_path.stem})
+        textures.append({'source': len(images) - 1})
+        return len(textures) - 1
     flat_pos = [x for item in positions for x in item]
     flat_normals = [x for item in normals for x in item]
     flat_uvs = [x for item in uvs for x in item]
@@ -229,13 +272,14 @@ def _write_glb(path, model, bones, entry_name):
     for primitive in primitives:
         idx_acc = add_accessor(_pack_u32(primitive['indices']), 5125, len(primitive['indices']), 'SCALAR', target=34963)
         primitive_items.append({'attributes': {'POSITION': pos_acc, 'NORMAL': normal_acc, 'TEXCOORD_0': uv_acc, 'JOINTS_0': joint_acc, 'WEIGHTS_0': weight_acc}, 'indices': idx_acc, 'material': primitive['material_index'] if primitive['material_index'] < max(1, len(model['materials'])) else 0})
+    global_positions = _global_bind_positions(bones)
     ibm = []
-    for _ in bones:
-        ibm.extend([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+    for pos in global_positions:
+        ibm.extend(_inverse_translation_matrix(pos))
     ibm_acc = add_accessor(_pack_floats(ibm), 5126, len(bones), 'MAT4')
     nodes = []
     for bone in bones:
-        nodes.append({'name': bone.get('name') or f'bone_{bone.get("index", len(nodes)):03d}', 'translation': bone.get('head', [0.0, 0.0, 0.0])})
+        nodes.append({'name': bone['name'], 'translation': bone['head']})
     for index, bone in enumerate(bones):
         parent_index = bone.get('parent_index', -1)
         if parent_index >= 0 and parent_index < len(nodes) and parent_index != index:
@@ -248,20 +292,22 @@ def _write_glb(path, model, bones, entry_name):
         if parent_index < 0 or parent_index >= len(bones) or parent_index == index:
             scene_nodes.append(index)
     materials = []
-    for name in model['materials'] or ['material_0']:
-        materials.append({'name': str(name), 'pbrMetallicRoughness': {'baseColorFactor': [1.0, 1.0, 1.0, 1.0], 'metallicFactor': 0.0, 'roughnessFactor': 1.0}})
-    gltf = {
-        'asset': {'version': '2.0', 'generator': 'PAKPY'},
-        'scene': 0,
-        'scenes': [{'nodes': scene_nodes}],
-        'nodes': nodes,
-        'meshes': [{'name': entry_name, 'primitives': primitive_items}],
-        'skins': [{'name': entry_name + '_skin', 'joints': list(range(len(bones))), 'inverseBindMatrices': ibm_acc}],
-        'materials': materials,
-        'buffers': [{'byteLength': len(bin_blob)}],
-        'bufferViews': buffer_views,
-        'accessors': accessors
-    }
+    for index, name in enumerate(model['materials'] or ['material_0']):
+        tex_path = ''
+        info = texture_map.get(index) or texture_map.get(str(name)) or {}
+        if isinstance(info, str):
+            tex_path = info
+        elif isinstance(info, dict):
+            tex_path = info.get('map_Kd') or info.get('baseColorTexture') or ''
+        tex_index = add_image(tex_path)
+        mat = {'name': str(name), 'pbrMetallicRoughness': {'baseColorFactor': [1.0, 1.0, 1.0, 1.0], 'metallicFactor': 0.0, 'roughnessFactor': 1.0}}
+        if tex_index is not None:
+            mat['pbrMetallicRoughness']['baseColorTexture'] = {'index': tex_index}
+        materials.append(mat)
+    gltf = {'asset': {'version': '2.0', 'generator': 'PAKPY'}, 'scene': 0, 'scenes': [{'nodes': scene_nodes}], 'nodes': nodes, 'meshes': [{'name': entry_name, 'primitives': primitive_items}], 'skins': [{'name': entry_name + '_skin', 'joints': list(range(len(bones))), 'inverseBindMatrices': ibm_acc}], 'materials': materials, 'buffers': [{'byteLength': len(bin_blob)}], 'bufferViews': buffer_views, 'accessors': accessors}
+    if images:
+        gltf['images'] = images
+        gltf['textures'] = textures
     json_blob = json.dumps(gltf, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
     json_blob = _align4(json_blob)
     bin_data = _align4(bytes(bin_blob))
@@ -276,22 +322,12 @@ def _write_glb(path, model, bones, entry_name):
     Path(path).write_bytes(out)
     return {'glb_path': str(path), 'vertex_count': len(positions), 'face_count': face_count, 'bone_count': len(bones)}
 
-def export_rigged_model_glb(parsed, entry, out_path, require_store=None, skeleton_refs=None):
+def export_rigged_model_glb(parsed, entry, out_path, require_store=None, skeleton_refs=None, texture_map=None, texture_root=None):
     asset = get_entry_asset(parsed, entry)
     model = load_model_with_skin(asset)
     entry_name = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
     skeleton = _load_skeleton(parsed, model, require_store, skeleton_refs or [])
-    result = _write_glb(out_path, model, skeleton['bones'], entry_name)
-    skeleton_json = {
-        'entry_uuid_hex': entry['uuid_hex'],
-        'entry_name': entry_name,
-        'model_type': entry['type'],
-        'skhd_bone_count': model.get('bone_count', 0),
-        'skel_uuid_hex': skeleton.get('source_uuid', ''),
-        'skel_source_kind': skeleton.get('source_kind', ''),
-        'skel_source_path': skeleton.get('source_path', ''),
-        'bones': skeleton['bones'],
-        'raw_skel_summary': skeleton.get('summary', {})
-    }
+    result = _write_glb(out_path, model, skeleton['bones'], entry_name, texture_map=texture_map, texture_root=texture_root)
+    skeleton_json = {'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry_name, 'model_type': entry['type'], 'skhd_bone_count': model.get('bone_count', 0), 'skel_uuid_hex': skeleton.get('source_uuid', ''), 'skel_source_kind': skeleton.get('source_kind', ''), 'skel_source_path': skeleton.get('source_path', ''), 'bones': skeleton['bones'], 'raw_skel_summary': skeleton.get('summary', {})}
     result['skeleton'] = skeleton_json
     return result
