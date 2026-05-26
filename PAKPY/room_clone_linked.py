@@ -53,6 +53,10 @@ def inbound_dependency_bundle(by_uuid, source_uuids, bundle):
     return extra
 
 
+def ordered_bundle(by_uuid, bundle):
+    return sorted(bundle, key=lambda item: by_uuid[item]['off'])
+
+
 def apply_room_clones(parsed, folder, manifest, room_asset):
     plans, changed, unsupported = collect_clone_plans(folder, manifest)
     if not plans:
@@ -85,6 +89,7 @@ def apply_room_clones(parsed, folder, manifest, room_asset):
                 bundle.append(component_uuid)
         if not bundle:
             continue
+        bundle = ordered_bundle(by_uuid, bundle)
         uuid_map = clone_uuid_map(bundle)
         for component_uuid in bundle:
             component = by_uuid[component_uuid]
