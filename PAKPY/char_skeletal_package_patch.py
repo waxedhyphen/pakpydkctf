@@ -2,42 +2,172 @@ import json
 from pathlib import Path
 import char_codec
 import char_gui_patch
-from pak_core import get_entry_asset
-from skeletal_codec import find_known_uuid_refs, write_char_blender_helper
+from pak_core import get_entry_asset, safe_name, kind_to_ext, sha1_bytes
+from skeletal_codec import find_known_uuid_refs
 
-def install(App):
-    original_export_char_package = char_gui_patch.export_char_package
-    def export_char_package(parsed, entry, out_dir, require_store=None):
-        asset = get_entry_asset(parsed, entry)
-        info = char_codec.parse_char_asset(asset)
-        animation_refs = list(info.get('animations', []))
-        skeleton_refs = []
-        for index, ref in enumerate(find_known_uuid_refs(asset, parsed, require_store, wanted_types={'SKEL'})):
+ZERO_UUID = '00000000000000000000000000000000'
+
+def _rel(root, path):
+    return str(Path(path).relative_to(root)).replace('\\', '/')
+
+def _write_text(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding='utf-8', newline='\n')
+    return path
+
+def _write_bytes(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+def _source_name(entry):
+    base = entry.get('display_name') or entry.get('name') or entry['uuid_hex']
+    return safe_name(base) + kind_to_ext(entry['type'])
+
+def _missing_text(kind, item, uuid_hex):
+    lines = [f'{kind} nicht gefunden', f'UUID: {char_codec.format_uuid_hex(uuid_hex)}']
+    for key, value in item.items():
+        if key == 'extra_hex':
+            continue
+        if value not in ('', None):
+            lines.append(f'{key}: {value}')
+    return '\n'.join(lines) + '\n'
+
+def _read_model_package_manifest(package_dir):
+    path = Path(package_dir) / 'repack_manifest.json'
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding='utf-8'))
+
+def _write_report(path, manifest):
+    lines = []
+    lines.append(f'CHAR: {manifest["char_name"]}')
+    lines.append(f'CHAR-UUID: {char_codec.format_uuid_hex(manifest["char_uuid_hex"])}')
+    lines.append('')
+    lines.append(f'Modelle: {manifest["resolved_model_count"]}/{manifest["model_count"]} als rigged GLB exportiert')
+    for item in manifest['models']:
+        status = 'OK' if item.get('resolved') and item.get('rigged_glb') else 'FEHLT'
+        lines.append(f'- {status} | #{item["index"]} {item["slot_name"]} | {item.get("entry_type") or "unbekannt"} | {char_codec.format_uuid_hex(item["uuid_hex"])}')
+        if item.get('rigged_glb'):
+            lines.append(f'  GLB: {item["rigged_glb"]}')
+        if item.get('model_package_error'):
+            lines.append(f'  Fehler: {item["model_package_error"]}')
+    lines.append('')
+    lines.append(f'Skeletons: {len(manifest.get("skeletons", []))}')
+    for item in manifest.get('skeletons', []):
+        lines.append(f'- {item.get("name", "")} | {char_codec.format_uuid_hex(item["uuid_hex"])}')
+    lines.append('')
+    lines.append(f'Animationen: {manifest["resolved_animation_count"]}/{manifest["animation_count"]} aufgelöst')
+    if manifest.get('missing'):
+        lines.append('')
+        lines.append('Fehlende Referenzen:')
+        for item in manifest['missing']:
+            lines.append(f'- {item["kind"]} | {item["name"]} | {char_codec.format_uuid_hex(item["uuid_hex"])}')
+    _write_text(path, '\n'.join(lines))
+
+def export_clean_char_package(parsed, entry, out_dir, require_store=None):
+    if entry.get('type') != 'CHAR':
+        raise char_codec.PakError('CHAR-Paket geht nur bei CHAR')
+    asset = get_entry_asset(parsed, entry)
+    info = char_codec.parse_char_asset(asset)
+    base_name = info.get('name') or entry.get('display_name') or entry.get('name') or entry['uuid_hex']
+    package_dir = Path(out_dir) / f'{safe_name(base_name)}_character_package'
+    package_dir.mkdir(parents=True, exist_ok=True)
+    char_source = _write_bytes(package_dir / 'source' / 'char' / _source_name(entry), asset)
+    animation_refs = [item for item in info.get('animations', []) if item.get('uuid_hex') and item.get('uuid_hex') != ZERO_UUID]
+    skeleton_refs = []
+    for index, ref in enumerate(find_known_uuid_refs(asset, parsed, require_store, wanted_types={'SKEL'})):
+        if all(item['uuid_hex'] != ref['uuid_hex'] for item in skeleton_refs):
             skeleton_refs.append({'index': index, 'uuid_hex': ref['uuid_hex'], 'name': ref.get('entry_name', ''), 'type': 'SKEL'})
-        original_helper = char_codec._export_model_package_if_possible
-        def helper(package_dir, parsed_arg, model_entry, model_uuid, source, require_store_arg):
-            if model_entry is None or model_entry.get('type') not in char_codec.MODEL_TYPES:
-                return '', ''
+    models = []
+    missing = []
+    resolved_model_count = 0
+    for model in info.get('model_slots', []):
+        uuid_hex = model['uuid_hex']
+        asset_data, ref_entry, source, source_path = char_codec._resolve_ref(parsed, uuid_hex, require_store)
+        rec = dict(model)
+        rec.update({'resolved': ref_entry is not None and asset_data is not None, 'source_kind': source, 'source_path': source_path, 'entry_type': ref_entry.get('type') if ref_entry else '', 'model_package_dir': '', 'rigged_glb': '', 'skeleton_json': '', 'model_package_error': ''})
+        if ref_entry is not None and asset_data is not None and ref_entry.get('type') in char_codec.MODEL_TYPES:
             try:
                 from model_package import export_model_package
-                model_parsed = parsed_arg if source == 'pak' else char_codec._required_parsed_for_uuid(require_store_arg, model_uuid)
+                model_parsed = parsed if source == 'pak' else char_codec._required_parsed_for_uuid(require_store, uuid_hex)
                 if model_parsed is None:
-                    return '', 'Kein Parsed-Kontext für Modellpaket verfügbar'
-                result = export_model_package(model_parsed, model_entry, Path(package_dir) / 'model_packages', require_store=require_store_arg, animation_refs=animation_refs, skeleton_refs=skeleton_refs)
-                return result.get('package_dir', ''), ''
+                    raise char_codec.PakError('Kein Parsed-Kontext für Modellpaket verfügbar')
+                result = export_model_package(model_parsed, ref_entry, package_dir / 'models', require_store=require_store, animation_refs=animation_refs, skeleton_refs=skeleton_refs)
+                resolved_model_count += 1
+                rec['model_package_dir'] = _rel(package_dir, result['package_dir'])
+                model_manifest = _read_model_package_manifest(result['package_dir'])
+                rec['rigged_glb'] = str(Path(rec['model_package_dir']) / model_manifest.get('rigged_glb', '')).replace('\\', '/') if model_manifest.get('rigged_glb') else ''
+                rec['skeleton_json'] = str(Path(rec['model_package_dir']) / model_manifest.get('skeleton_json', '')).replace('\\', '/') if model_manifest.get('skeleton_json') else ''
             except Exception as e:
-                return '', str(e)
-        char_codec._export_model_package_if_possible = helper
-        try:
-            result = original_export_char_package(parsed, entry, out_dir, require_store=require_store)
-        finally:
-            char_codec._export_model_package_if_possible = original_helper
-        manifest_path = Path(result.get('manifest_path', ''))
-        if manifest_path.is_file():
-            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-            manifest['skeletons'] = skeleton_refs
-            helper_result = write_char_blender_helper(Path(result['package_dir']), manifest)
-            manifest['blender'] = helper_result
-            manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
-        return result
+                rec['model_package_error'] = str(e)
+                missing_path = _write_text(package_dir / 'missing' / 'models' / (safe_name(f'{model["index"]:03d}__{model["slot_name"]}__{uuid_hex}') + '.missing.txt'), _missing_text('Modell-Export', model, uuid_hex) + f'Fehler: {e}\n')
+                rec['missing_file'] = _rel(package_dir, missing_path)
+                missing.append({'kind': 'model', 'uuid_hex': uuid_hex, 'name': model.get('slot_name', ''), 'file': rec['missing_file']})
+        else:
+            missing_path = _write_text(package_dir / 'missing' / 'models' / (safe_name(f'{model["index"]:03d}__{model["slot_name"]}__{uuid_hex}') + '.missing.txt'), _missing_text('Modell-Ref', model, uuid_hex))
+            rec['missing_file'] = _rel(package_dir, missing_path)
+            missing.append({'kind': 'model', 'uuid_hex': uuid_hex, 'name': model.get('slot_name', ''), 'file': rec['missing_file']})
+        models.append(rec)
+    animations = []
+    resolved_animation_count = 0
+    for anim in info.get('animations', []):
+        uuid_hex = anim['uuid_hex']
+        rec = dict(anim)
+        rec.update({'resolved': False, 'source_kind': '', 'source_path': '', 'entry_type': '', 'source_file': ''})
+        if uuid_hex and uuid_hex != ZERO_UUID:
+            asset_data, ref_entry, source, source_path = char_codec._resolve_ref(parsed, uuid_hex, require_store)
+            rec.update({'resolved': ref_entry is not None and asset_data is not None, 'source_kind': source, 'source_path': source_path, 'entry_type': ref_entry.get('type') if ref_entry else ''})
+            if ref_entry is not None and asset_data is not None:
+                resolved_animation_count += 1
+                anim_path = _write_bytes(package_dir / 'source' / 'anim' / (safe_name(f'{anim["index"]:03d}__{anim["name"]}__{uuid_hex}') + kind_to_ext(ref_entry['type'])), asset_data)
+                rec['source_file'] = _rel(package_dir, anim_path)
+            else:
+                missing_path = _write_text(package_dir / 'missing' / 'animations' / (safe_name(f'{anim["index"]:03d}__{anim["name"]}__{uuid_hex}') + '.missing.txt'), _missing_text('Animation-Ref', anim, uuid_hex))
+                rec['missing_file'] = _rel(package_dir, missing_path)
+                missing.append({'kind': 'animation', 'uuid_hex': uuid_hex, 'name': anim.get('name', ''), 'file': rec['missing_file']})
+        animations.append(rec)
+    skeleton_items = []
+    for skel in skeleton_refs:
+        asset_data, ref_entry, source, source_path = char_codec._resolve_ref(parsed, skel['uuid_hex'], require_store)
+        item = dict(skel)
+        item.update({'resolved': ref_entry is not None and asset_data is not None, 'source_kind': source, 'source_path': source_path, 'source_file': ''})
+        if ref_entry is not None and asset_data is not None:
+            skel_path = _write_bytes(package_dir / 'source' / 'skel' / (safe_name(f'{skel["index"]:03d}__{skel.get("name", "skel")}__{skel["uuid_hex"]}') + kind_to_ext(ref_entry['type'])), asset_data)
+            item['source_file'] = _rel(package_dir, skel_path)
+        skeleton_items.append(item)
+    manifest = {
+        'version': 2,
+        'source_pak': Path(parsed['path']).name,
+        'entry_index': entry['index'],
+        'entry_type': entry['type'],
+        'entry_uuid_hex': entry['uuid_hex'],
+        'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'],
+        'char_name': info['name'],
+        'char_uuid_hex': info['uuid_hex'],
+        'source_char': _rel(package_dir, char_source),
+        'source_char_sha1': sha1_bytes(char_source.read_bytes()),
+        'model_count': len(models),
+        'resolved_model_count': resolved_model_count,
+        'animation_count': len(animations),
+        'resolved_animation_count': resolved_animation_count,
+        'skeletons': skeleton_items,
+        'models': models,
+        'animations': animations,
+        'missing': missing,
+        'missing_count': len(missing),
+        'animation_lookup_hashes': info.get('animation_lookup_hashes', []),
+        'tail_offset': info.get('tail_offset', 0),
+        'tail_size': info.get('tail_size', 0),
+        'tail_sha1': info.get('tail_sha1', '')
+    }
+    manifest_path = package_dir / 'manifest.json'
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
+    report_path = package_dir / 'report.txt'
+    _write_report(report_path, manifest)
+    return {'package_dir': str(package_dir), 'manifest_path': str(manifest_path), 'report_path': str(report_path), 'model_count': len(models), 'resolved_model_count': resolved_model_count, 'animation_count': len(animations), 'resolved_animation_count': resolved_animation_count, 'resource_count': 0, 'missing_count': len(missing)}
+
+def install(App):
+    def export_char_package(parsed, entry, out_dir, require_store=None):
+        return export_clean_char_package(parsed, entry, out_dir, require_store=require_store)
     char_gui_patch.export_char_package = export_char_package
