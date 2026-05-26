@@ -3,7 +3,7 @@ import json
 from pak_core import PakError, safe_name, sha1_bytes, get_entry_asset, rebuild_pak, kind_to_ext
 from pak_extract import export_txtr_bytes_as_png, make_material_texture_png_name, get_mtl_slot_for_ref_tag
 from txtr_repack import png_to_txtr_asset, can_repack_txtr_asset
-from rigged_gltf import export_rigged_model_glb
+from rigged_gltf import export_rigged_model_glb, export_textured_model_glb
 
 def _package_dir_name(entry):
     base = entry.get('display_name') or entry.get('name') or entry['uuid_hex']
@@ -79,7 +79,8 @@ def _write_report(package_dir, manifest):
     lines = []
     lines.append(f'Modell: {manifest["entry_name"]}')
     lines.append(f'Typ: {manifest["entry_type"]}')
-    lines.append(f'Rigged GLB: {manifest["rigged_glb"]}')
+    lines.append(f'Textured GLB: {manifest["textured_glb"]}')
+    lines.append(f'Experimental Rigged GLB: {manifest["experimental_rigged_glb"]}')
     lines.append(f'Bones: {manifest.get("bone_count", 0)}')
     lines.append(f'Faces: {manifest.get("face_count", 0)}')
     lines.append(f'Bearbeitbare PNGs: {manifest["editable_png_count"]}')
@@ -109,20 +110,22 @@ def export_model_package(parsed, entry, out_dir, require_store=None, animation_r
     asset = get_entry_asset(parsed, entry)
     raw_source = _write_raw_source(package_dir, entry, asset)
     material_texture_map, textures, editable_count, raw_only_count = _strict_texture_slots(parsed, entry, package_dir, require_store=require_store)
-    rigged_dir = package_dir / 'blender'
-    rigged_dir.mkdir(parents=True, exist_ok=True)
+    blender_dir = package_dir / 'blender'
+    blender_dir.mkdir(parents=True, exist_ok=True)
     base = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
-    rigged_path = rigged_dir / f'{base}.glb'
+    textured_path = blender_dir / f'{base}.glb'
+    rigged_path = blender_dir / f'{base}.experimental_rigged.glb'
+    textured = export_textured_model_glb(parsed, entry, textured_path, texture_map=material_texture_map, texture_root=package_dir)
     rigged = export_rigged_model_glb(parsed, entry, rigged_path, require_store=require_store, skeleton_refs=skeleton_refs, texture_map=material_texture_map, texture_root=package_dir)
     skeleton_dir = package_dir / 'skeleton'
     skeleton_dir.mkdir(parents=True, exist_ok=True)
     skeleton_json_path = skeleton_dir / 'skeleton.json'
     skeleton_json_path.write_text(json.dumps(rigged['skeleton'], indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
-    manifest = {'version': 5, 'source_pak': Path(parsed['path']).name, 'entry_index': entry['index'], 'entry_type': entry['type'], 'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'rigged_glb': str(rigged_path.relative_to(package_dir)).replace('\\', '/'), 'rigged_glb_sha1': sha1_bytes(rigged_path.read_bytes()), 'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'), 'source_model_sha1': sha1_bytes(raw_source.read_bytes()), 'skeleton_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'), 'bone_count': rigged.get('bone_count', 0), 'vertex_count': rigged.get('vertex_count', 0), 'face_count': rigged.get('face_count', 0), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'textures': textures, 'animations': animation_refs or [], 'skeleton_refs': skeleton_refs or []}
+    manifest = {'version': 6, 'source_pak': Path(parsed['path']).name, 'entry_index': entry['index'], 'entry_type': entry['type'], 'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'textured_glb': str(textured_path.relative_to(package_dir)).replace('\\', '/'), 'textured_glb_sha1': sha1_bytes(textured_path.read_bytes()), 'experimental_rigged_glb': str(rigged_path.relative_to(package_dir)).replace('\\', '/'), 'experimental_rigged_glb_sha1': sha1_bytes(rigged_path.read_bytes()), 'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'), 'source_model_sha1': sha1_bytes(raw_source.read_bytes()), 'skeleton_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'), 'bone_count': rigged.get('bone_count', 0), 'vertex_count': textured.get('vertex_count', 0), 'face_count': textured.get('face_count', 0), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'textures': textures, 'animations': animation_refs or [], 'skeleton_refs': skeleton_refs or []}
     manifest_path = package_dir / 'repack_manifest.json'
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     _write_report(package_dir, manifest)
-    return {'package_dir': str(package_dir), 'manifest_path': str(manifest_path), 'rigged_glb': str(rigged_path), 'texture_count': len(textures), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'bone_count': rigged.get('bone_count', 0), 'vertex_count': rigged.get('vertex_count', 0), 'face_count': rigged.get('face_count', 0), 'animation_count': len(animation_refs or [])}
+    return {'package_dir': str(package_dir), 'manifest_path': str(manifest_path), 'rigged_glb': str(rigged_path), 'textured_glb': str(textured_path), 'texture_count': len(textures), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'bone_count': rigged.get('bone_count', 0), 'vertex_count': textured.get('vertex_count', 0), 'face_count': textured.get('face_count', 0), 'animation_count': len(animation_refs or [])}
 
 def rebuild_model_package_from_folder(parsed, folder, out_path):
     folder = Path(folder)
