@@ -3,7 +3,6 @@ import csv
 import html
 import json
 import math
-import os
 import re
 import struct
 from pak_core import PakError, get_entry_asset, safe_name, sha1_bytes
@@ -17,6 +16,9 @@ def be16(data, off):
 
 def be32(data, off):
     return int.from_bytes(data[off:off+4], 'big')
+
+def le32(data, off):
+    return int.from_bytes(data[off:off+4], 'little')
 
 def tag4(data, off):
     return data[off:off+4].decode('ascii', 'replace')
@@ -52,6 +54,16 @@ def _read_name(asset, p):
     name = asset[p:p+size].split(b'\x00', 1)[0].decode('utf-8', 'replace')
     return name, size, p + size
 
+def _read_node_name_indices(asset, data_start, node_count, name_count):
+    if node_count <= 0 or data_start + 4 + node_count > len(asset):
+        return []
+    if le32(asset, data_start) != node_count:
+        return []
+    values = list(asset[data_start + 4:data_start + 4 + node_count])
+    if all(v == 255 or v < name_count for v in values):
+        return values
+    return []
+
 def parse_skel_layout(asset):
     if len(asset) < 48 or asset[:4] != b'RFRM' or tag4(asset, 20) != 'SKEL':
         raise PakError('Keine SKEL-Ressource')
@@ -71,8 +83,9 @@ def parse_skel_layout(asset):
     if p + 16 <= len(asset):
         fields = {'zero_or_flags': be32(asset, p), 'name_count_repeat': be16(asset, p + 4), 'node_count': be16(asset, p + 6), 'skin_bone_count': be16(asset, p + 8), 'group_count_a': be16(asset, p + 10), 'group_count_b': be16(asset, p + 12), 'flags': be16(asset, p + 14)}
     data_start = p + 16
+    node_name_indices = _read_node_name_indices(asset, data_start, int(fields.get('node_count') or 0), name_count)
     data_probe_end = min(len(asset), data_start + 4096)
-    return {'type': 'SKEL', 'size': len(asset), 'sha1': sha1_bytes(asset), 'version_a': be32(asset, 24), 'version_b': be32(asset, 28), 'marker': f'0x{marker:08X}', 'unknown_a': unknown_a, 'name_count': name_count, 'names': names, 'fields_offset': fields_offset, 'fields': fields, 'data_start': data_start, 'data_start_hex': f'0x{data_start:X}', 'data_probe_size': data_probe_end - data_start, 'data_probe_hex': asset[data_start:data_probe_end].hex()}
+    return {'type': 'SKEL', 'size': len(asset), 'sha1': sha1_bytes(asset), 'version_a': be32(asset, 24), 'version_b': be32(asset, 28), 'marker': f'0x{marker:08X}', 'unknown_a': unknown_a, 'name_count': name_count, 'names': names, 'fields_offset': fields_offset, 'fields': fields, 'data_start': data_start, 'data_start_hex': f'0x{data_start:X}', 'node_name_indices': node_name_indices, 'data_probe_size': data_probe_end - data_start, 'data_probe_hex': asset[data_start:data_probe_end].hex()}
 
 def collect_model_skin_usage(parsed, model_entry):
     asset = get_entry_asset(parsed, model_entry)
@@ -151,7 +164,7 @@ def probe_tables(asset, layout):
     name_count = int(layout.get('name_count') or 0)
     data_start = int(layout.get('data_start') or 0)
     out = []
-    end = min(len(asset), data_start + 512)
+    end = min(len(asset), data_start + 768)
     for off in range(data_start, end):
         parent_values = list(asset[off:off+node_count]) if node_count > 0 and off + node_count <= len(asset) else []
         parent_score, parent_reasons = _table_score_parent(parent_values, node_count)
@@ -215,18 +228,24 @@ def _score_quat_trs(values):
     score = 0
     reasons = []
     qlen = math.sqrt(sum(v * v for v in quat))
-    if 0.75 <= qlen <= 1.25:
-        score += 30
-        reasons.append('quat_length_plausible')
-    if sum(abs(v) for v in pos) < 1000.0:
+    if 0.98 <= qlen <= 1.02:
+        score += 45
+        reasons.append('quat_unit')
+    elif 0.75 <= qlen <= 1.25:
+        score += 20
+        reasons.append('quat_plausible')
+    if sum(abs(v) for v in pos) < 100.0:
         score += 20
         reasons.append('translation_range_plausible')
-    if all(0.001 <= abs(v) <= 100.0 for v in scale):
+    if all(abs(abs(v) - 1.0) <= 0.02 for v in scale):
+        score += 35
+        reasons.append('scale_unit')
+    elif all(0.001 <= abs(v) <= 100.0 for v in scale):
         score += 10
         reasons.append('scale_range_plausible')
     return score, reasons, pos, 'trs_quat_scale'
 
-def _candidate_transforms(asset, off, count, fmt, endian):
+def _candidate_transforms(asset, off, count, fmt, endian, layout=None, model_usage=None):
     if count <= 0:
         return None
     if fmt == 'f32_4x4':
@@ -245,8 +264,12 @@ def _candidate_transforms(asset, off, count, fmt, endian):
     scores = []
     translations = []
     modes = []
+    reason_counts = {}
     for index in range(count):
-        values = _unpack_values(asset, off + index * stride, floats, endian)
+        try:
+            values = _unpack_values(asset, off + index * stride, floats, endian)
+        except Exception:
+            return None
         if fmt == 'f32_trs_quat_scale':
             score, reasons, t, mode = _score_quat_trs(values)
         else:
@@ -254,27 +277,54 @@ def _candidate_transforms(asset, off, count, fmt, endian):
         scores.append(score)
         translations.append(t)
         modes.append(mode)
+        for reason in reasons:
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
     if not scores:
         return None
-    good = sum(1 for s in scores if s >= 30)
+    good = sum(1 for s in scores if s >= 60)
     avg = sum(scores) / len(scores)
     spread = max(sum(abs(x) for x in t) for t in translations) if translations else 0.0
     total = int(avg + good * 2)
     reasons = []
-    if good >= int(count * 0.7):
-        total += 25
+    fields = (layout or {}).get('fields') or {}
+    node_count = int(fields.get('node_count') or 0)
+    skin_count = int(fields.get('skin_bone_count') or 0)
+    model_count = int((model_usage or {}).get('model_bone_count') or 0)
+    if good >= int(count * 0.9):
+        total += 40
+        reasons.append('most_bones_strongly_plausible')
+    elif good >= int(count * 0.7):
+        total += 20
         reasons.append('most_bones_plausible')
-    if spread < 1000.0:
-        total += 10
+    if spread < 100.0:
+        total += 15
         reasons.append('skeleton_bounds_plausible')
-    return {'offset': off, 'offset_hex': f'0x{off:X}', 'format': fmt, 'endian': endian, 'stride': stride, 'count': count, 'score': total, 'avg_local_score': round(avg, 3), 'good_local_count': good, 'translation_mode': modes[0] if modes else '', 'bounds_sum_abs': round(spread, 6), 'reasons': reasons, 'translations': translations[:256]}
+    if count == node_count and node_count > 0:
+        total += 70
+        reasons.append('count_matches_node_count')
+    if count == skin_count and skin_count > 0:
+        total += 30
+        reasons.append('count_matches_skin_bone_count')
+    if count == model_count and model_count > 0:
+        total += 25
+        reasons.append('count_matches_model_bone_count')
+    if model_usage:
+        max_joint = int(model_usage.get('max_joint_index', -1))
+        if max_joint >= 0 and max_joint < count:
+            total += 10
+            reasons.append('model_joint_indices_fit')
+        if int(model_usage.get('unique_joint_count', 0)) <= count:
+            total += 10
+            reasons.append('unique_joint_count_fits')
+    return {'offset': off, 'offset_hex': f'0x{off:X}', 'format': fmt, 'endian': endian, 'stride': stride, 'count': count, 'score': total, 'avg_local_score': round(avg, 3), 'good_local_count': good, 'translation_mode': modes[0] if modes else '', 'bounds_sum_abs': round(spread, 6), 'reasons': reasons, 'reason_counts': reason_counts, 'translations': translations[:256]}
 
 def probe_transforms(asset, layout, model_usage=None):
     fields = layout.get('fields') or {}
+    node_count = int(fields.get('node_count') or 0)
     skin_count = int(fields.get('skin_bone_count') or 0)
     model_count = int((model_usage or {}).get('model_bone_count') or 0)
     counts = []
-    for value in (skin_count, model_count, int((model_usage or {}).get('max_joint_index', -1)) + 1):
+    for value in (node_count, skin_count, model_count, int((model_usage or {}).get('max_joint_index', -1)) + 1):
         if value > 0 and value not in counts:
             counts.append(value)
     if not counts:
@@ -284,42 +334,45 @@ def probe_transforms(asset, layout, model_usage=None):
     end = min(len(asset), data_start + 4096)
     candidates = []
     for count in counts:
-        for off in range(start, end, 4):
+        for off in range(start, end):
             for fmt in ('f32_4x4', 'f32_3x4', 'f32_trs_quat_scale'):
                 for endian in ('be', 'le'):
-                    item = _candidate_transforms(asset, off, count, fmt, endian)
-                    if item is not None and item['score'] >= 45:
-                        if model_usage:
-                            max_joint = int(model_usage.get('max_joint_index', -1))
-                            if max_joint >= 0 and max_joint < count:
-                                item['score'] += 25
-                                item['reasons'].append('model_joint_indices_fit')
-                            if int(model_usage.get('unique_joint_count', 0)) <= count:
-                                item['score'] += 10
-                                item['reasons'].append('unique_joint_count_fits')
+                    item = _candidate_transforms(asset, off, count, fmt, endian, layout=layout, model_usage=model_usage)
+                    if item is not None and item['score'] >= 120:
                         candidates.append(item)
     candidates.sort(key=lambda item: item['score'], reverse=True)
-    return candidates[:32]
+    return candidates[:48]
 
-def _parent_map_from_table(table_candidate, skin_values):
+def _parent_map_from_table(table_candidate, skin_values, count):
     parent_values = table_candidate.get('parent_values') or []
-    skin_values = skin_values or table_candidate.get('skin_values') or []
-    if not skin_values:
+    if not parent_values:
         return {0: -1}
-    name_to_skin = {name_index: idx for idx, name_index in enumerate(skin_values)}
+    if skin_values:
+        name_to_skin = {name_index: idx for idx, name_index in enumerate(skin_values)}
+        out = {}
+        for idx, name_index in enumerate(skin_values):
+            parent_raw = parent_values[name_index] if name_index < len(parent_values) else 255
+            if parent_raw == 255:
+                out[idx] = -1
+            else:
+                out[idx] = name_to_skin.get(parent_raw, -1)
+        return out
     out = {}
-    for idx, name_index in enumerate(skin_values):
-        parent_raw = parent_values[name_index] if name_index < len(parent_values) else 255
-        if parent_raw == 255:
-            out[idx] = -1
-        else:
-            out[idx] = name_to_skin.get(parent_raw, -1)
+    for index in range(count):
+        raw = parent_values[index] if index < len(parent_values) else 255
+        out[index] = -1 if raw == 255 or raw >= count or raw == index else raw
     return out
 
 def _fallback_bone_names(layout, count, skin_values=None):
     names = layout.get('names') or []
+    node_name_indices = layout.get('node_name_indices') or []
     out = []
-    source = skin_values or list(range(count))
+    if skin_values:
+        source = skin_values
+    elif len(node_name_indices) >= count:
+        source = node_name_indices[:count]
+    else:
+        source = list(range(count))
     for i in range(count):
         name_index = source[i] if i < len(source) else i
         if 0 <= name_index < len(names):
@@ -331,9 +384,9 @@ def _fallback_bone_names(layout, count, skin_values=None):
 def write_candidate_armature_dae(path, layout, table_candidate, transform_candidate):
     count = int(transform_candidate.get('count') or 0)
     translations = transform_candidate.get('translations') or []
-    skin_values = table_candidate.get('skin_values') if table_candidate and _skin_values_valid(table_candidate.get('skin_values'), layout) else []
+    skin_values = table_candidate.get('skin_values') if table_candidate and _skin_values_valid(table_candidate.get('skin_values'), layout) and count != int((layout.get('fields') or {}).get('node_count') or 0) else []
     names = _fallback_bone_names(layout, count, skin_values)
-    parent_map = _parent_map_from_table(table_candidate or {}, skin_values) if skin_values else {0: -1}
+    parent_map = _parent_map_from_table(table_candidate or {}, skin_values, count)
     children = {i: [] for i in range(count)}
     roots = []
     for i in range(count):
