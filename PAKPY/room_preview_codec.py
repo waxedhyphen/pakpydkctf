@@ -177,15 +177,7 @@ def write_split_obj(path, name, vertices, triangles, transform):
     Path(path).write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
 
 def control_component_wanted(component):
-    if not component.get('actor_refs') or not component['actor_refs'].get('transform'):
-        return False
-    name = component.get('name') or ''
-    if name.startswith('Trigger -') or name.startswith('TriggerForce -') or name.startswith('Waypoint -') or name.startswith('ActorKeyframe -'):
-        return True
-    for token in ('Blocking Wall', 'Bounds', 'Out Of Bounds', 'OutOfBounds', 'Ledge Guardian'):
-        if token in name:
-            return True
-    return False
+    return bool(component.get('actor_refs') and component['actor_refs'].get('transform'))
 
 def control_bounds(component):
     name = component.get('name') or ''
