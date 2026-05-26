@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from pak_core import PakError, get_entry_asset, get_entry_payload, format_meta_lines
 from room_deep_codec import format_room_info_lines, export_room_package
-from room_repack import rebuild_room_package_from_folder
+from room_full_repack import rebuild_room_package_from_folder
 
 def install(App):
     original_init = App.__init__
@@ -132,8 +132,8 @@ def install(App):
                 result['out_path'],
                 '',
                 f'Geänderte PAK-Einträge: {result["changed_count"]}',
-                f'ROOM-Transform-Patches: {result["transform_patch_count"]}',
-                f'Geänderte OBJ-Assets: {len(result["changed_objects"])}'
+                f'ROOM-Transform-Patches/Clones: {result["transform_patch_count"]}',
+                f'Geänderte OBJ-Assets/Clone-Dateien: {len(result["changed_objects"])}'
             ]
             if result['changed_objects']:
                 lines.append('')
