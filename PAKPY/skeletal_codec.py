@@ -1,9 +1,12 @@
 from pathlib import Path
 import json
-from pak_core import PakError, get_entry_asset, safe_name, sha1_bytes, kind_to_ext, format_uuid_hex
+from pak_core import PakError, get_entry_asset, safe_name, sha1_bytes, kind_to_ext
 
 ZERO_UUID = '00000000000000000000000000000000'
 SKELETAL_REF_TYPES = {'SKEL', 'ANIM'}
+
+def be16(data, off):
+    return int.from_bytes(data[off:off+2], 'big')
 
 def be32(data, off):
     return int.from_bytes(data[off:off+4], 'big')
@@ -16,6 +19,88 @@ def tag4(data, off):
 
 def is_rfrm_type(asset, typ):
     return len(asset) >= 32 and asset[:4] == b'RFRM' and tag4(asset, 20) == typ
+
+def format_uuid(hex_str):
+    if not hex_str or len(hex_str) != 32:
+        return hex_str
+    return f'{hex_str[:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:]}'
+
+def read_name(asset, p):
+    if p + 4 > len(asset):
+        raise PakError('Name ist abgeschnitten')
+    size = be32(asset, p)
+    p += 4
+    if size <= 0 or size > 4096 or p + size > len(asset):
+        raise PakError('Name hat ungültige Länge')
+    name = asset[p:p+size].split(b'\x00', 1)[0].decode('utf-8', 'replace')
+    return name, size, p + size
+
+def parse_skel_asset(asset):
+    if not is_rfrm_type(asset, 'SKEL'):
+        raise PakError('Keine SKEL-Ressource')
+    if len(asset) < 44:
+        raise PakError('SKEL ist zu klein')
+    p = 32
+    marker = be32(asset, p)
+    version_a = be32(asset, 24)
+    version_b = be32(asset, 28)
+    unknown_a = be32(asset, p + 4)
+    name_count = be32(asset, p + 8)
+    if name_count <= 0 or name_count > 4096:
+        raise PakError(f'SKEL-Namenszähler wirkt ungültig ({name_count})')
+    p += 12
+    names = []
+    for index in range(name_count):
+        name, size, p = read_name(asset, p)
+        names.append({'index': index, 'name': name, 'size': size})
+    tables_offset = p
+    fields = {}
+    if p + 16 <= len(asset):
+        fields = {
+            'zero_or_flags': be32(asset, p),
+            'name_count_repeat': be16(asset, p + 4),
+            'node_count': be16(asset, p + 6),
+            'skin_bone_count': be16(asset, p + 8),
+            'group_count_a': be16(asset, p + 10),
+            'group_count_b': be16(asset, p + 12),
+            'flags_b': be16(asset, p + 14)
+        }
+    skin_bone_count = fields.get('skin_bone_count', 0)
+    bone_start = 3 if len(names) > 3 else 0
+    bones = []
+    for index in range(skin_bone_count):
+        name_index = bone_start + index
+        if name_index >= len(names):
+            break
+        parent_index = 0 if index > 0 else -1
+        bones.append({
+            'index': index,
+            'name_index': name_index,
+            'name': names[name_index]['name'],
+            'parent_index': parent_index,
+            'head': [0.0, 0.0, round(index * 0.035, 6)],
+            'tail': [0.0, 0.0, round((index + 1) * 0.035, 6)]
+        })
+    tail = asset[tables_offset:]
+    return {
+        'type': 'SKEL',
+        'version_a': version_a,
+        'version_b': version_b,
+        'marker': f'0x{marker:08X}',
+        'unknown_a': unknown_a,
+        'size': len(asset),
+        'sha1': sha1_bytes(asset),
+        'name_count': name_count,
+        'names': names,
+        'fields': fields,
+        'tables_offset': tables_offset,
+        'tail_size': len(tail),
+        'tail_sha1': sha1_bytes(tail),
+        'skin_bone_count': skin_bone_count,
+        'bone_name_start_index': bone_start,
+        'bones': bones,
+        'status': 'Bone-Namen und SKHD-kompatible Bone-Anzahl werden gelesen. Parent-Struktur und Bind-Pose sind noch konservativ als Root-Armature abgebildet.'
+    }
 
 def parse_rfrm_chunks(asset):
     if len(asset) < 32 or asset[:4] != b'RFRM':
@@ -40,6 +125,8 @@ def parse_rfrm_chunks(asset):
 
 def parse_skeletal_asset_summary(asset, fallback_type=''):
     typ = tag4(asset, 20) if len(asset) >= 24 and asset[:4] == b'RFRM' else fallback_type
+    if typ == 'SKEL':
+        return parse_skel_asset(asset)
     return {
         'type': typ,
         'size': len(asset),
@@ -100,8 +187,13 @@ def parse_model_skin_summary(asset):
             vbufs.append({'buffer_index': buffer_index, 'vertex_count': vertex_count, 'component_count': component_count, 'components': components})
     inferred_bones = []
     for index in range(bone_count):
-        parent = index - 1 if index > 0 else -1
-        inferred_bones.append({'index': index, 'name': f'bone_{index:03d}', 'parent_index': parent, 'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, index * 0.03, 0, 0, 0, 1]})
+        inferred_bones.append({
+            'index': index,
+            'name': f'bone_{index:03d}',
+            'parent_index': 0 if index > 0 else -1,
+            'head': [0.0, 0.0, round(index * 0.035, 6)],
+            'tail': [0.0, 0.0, round((index + 1) * 0.035, 6)]
+        })
     return {
         'model_type': typ,
         'bone_count_from_skhd': bone_count,
@@ -109,8 +201,19 @@ def parse_model_skin_summary(asset):
         'vbufs': vbufs,
         'skin_components': skin_components,
         'inferred_bones': inferred_bones,
-        'note': 'SKHD liefert aktuell sicher die Bone-Anzahl. Echte Bone-Namen, Bind-Pose und Hierarchie brauchen einen echten SKEL/ANIM-Sample oder weitere Formatbestätigung.'
+        'note': 'SKHD liefert sicher die Bone-Anzahl. Wenn eine passende SKEL-Referenz vorhanden ist, werden die echten Bone-Namen aus SKEL verwendet.'
     }
+
+def merge_skel_into_model_summary(model_summary, skel_summary):
+    bones = skel_summary.get('bones') or []
+    if not bones:
+        return model_summary
+    expected = model_summary.get('bone_count_from_skhd', 0)
+    use_bones = bones[:expected] if expected else bones
+    model_summary['skel'] = skel_summary
+    model_summary['inferred_bones'] = use_bones
+    model_summary['bone_names_from_skel'] = True
+    return model_summary
 
 def resolve_ref(parsed, uuid_hex, require_store=None):
     if not uuid_hex or uuid_hex == ZERO_UUID:
@@ -193,7 +296,7 @@ def export_skeletal_asset(folder, parsed, ref, require_store=None, prefix=''):
     uuid_hex = ref.get('uuid_hex', '')
     asset, entry, source, source_path = resolve_ref(parsed, uuid_hex, require_store)
     rec = dict(ref)
-    rec.update({'resolved': entry is not None and asset is not None, 'entry_type': entry.get('type') if entry else '', 'entry_name': entry.get('display_name') or entry.get('name') or '' if entry else '', 'source_kind': source, 'source_path': source_path, 'raw_file': '', 'summary_file': ''})
+    rec.update({'resolved': entry is not None and asset is not None, 'entry_type': entry.get('type') if entry else '', 'entry_name': entry.get('display_name') or entry.get('name') or '' if entry else '', 'source_kind': source, 'source_path': source_path, 'raw_file': '', 'summary_file': '', 'summary': {}})
     if entry is None or asset is None:
         return rec
     typ = entry.get('type') or ref.get('type') or 'UNKNOWN'
@@ -206,6 +309,7 @@ def export_skeletal_asset(folder, parsed, ref, require_store=None, prefix=''):
     write_json(summary_path, summary)
     rec['raw_file'] = str(raw_path)
     rec['summary_file'] = str(summary_path)
+    rec['summary'] = summary
     return rec
 
 def blender_model_import_script():
@@ -228,19 +332,20 @@ if skel_path.is_file():
         arm.name = 'Armature_' + manifest.get('entry_name', 'model')
         data = arm.data
         data.name = arm.name + '_data'
+        created = {}
         first = data.edit_bones[0]
-        first.name = bones[0].get('name', 'bone_000')
-        first.head = (0, 0, 0)
-        first.tail = (0, 0, 0.03)
-        created = {0: first}
+        b0 = bones[0]
+        first.name = b0.get('name', 'bone_000')
+        first.head = tuple(b0.get('head', [0, 0, 0]))
+        first.tail = tuple(b0.get('tail', [0, 0, 0.035]))
+        created[int(b0.get('index', 0))] = first
         for bone in bones[1:]:
             idx = int(bone.get('index', len(created)))
-            parent_idx = int(bone.get('parent_index', idx - 1))
             eb = data.edit_bones.new(bone.get('name', f'bone_{idx:03d}'))
-            eb.head = (0, 0, idx * 0.03)
-            eb.tail = (0, 0, (idx + 1) * 0.03)
-            parent = created.get(parent_idx)
-            if parent is not None:
+            eb.head = tuple(bone.get('head', [0, 0, idx * 0.035]))
+            eb.tail = tuple(bone.get('tail', [0, 0, (idx + 1) * 0.035]))
+            parent = created.get(int(bone.get('parent_index', 0)))
+            if parent is not None and parent != eb:
                 eb.parent = parent
             created[idx] = eb
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -282,19 +387,20 @@ for model in manifest.get('models', []):
             bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
             arm = bpy.context.object
             arm.name = 'Armature_' + model.get('slot_name', data.get('entry_name', 'model'))
+            created = {}
             first = arm.data.edit_bones[0]
-            first.name = bones[0].get('name', 'bone_000')
-            first.head = (0, 0, 0)
-            first.tail = (0, 0, 0.03)
-            created = {0: first}
+            b0 = bones[0]
+            first.name = b0.get('name', 'bone_000')
+            first.head = tuple(b0.get('head', [0, 0, 0]))
+            first.tail = tuple(b0.get('tail', [0, 0, 0.035]))
+            created[int(b0.get('index', 0))] = first
             for bone in bones[1:]:
                 idx = int(bone.get('index', len(created)))
-                parent_idx = int(bone.get('parent_index', idx - 1))
                 eb = arm.data.edit_bones.new(bone.get('name', f'bone_{idx:03d}'))
-                eb.head = (0, 0, idx * 0.03)
-                eb.tail = (0, 0, (idx + 1) * 0.03)
-                parent = created.get(parent_idx)
-                if parent is not None:
+                eb.head = tuple(bone.get('head', [0, 0, idx * 0.035]))
+                eb.tail = tuple(bone.get('tail', [0, 0, (idx + 1) * 0.035]))
+                parent = created.get(int(bone.get('parent_index', 0)))
+                if parent is not None and parent != eb:
                     eb.parent = parent
                 created[idx] = eb
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -305,7 +411,7 @@ for anim in manifest.get('animations', []):
         action['source_file'] = anim.get('file', '')
 '''
 
-def export_model_skeletal_sidecar(parsed, entry, package_dir, require_store=None, animation_refs=None):
+def export_model_skeletal_sidecar(parsed, entry, package_dir, require_store=None, animation_refs=None, skeleton_refs=None):
     package_dir = Path(package_dir)
     asset = get_entry_asset(parsed, entry)
     skeleton_dir = package_dir / 'skeleton'
@@ -313,19 +419,36 @@ def export_model_skeletal_sidecar(parsed, entry, package_dir, require_store=None
     blender_dir = package_dir / 'blender'
     summary = parse_model_skin_summary(asset)
     summary.update({'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'entry_type': entry['type']})
-    skeleton_summary_path = write_json(skeleton_dir / 'model_skeleton_summary.json', summary)
     refs = find_known_uuid_refs(asset, parsed, require_store, wanted_types=SKELETAL_REF_TYPES)
-    exported_skel = []
+    detected_skel = []
     detected_anims = []
     for ref in refs:
         if ref.get('entry_type') == 'SKEL':
-            exported = export_skeletal_asset(skeleton_dir / 'raw', parsed, {'uuid_hex': ref['uuid_hex'], 'name': ref.get('entry_name', ''), 'type': 'SKEL'}, require_store=require_store, prefix='linked_skel')
-            if exported.get('raw_file'):
-                exported['raw_file'] = rel(package_dir, exported['raw_file'])
-                exported['summary_file'] = rel(package_dir, exported['summary_file'])
-            exported_skel.append(exported)
+            detected_skel.append({'uuid_hex': ref['uuid_hex'], 'name': ref.get('entry_name', ''), 'type': 'SKEL'})
         elif ref.get('entry_type') == 'ANIM':
             detected_anims.append({'uuid_hex': ref['uuid_hex'], 'name': ref.get('entry_name', ''), 'type': 'ANIM'})
+    skeleton_refs = list(skeleton_refs or []) + detected_skel
+    seen_skel = set()
+    exported_skel = []
+    selected_skel_summary = None
+    for skel in skeleton_refs:
+        uuid_hex = skel.get('uuid_hex', '')
+        if not uuid_hex or uuid_hex == ZERO_UUID or uuid_hex in seen_skel:
+            continue
+        seen_skel.add(uuid_hex)
+        exported = export_skeletal_asset(skeleton_dir / 'raw', parsed, {'uuid_hex': uuid_hex, 'name': skel.get('name', ''), 'type': 'SKEL'}, require_store=require_store, prefix=f'{skel.get("index", len(exported_skel)):03d}__{skel.get("name", "skel")}')
+        exported['name'] = skel.get('name', '')
+        exported['char_skel_index'] = skel.get('index', -1)
+        if exported.get('raw_file'):
+            exported['raw_file'] = rel(package_dir, exported['raw_file'])
+            exported['summary_file'] = rel(package_dir, exported['summary_file'])
+        if exported.get('resolved') and selected_skel_summary is None and exported.get('summary', {}).get('type') == 'SKEL':
+            selected_skel_summary = exported.get('summary')
+        exported.pop('summary', None)
+        exported_skel.append(exported)
+    if selected_skel_summary is not None:
+        summary = merge_skel_into_model_summary(summary, selected_skel_summary)
+    skeleton_summary_path = write_json(skeleton_dir / 'model_skeleton_summary.json', summary)
     animation_refs = list(animation_refs or []) + detected_anims
     seen_anim = set()
     exported_anim = []
@@ -340,6 +463,7 @@ def export_model_skeletal_sidecar(parsed, entry, package_dir, require_store=None
         if exported.get('raw_file'):
             exported['raw_file'] = rel(package_dir, exported['raw_file'])
             exported['summary_file'] = rel(package_dir, exported['summary_file'])
+        exported.pop('summary', None)
         exported_anim.append(exported)
     anim_manifest_path = write_json(animations_dir / 'animation_manifest.json', {'animations': exported_anim})
     script_path = blender_dir / 'import_model_package.py'
@@ -353,9 +477,9 @@ def export_model_skeletal_sidecar(parsed, entry, package_dir, require_store=None
         '',
         'Status:',
         '- OBJ/MTL wird importiert.',
-        '- SKHD-Bone-Anzahl wird als Platzhalter-Armature angelegt.',
-        '- ANIM-Dateien werden als Actions mit Source-Metadaten angelegt, solange das echte ANIM-Keyframe-Layout noch nicht vollständig bekannt ist.',
-        '- Echte Bone-Hierarchie, Bind-Pose und Keyframes brauchen echte SKEL/ANIM-Dateien zur Formatbestätigung.'
+        '- Wenn SKEL vorhanden ist, werden echte Bone-Namen aus SKEL verwendet.',
+        '- Die Armature ist aktuell noch eine sichere Root-Hierarchie ohne echte Bind-Pose.',
+        '- ANIM-Dateien werden als Actions mit Source-Metadaten angelegt, solange das echte ANIM-Keyframe-Layout noch nicht vollständig bekannt ist.'
     ]
     readme_path = blender_dir / 'README.txt'
     readme_path.write_text('\n'.join(readme), encoding='utf-8', newline='\n')
@@ -369,6 +493,7 @@ def export_model_skeletal_sidecar(parsed, entry, package_dir, require_store=None
         'linked_skeleton_count': len([x for x in exported_skel if x.get('resolved')]),
         'animation_count': len(exported_anim),
         'resolved_animation_count': len([x for x in exported_anim if x.get('resolved')]),
+        'bone_names_from_skel': summary.get('bone_names_from_skel', False),
         'linked_skeletons': exported_skel,
         'animations': exported_anim
     }
@@ -388,9 +513,10 @@ def write_char_blender_helper(package_dir, manifest):
         '',
         'Status:',
         '- Alle im CHAR-Paket vorhandenen Modellpakete werden als OBJ importiert.',
-        '- Pro Modell wird die SKHD-Bone-Anzahl als Platzhalter-Armature erzeugt.',
+        '- Pro Modell wird eine Armature erzeugt.',
+        '- Wenn SKEL vorhanden ist, nutzt die Armature echte Bone-Namen aus SKEL.',
         '- Aufgelöste ANIMs werden als leere Actions mit Source-Metadaten angelegt.',
-        '- Das ist absichtlich noch kein echter Animations-Rebuild, solange das SKEL/ANIM-Layout nicht vollständig bestätigt ist.'
+        '- Echte Parent-Struktur, Bind-Pose und Keyframes folgen im ANIM/SKEL-Ausbau.'
     ]
     readme_path.write_text('\n'.join(readme), encoding='utf-8', newline='\n')
     return {'blender_script_file': rel(package_dir, script_path), 'blender_readme_file': rel(package_dir, readme_path)}
