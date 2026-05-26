@@ -1,6 +1,9 @@
+from pathlib import Path
 from tkinter import filedialog, messagebox
 from pak_core import PakError, get_entry_asset, get_entry_payload, format_meta_lines
+from model_package import rebuild_model_package_from_folder
 from room_deep_codec import format_room_info_lines, export_room_package
+from room_repack import rebuild_room_package_from_folder
 
 def install(App):
     original_show_context_menu = App.show_context_menu
@@ -57,6 +60,8 @@ def install(App):
                     f'Scene-Preview-OBJ: {result["preview_obj_path"]}',
                     f'Scene-Preview-MTL: {result["preview_mtl_path"]}',
                     f'Scene-Preview-Tabelle: {result["preview_tsv_path"]}',
+                    f'Scene-Objekte: {result["preview_split_dir"]}',
+                    f'Scene-Repack-Manifest: {result["preview_repack_manifest_path"]}',
                     '',
                     f'Layer: {result["layer_count"]}',
                     f'Komponenten: {result["component_count"]}',
@@ -64,6 +69,7 @@ def install(App):
                     f'Asset-Referenzen aus Komponenten: {result["component_asset_ref_count"]}',
                     f'Asset-Referenzen aus HEAD: {result["head_asset_ref_count"]}',
                     f'Scene-Preview-Referenzen: {result["preview_ref_count"]}',
+                    f'Scene-Objekte: {result["preview_split_count"]}',
                     f'Scene-Preview-Zählung: {result["preview_counts"]}',
                     f'DCLN im aktuellen PAK auflösbar: {result["resolved_dcln_ref_count"]}',
                     f'Als Debug-OBJ exportiert: {result["exported_collision_count"]}'
@@ -78,6 +84,65 @@ def install(App):
             messagebox.showerror('Fehler', str(e))
             return
         return original_export_model_package_dialog(self)
+
+    def rebuild_model_package_dialog(self):
+        if self.parsed is None:
+            messagebox.showerror('Fehler', 'Noch keine PAK-Datei eingelesen')
+            return
+        folder = filedialog.askdirectory(title='Modell- oder ROOM-Paket-Ordner auswählen')
+        if not folder:
+            return
+        try:
+            folder_path = Path(folder)
+            source = Path(self.parsed['path'])
+            if (folder_path / 'room_scene_repack_manifest.json').is_file():
+                out_path = filedialog.asksaveasfilename(title='Neues PAK speichern', defaultextension='.pak', initialfile=source.stem + '_room_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
+                if not out_path:
+                    return
+                result = rebuild_room_package_from_folder(self.parsed, folder_path, out_path)
+                self.pak_var.set(result['out_path'])
+                self.load_pak()
+                lines = [
+                    'ROOM-Paket zurückgebaut:',
+                    result['out_path'],
+                    '',
+                    f'Geänderte PAK-Einträge: {result["changed_count"]}',
+                    f'ROOM-Transform-Patches: {result["transform_patch_count"]}',
+                    f'Geänderte OBJ-Assets: {len(result["changed_objects"])}'
+                ]
+                if result['changed_objects']:
+                    lines.append('')
+                    lines.extend(result['changed_objects'][:80])
+                    if len(result['changed_objects']) > 80:
+                        lines.append(f'... {len(result["changed_objects"]) - 80} weitere')
+                self.output.delete('1.0', 'end')
+                self.output.insert('1.0', '\n'.join(lines))
+                messagebox.showinfo('Fertig', result['out_path'])
+                return
+            out_path = filedialog.asksaveasfilename(title='Neues PAK speichern', defaultextension='.pak', initialfile=source.stem + '_model_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
+            if not out_path:
+                return
+            result = rebuild_model_package_from_folder(self.parsed, folder_path, out_path)
+            self.pak_var.set(result['out_path'])
+            self.load_pak()
+            lines = [
+                'Modellpaket zurückgebaut:',
+                result['out_path'],
+                '',
+                f'Geänderte PNGs: {result["changed_count"]}'
+            ]
+            if result['changed_files']:
+                lines.append('')
+                lines.extend(result['changed_files'][:60])
+                if len(result['changed_files']) > 60:
+                    lines.append(f'... {len(result["changed_files"]) - 60} weitere')
+            self.output.delete('1.0', 'end')
+            self.output.insert('1.0', '\n'.join(lines))
+            messagebox.showinfo('Fertig', result['out_path'])
+        except Exception as e:
+            self.output.delete('1.0', 'end')
+            self.output.insert('1.0', f'Fehler: {e}')
+            messagebox.showerror('Fehler', str(e))
 
     def show_selected(self, event=None):
         if self.parsed is None:
@@ -124,4 +189,5 @@ def install(App):
     App.is_room_entry = is_room_entry
     App.show_context_menu = show_context_menu
     App.export_model_package_dialog = export_model_package_dialog
+    App.rebuild_model_package_dialog = rebuild_model_package_dialog
     App.show_selected = show_selected
