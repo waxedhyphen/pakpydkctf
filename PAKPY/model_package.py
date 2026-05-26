@@ -1,13 +1,13 @@
 from pathlib import Path
 import json
-from pak_core import PakError, safe_name, sha1_bytes, get_entry_asset, rebuild_pak
-from pak_extract import export_model_entry_as_obj, export_txtr_bytes_as_png, make_material_texture_png_name, get_mtl_slot_for_ref_tag
+from pak_core import PakError, safe_name, sha1_bytes, get_entry_asset, rebuild_pak, kind_to_ext
+from pak_extract import export_txtr_bytes_as_png, make_material_texture_png_name, get_mtl_slot_for_ref_tag
 from txtr_repack import png_to_txtr_asset, can_repack_txtr_asset
-from skeletal_codec import export_model_skeletal_sidecar
+from rigged_gltf import export_rigged_model_glb
 
 def _package_dir_name(entry):
     base = entry.get('display_name') or entry.get('name') or entry['uuid_hex']
-    return f'{safe_name(base)}_{entry["type"].lower()}_repack'
+    return f'{safe_name(base)}_{entry["type"].lower()}_package'
 
 def _resolve_txtr_asset(parsed, ref, require_store=None):
     if require_store is not None:
@@ -20,11 +20,23 @@ def _resolve_txtr_asset(parsed, ref, require_store=None):
 def _raw_txtr_name(material, ref, txtr_entry):
     return make_material_texture_png_name(material, ref, txtr_entry).rsplit('.', 1)[0] + '.txtr.bin'
 
+def _write_raw_source(package_dir, entry, asset):
+    folder = package_dir / 'source' / entry['type'].lower()
+    folder.mkdir(parents=True, exist_ok=True)
+    base = entry.get('display_name') or entry.get('name') or entry['uuid_hex']
+    path = folder / (safe_name(base) + kind_to_ext(entry['type']))
+    path.write_bytes(asset)
+    return path
+
 def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
     material_texture_map = {}
     textures = []
     editable_count = 0
     raw_only_count = 0
+    png_dir = package_dir / 'textures' / 'png'
+    raw_dir = package_dir / 'textures' / 'raw_txtr'
+    png_dir.mkdir(parents=True, exist_ok=True)
+    raw_dir.mkdir(parents=True, exist_ok=True)
     for material in entry.get('model_materials', []):
         slot_map = {}
         for ref in material.get('txtr_refs', []):
@@ -70,10 +82,10 @@ def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
                 })
                 continue
             raw_name = _raw_txtr_name(material, ref, txtr_entry)
-            raw_path = package_dir / raw_name
+            raw_path = raw_dir / raw_name
             raw_path.write_bytes(raw_asset)
             png_name = make_material_texture_png_name(material, ref, txtr_entry)
-            png_path = package_dir / png_name
+            png_path = png_dir / png_name
             export_error = ''
             try:
                 export_txtr_bytes_as_png(raw_asset, png_path)
@@ -84,7 +96,7 @@ def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
             if png_exported:
                 slot_name = get_mtl_slot_for_ref_tag(ref['tag'])
                 if slot_name and slot_name not in slot_map:
-                    slot_map[slot_name] = png_name
+                    slot_map[slot_name] = f'textures/png/{png_name}'
             if png_exported and not editable_png:
                 export_error = 'PNG-Export ok, aber Rückbau für dieses TXTR ist lokal nicht verfügbar'
             if editable_png:
@@ -100,9 +112,9 @@ def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
                 'material_name': material['name'],
                 'ref_tag': ref['tag'],
                 'mtl_slot': get_mtl_slot_for_ref_tag(ref['tag']),
-                'png_name': png_name if png_exported else '',
+                'png_name': f'textures/png/{png_name}' if png_exported else '',
                 'png_sha1': sha1_bytes(png_path.read_bytes()) if png_exported else '',
-                'raw_name': raw_name,
+                'raw_name': f'textures/raw_txtr/{raw_name}',
                 'raw_sha1': sha1_bytes(raw_asset),
                 'editable_png': editable_png,
                 'export_error': export_error or '',
@@ -118,20 +130,11 @@ def _write_report(package_dir, manifest):
     lines = []
     lines.append(f'Modell: {manifest["entry_name"]}')
     lines.append(f'Typ: {manifest["entry_type"]}')
-    lines.append(f'OBJ: {manifest["obj_name"]}')
-    lines.append(f'MTL: {manifest["mtl_name"]}')
+    lines.append(f'Rigged GLB: {manifest["rigged_glb"]}')
+    lines.append(f'Bones: {manifest.get("bone_count", 0)}')
+    lines.append(f'Faces: {manifest.get("face_count", 0)}')
     lines.append(f'Bearbeitbare PNGs: {manifest["editable_png_count"]}')
     lines.append(f'Nur Roh-Sicherung: {manifest["raw_only_count"]}')
-    skel = manifest.get('skeletal', {})
-    if skel:
-        lines.append('')
-        lines.append('Skeleton/Animation:')
-        lines.append(f'- Bones laut SKHD: {skel.get("bone_count", 0)}')
-        lines.append(f'- Skin-Komponenten: {skel.get("skin_component_count", 0)}')
-        lines.append(f'- Verlinkte SKEL: {skel.get("linked_skeleton_count", 0)}')
-        lines.append(f'- Animationen: {skel.get("resolved_animation_count", 0)}/{skel.get("animation_count", 0)} aufgelöst')
-        if skel.get('blender_script_file'):
-            lines.append(f'- Blender-Script: {skel["blender_script_file"]}')
     lines.append('')
     lines.append('Texturen:')
     for item in manifest.get('textures', []):
@@ -148,48 +151,59 @@ def _write_report(package_dir, manifest):
         lines.append(line)
     (package_dir / 'repack_report.txt').write_text('\n'.join(lines), encoding='utf-8')
 
-def export_model_package(parsed, entry, out_dir, require_store=None, animation_refs=None):
+def export_model_package(parsed, entry, out_dir, require_store=None, animation_refs=None, skeleton_refs=None):
     if entry['type'] not in ('CMDL', 'SMDL', 'WMDL'):
         raise PakError('Modellpaket geht nur bei CMDL, SMDL oder WMDL')
     out_dir = Path(out_dir)
     package_dir = out_dir / _package_dir_name(entry)
     package_dir.mkdir(parents=True, exist_ok=True)
+    asset = get_entry_asset(parsed, entry)
+    raw_source = _write_raw_source(package_dir, entry, asset)
     material_texture_map, textures, editable_count, raw_only_count = _strict_texture_slots(parsed, entry, package_dir, require_store=require_store)
-    result = export_model_entry_as_obj(parsed, entry, package_dir, write_mtl=True, material_texture_map=material_texture_map)
-    obj_path = Path(result['obj_path']) if result.get('obj_path') else None
-    mtl_path = Path(result['mtl_path']) if result.get('mtl_path') else None
-    skeletal = export_model_skeletal_sidecar(parsed, entry, package_dir, require_store=require_store, animation_refs=animation_refs)
+    rigged_dir = package_dir / 'blender'
+    rigged_dir.mkdir(parents=True, exist_ok=True)
+    base = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
+    rigged_path = rigged_dir / f'{base}.glb'
+    rigged = export_rigged_model_glb(parsed, entry, rigged_path, require_store=require_store, skeleton_refs=skeleton_refs)
+    skeleton_dir = package_dir / 'skeleton'
+    skeleton_dir.mkdir(parents=True, exist_ok=True)
+    skeleton_json_path = skeleton_dir / 'skeleton.json'
+    skeleton_json_path.write_text(json.dumps(rigged['skeleton'], indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     manifest = {
-        'version': 3,
+        'version': 4,
         'source_pak': Path(parsed['path']).name,
         'entry_index': entry['index'],
         'entry_type': entry['type'],
         'entry_uuid_hex': entry['uuid_hex'],
         'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'],
-        'obj_name': obj_path.name if obj_path else '',
-        'obj_sha1': sha1_bytes(obj_path.read_bytes()) if obj_path and obj_path.is_file() else '',
-        'mtl_name': mtl_path.name if mtl_path else '',
-        'mtl_sha1': sha1_bytes(mtl_path.read_bytes()) if mtl_path and mtl_path.is_file() else '',
+        'rigged_glb': str(rigged_path.relative_to(package_dir)).replace('\\', '/'),
+        'rigged_glb_sha1': sha1_bytes(rigged_path.read_bytes()),
+        'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'),
+        'source_model_sha1': sha1_bytes(raw_source.read_bytes()),
+        'skeleton_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'),
+        'bone_count': rigged.get('bone_count', 0),
+        'vertex_count': rigged.get('vertex_count', 0),
+        'face_count': rigged.get('face_count', 0),
         'editable_png_count': editable_count,
         'raw_only_count': raw_only_count,
         'textures': textures,
-        'skeletal': skeletal
+        'animations': animation_refs or [],
+        'skeleton_refs': skeleton_refs or []
     }
     manifest_path = package_dir / 'repack_manifest.json'
-    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8')
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     _write_report(package_dir, manifest)
     return {
         'package_dir': str(package_dir),
         'manifest_path': str(manifest_path),
-        'obj_path': str(obj_path) if obj_path else '',
-        'mtl_path': str(mtl_path) if mtl_path else '',
+        'rigged_glb': str(rigged_path),
         'texture_count': len(textures),
         'editable_png_count': editable_count,
         'raw_only_count': raw_only_count,
-        'bone_count': skeletal.get('bone_count', 0),
-        'resolved_animation_count': skeletal.get('resolved_animation_count', 0),
-        'animation_count': skeletal.get('animation_count', 0),
-        'blender_script_file': skeletal.get('blender_script_file', '')
+        'bone_count': rigged.get('bone_count', 0),
+        'vertex_count': rigged.get('vertex_count', 0),
+        'face_count': rigged.get('face_count', 0),
+        'animation_count': len(animation_refs or [])
     }
 
 def rebuild_model_package_from_folder(parsed, folder, out_path):
@@ -205,12 +219,6 @@ def rebuild_model_package_from_folder(parsed, folder, out_path):
     model_entry = parsed['entries'][entry_index]
     if model_entry['uuid_hex'] != entry_uuid_hex:
         raise PakError('Manifest passt nicht zum aktuell geladenen PAK')
-    obj_name = manifest.get('obj_name', '')
-    obj_sha1 = manifest.get('obj_sha1', '')
-    if obj_name:
-        obj_path = folder / obj_name
-        if obj_path.is_file() and obj_sha1 and sha1_bytes(obj_path.read_bytes()) != obj_sha1:
-            raise PakError('OBJ wurde geändert, aber der Mesh-Rückweg ist noch nicht drin')
     replacements = {}
     changed = []
     for item in manifest.get('textures', []):
@@ -244,8 +252,4 @@ def rebuild_model_package_from_folder(parsed, folder, out_path):
     if not replacements:
         raise PakError('Keine geänderten PNGs oder TXTR-Rohdateien gefunden')
     built = rebuild_pak(parsed, replacements, out_path)
-    return {
-        'out_path': built,
-        'changed_count': len(changed),
-        'changed_files': changed
-    }
+    return {'out_path': built, 'changed_count': len(changed), 'changed_files': changed}
