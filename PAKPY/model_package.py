@@ -1,9 +1,10 @@
 from pathlib import Path
 import json
+import os
 from pak_core import PakError, safe_name, sha1_bytes, get_entry_asset, rebuild_pak, kind_to_ext
-from pak_extract import export_txtr_bytes_as_png, make_material_texture_png_name, get_mtl_slot_for_ref_tag
+from pak_extract import export_txtr_bytes_as_png, make_material_texture_png_name, get_mtl_slot_for_ref_tag, export_model_entry_as_obj
 from txtr_repack import png_to_txtr_asset, can_repack_txtr_asset
-from rigged_gltf import export_rigged_model_glb, export_textured_model_glb
+from dae_export import export_model_dae, write_model_debug_json
 
 def _package_dir_name(entry):
     base = entry.get('display_name') or entry.get('name') or entry['uuid_hex']
@@ -39,6 +40,7 @@ def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
     raw_dir.mkdir(parents=True, exist_ok=True)
     for material in entry.get('model_materials', []):
         slot_map = {}
+        fallback_kd = ''
         for ref in material.get('txtr_refs', []):
             raw_asset, txtr_entry, source = _resolve_txtr_asset(parsed, ref, require_store)
             if txtr_entry is None:
@@ -61,8 +63,12 @@ def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
             editable_png = png_exported and can_repack_txtr_asset(raw_asset)
             if png_exported:
                 slot_name = get_mtl_slot_for_ref_tag(ref['tag'])
+                rel_png = f'textures/png/{png_name}'
                 if slot_name and slot_name not in slot_map:
-                    slot_map[slot_name] = f'textures/png/{png_name}'
+                    slot_map[slot_name] = rel_png
+                tag = str(ref.get('tag', '')).upper()
+                if not fallback_kd and 'NMAP' not in tag and 'NRML' not in tag and 'NORM' not in tag and 'SPCT' not in tag and 'SPEC' not in tag and 'SPCF' not in tag and 'EMIS' not in tag and 'ICAN' not in tag and 'REFV' not in tag and 'REFS' not in tag and 'FUR' not in tag:
+                    fallback_kd = rel_png
             if png_exported and not editable_png:
                 export_error = 'PNG-Export ok, aber Rückbau für dieses TXTR ist lokal nicht verfügbar'
             if editable_png:
@@ -70,17 +76,35 @@ def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
             else:
                 raw_only_count += 1
             textures.append({'missing': False, 'txtr_entry_index': txtr_entry['index'] if source == 'pak' else -1, 'txtr_uuid_hex': txtr_entry['uuid_hex'], 'txtr_name': txtr_entry.get('display_name') or txtr_entry.get('name') or txtr_entry['uuid_hex'], 'material_index': material['index'], 'material_name': material['name'], 'ref_tag': ref['tag'], 'mtl_slot': get_mtl_slot_for_ref_tag(ref['tag']), 'png_name': f'textures/png/{png_name}' if png_exported else '', 'png_sha1': sha1_bytes(png_path.read_bytes()) if png_exported else '', 'raw_name': f'textures/raw_txtr/{raw_name}', 'raw_sha1': sha1_bytes(raw_asset), 'editable_png': editable_png, 'export_error': export_error or '', 'source_kind': source, 'source_path': require_store.get_required_source(ref['uuid_hex']) if source == 'require' and require_store is not None else ''})
+        if 'map_Kd' not in slot_map and fallback_kd:
+            slot_map['map_Kd'] = fallback_kd
         if slot_map:
             material_texture_map[material['index']] = dict(slot_map)
             material_texture_map[str(material['name'])] = dict(slot_map)
     return material_texture_map, textures, editable_count, raw_only_count
 
+def _map_texture_paths_for_folder(material_texture_map, package_dir, target_dir):
+    out = {}
+    for key, value in (material_texture_map or {}).items():
+        if isinstance(value, str):
+            out[key] = os.path.relpath(package_dir / value, target_dir).replace('\\', '/')
+            continue
+        if isinstance(value, dict):
+            slot_map = {}
+            for slot, rel_path in value.items():
+                slot_map[slot] = os.path.relpath(package_dir / rel_path, target_dir).replace('\\', '/') if rel_path else ''
+            out[key] = slot_map
+    return out
+
 def _write_report(package_dir, manifest):
     lines = []
     lines.append(f'Modell: {manifest["entry_name"]}')
     lines.append(f'Typ: {manifest["entry_type"]}')
-    lines.append(f'Textured GLB: {manifest["textured_glb"]}')
-    lines.append(f'Experimental Rigged GLB: {manifest["experimental_rigged_glb"]}')
+    lines.append(f'OBJ: {manifest["obj"]}')
+    lines.append(f'MTL: {manifest["mtl"]}')
+    lines.append(f'DAE: {manifest["dae"]}')
+    if manifest.get('experimental_skeletal_dae'):
+        lines.append(f'Experimental Skeletal DAE: {manifest["experimental_skeletal_dae"]}')
     lines.append(f'Bones: {manifest.get("bone_count", 0)}')
     lines.append(f'Faces: {manifest.get("face_count", 0)}')
     lines.append(f'Bearbeitbare PNGs: {manifest["editable_png_count"]}')
@@ -110,22 +134,35 @@ def export_model_package(parsed, entry, out_dir, require_store=None, animation_r
     asset = get_entry_asset(parsed, entry)
     raw_source = _write_raw_source(package_dir, entry, asset)
     material_texture_map, textures, editable_count, raw_only_count = _strict_texture_slots(parsed, entry, package_dir, require_store=require_store)
-    blender_dir = package_dir / 'blender'
-    blender_dir.mkdir(parents=True, exist_ok=True)
+    model_dir = package_dir / 'model'
+    debug_dir = package_dir / 'debug'
+    model_dir.mkdir(parents=True, exist_ok=True)
+    debug_dir.mkdir(parents=True, exist_ok=True)
     base = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
-    textured_path = blender_dir / f'{base}.glb'
-    rigged_path = blender_dir / f'{base}.experimental_rigged.glb'
-    textured = export_textured_model_glb(parsed, entry, textured_path, texture_map=material_texture_map, texture_root=package_dir)
-    rigged = export_rigged_model_glb(parsed, entry, rigged_path, require_store=require_store, skeleton_refs=skeleton_refs, texture_map=material_texture_map, texture_root=package_dir)
-    skeleton_dir = package_dir / 'skeleton'
-    skeleton_dir.mkdir(parents=True, exist_ok=True)
-    skeleton_json_path = skeleton_dir / 'skeleton.json'
-    skeleton_json_path.write_text(json.dumps(rigged['skeleton'], indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
-    manifest = {'version': 6, 'source_pak': Path(parsed['path']).name, 'entry_index': entry['index'], 'entry_type': entry['type'], 'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'textured_glb': str(textured_path.relative_to(package_dir)).replace('\\', '/'), 'textured_glb_sha1': sha1_bytes(textured_path.read_bytes()), 'experimental_rigged_glb': str(rigged_path.relative_to(package_dir)).replace('\\', '/'), 'experimental_rigged_glb_sha1': sha1_bytes(rigged_path.read_bytes()), 'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'), 'source_model_sha1': sha1_bytes(raw_source.read_bytes()), 'skeleton_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'), 'bone_count': rigged.get('bone_count', 0), 'vertex_count': textured.get('vertex_count', 0), 'face_count': textured.get('face_count', 0), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'textures': textures, 'animations': animation_refs or [], 'skeleton_refs': skeleton_refs or []}
+    obj_texture_map = _map_texture_paths_for_folder(material_texture_map, package_dir, model_dir)
+    obj_result = export_model_entry_as_obj(parsed, entry, model_dir, write_mtl=True, material_texture_map=obj_texture_map)
+    dae_path = model_dir / f'{base}.dae'
+    dae_result = export_model_dae(parsed, entry, dae_path, require_store=require_store, skeleton_refs=[], texture_map=material_texture_map, texture_root=package_dir, include_skin=False)
+    skeletal_dae_path = model_dir / f'{base}.experimental_skeletal.dae'
+    skeletal_dae = {'dae_path': '', 'bone_count': 0, 'skeleton': {}, 'skeleton_uuid_hex': '', 'skeleton_source_kind': '', 'skeleton_source_path': ''}
+    skeletal_error = ''
+    if skeleton_refs:
+        try:
+            skeletal_dae = export_model_dae(parsed, entry, skeletal_dae_path, require_store=require_store, skeleton_refs=skeleton_refs, texture_map=material_texture_map, texture_root=package_dir, include_skin=True)
+        except Exception as e:
+            skeletal_error = str(e)
+    debug_json_path = debug_dir / 'model_debug.json'
+    try:
+        write_model_debug_json(parsed, entry, debug_json_path, require_store=require_store, skeleton_refs=skeleton_refs or [])
+    except Exception as e:
+        debug_json_path.write_text(json.dumps({'error': str(e)}, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
+    skeleton_json_path = debug_dir / 'skeleton_debug.json'
+    skeleton_json_path.write_text(json.dumps(skeletal_dae.get('skeleton') or {}, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
+    manifest = {'version': 7, 'source_pak': Path(parsed['path']).name, 'entry_index': entry['index'], 'entry_type': entry['type'], 'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'obj': str(Path(obj_result['obj_path']).relative_to(package_dir)).replace('\\', '/'), 'obj_sha1': sha1_bytes(Path(obj_result['obj_path']).read_bytes()), 'mtl': str(Path(obj_result['mtl_path']).relative_to(package_dir)).replace('\\', '/') if obj_result.get('mtl_path') else '', 'mtl_sha1': sha1_bytes(Path(obj_result['mtl_path']).read_bytes()) if obj_result.get('mtl_path') else '', 'dae': str(dae_path.relative_to(package_dir)).replace('\\', '/'), 'dae_sha1': sha1_bytes(dae_path.read_bytes()), 'experimental_skeletal_dae': str(skeletal_dae_path.relative_to(package_dir)).replace('\\', '/') if skeletal_dae_path.is_file() else '', 'experimental_skeletal_dae_sha1': sha1_bytes(skeletal_dae_path.read_bytes()) if skeletal_dae_path.is_file() else '', 'experimental_skeletal_error': skeletal_error, 'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'), 'source_model_sha1': sha1_bytes(raw_source.read_bytes()), 'model_debug_json': str(debug_json_path.relative_to(package_dir)).replace('\\', '/'), 'skeleton_debug_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'), 'skeleton_uuid_hex': skeletal_dae.get('skeleton_uuid_hex', ''), 'skeleton_source_kind': skeletal_dae.get('skeleton_source_kind', ''), 'skeleton_source_path': skeletal_dae.get('skeleton_source_path', ''), 'bone_count': skeletal_dae.get('bone_count', 0), 'vertex_count': dae_result.get('vertex_count', 0), 'face_count': dae_result.get('face_count', 0), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'textures': textures, 'animations': animation_refs or [], 'skeleton_refs': skeleton_refs or []}
     manifest_path = package_dir / 'repack_manifest.json'
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     _write_report(package_dir, manifest)
-    return {'package_dir': str(package_dir), 'manifest_path': str(manifest_path), 'rigged_glb': str(rigged_path), 'textured_glb': str(textured_path), 'texture_count': len(textures), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'bone_count': rigged.get('bone_count', 0), 'vertex_count': textured.get('vertex_count', 0), 'face_count': textured.get('face_count', 0), 'animation_count': len(animation_refs or [])}
+    return {'package_dir': str(package_dir), 'manifest_path': str(manifest_path), 'obj': str(obj_result['obj_path']), 'mtl': str(obj_result.get('mtl_path', '')), 'dae': str(dae_path), 'experimental_skeletal_dae': str(skeletal_dae_path) if skeletal_dae_path.is_file() else '', 'texture_count': len(textures), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'bone_count': skeletal_dae.get('bone_count', 0), 'vertex_count': dae_result.get('vertex_count', 0), 'face_count': dae_result.get('face_count', 0), 'animation_count': len(animation_refs or []), 'experimental_skeletal_error': skeletal_error}
 
 def rebuild_model_package_from_folder(parsed, folder, out_path):
     folder = Path(folder)
