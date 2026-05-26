@@ -6,9 +6,9 @@ from pak_core import PakError, get_entry_asset, safe_name, sha1_bytes
 from pak_extract import parse_chunks, parse_head, parse_meshes, parse_vbufs, parse_ibufs, parse_material_names, decompress_gpu_blocks, decode_gpu_block_data, parse_indices, build_faces, read_half
 from skeletal_codec import parse_skel_asset, resolve_ref, ZERO_UUID
 
-def _align4(data):
+def _align4(data, pad=b'\x00'):
     while len(data) % 4:
-        data += b'\x00'
+        data += pad
     return data
 
 def _pack_floats(values):
@@ -201,16 +201,24 @@ def _global_bind_positions(bones):
     return out
 
 def _normalise_bone_nodes(bones):
+    globals_by_index = []
+    for index, bone in enumerate(bones):
+        head = bone.get('head') or [0.0, 0.0, 0.0]
+        globals_by_index.append([float(head[0]), float(head[1]), float(head[2])])
     out = []
     for index, bone in enumerate(bones):
         parent = bone.get('parent_index', -1)
-        if parent == index:
+        if parent == index or parent < 0 or parent >= len(bones):
             parent = -1
-        head = bone.get('head') or [0.0, 0.0, 0.0]
-        tail = bone.get('tail') or [head[0], head[1], head[2] + 0.035]
-        if head == tail:
-            tail = [head[0], head[1], head[2] + 0.035]
-        local = [head[0], head[1], head[2]]
+        head_global = globals_by_index[index]
+        if parent >= 0:
+            parent_global = globals_by_index[parent]
+            local = [head_global[0] - parent_global[0], head_global[1] - parent_global[1], head_global[2] - parent_global[2]]
+        else:
+            local = head_global
+        tail = bone.get('tail') or [head_global[0], head_global[1], head_global[2] + 0.035]
+        if head_global == tail:
+            tail = [head_global[0], head_global[1], head_global[2] + 0.035]
         out.append({'index': index, 'name': bone.get('name') or f'bone_{index:03d}', 'parent_index': parent, 'head': local, 'tail': tail})
     return out
 
@@ -286,11 +294,12 @@ def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=No
             nodes[parent_index].setdefault('children', []).append(index)
     mesh_node_index = len(nodes)
     nodes.append({'name': entry_name, 'mesh': 0, 'skin': 0})
-    scene_nodes = [mesh_node_index]
+    root_joints = []
     for index, bone in enumerate(bones):
         parent_index = bone.get('parent_index', -1)
         if parent_index < 0 or parent_index >= len(bones) or parent_index == index:
-            scene_nodes.append(index)
+            root_joints.append(index)
+    scene_nodes = [mesh_node_index] + root_joints
     materials = []
     for index, name in enumerate(model['materials'] or ['material_0']):
         tex_path = ''
@@ -304,13 +313,16 @@ def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=No
         if tex_index is not None:
             mat['pbrMetallicRoughness']['baseColorTexture'] = {'index': tex_index}
         materials.append(mat)
-    gltf = {'asset': {'version': '2.0', 'generator': 'PAKPY'}, 'scene': 0, 'scenes': [{'nodes': scene_nodes}], 'nodes': nodes, 'meshes': [{'name': entry_name, 'primitives': primitive_items}], 'skins': [{'name': entry_name + '_skin', 'joints': list(range(len(bones))), 'inverseBindMatrices': ibm_acc}], 'materials': materials, 'buffers': [{'byteLength': len(bin_blob)}], 'bufferViews': buffer_views, 'accessors': accessors}
+    skin = {'name': entry_name + '_skin', 'joints': list(range(len(bones))), 'inverseBindMatrices': ibm_acc}
+    if root_joints:
+        skin['skeleton'] = root_joints[0]
+    gltf = {'asset': {'version': '2.0', 'generator': 'PAKPY'}, 'scene': 0, 'scenes': [{'nodes': scene_nodes}], 'nodes': nodes, 'meshes': [{'name': entry_name, 'primitives': primitive_items}], 'skins': [skin], 'materials': materials, 'buffers': [{'byteLength': len(bin_blob)}], 'bufferViews': buffer_views, 'accessors': accessors}
     if images:
         gltf['images'] = images
         gltf['textures'] = textures
     json_blob = json.dumps(gltf, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
-    json_blob = _align4(json_blob)
-    bin_data = _align4(bytes(bin_blob))
+    json_blob = _align4(json_blob, b' ')
+    bin_data = _align4(bytes(bin_blob), b'\x00')
     total_len = 12 + 8 + len(json_blob) + 8 + len(bin_data)
     out = bytearray()
     out.extend(struct.pack('<III', 0x46546C67, 2, total_len))
