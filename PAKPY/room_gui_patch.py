@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox
 from pak_core import PakError, get_entry_asset, get_entry_payload, format_meta_lines
 from room_deep_codec import format_room_info_lines, export_room_package
 from room_full_repack import rebuild_room_package_from_folder
+from room_clone_codec import create_room_clone_files
 
 def install(App):
     original_init = App.__init__
@@ -32,10 +33,13 @@ def install(App):
         if model_button is not None:
             parent = model_button.master
             button = tk.Button(parent, text='ROOM-Paket zurückbauen', command=self.rebuild_room_package_dialog, width=21)
+            clone_button = tk.Button(parent, text='ROOM-Objekt clonen', command=self.clone_room_object_dialog, width=18)
             try:
                 button.pack(side='left', padx=(8, 0), after=model_button)
+                clone_button.pack(side='left', padx=(8, 0), after=button)
             except Exception:
                 button.pack(side='left', padx=(8, 0))
+                clone_button.pack(side='left', padx=(8, 0))
 
     def show_context_menu(self, event):
         iid = self.tree.identify_row(event.y)
@@ -108,6 +112,33 @@ def install(App):
             messagebox.showerror('Fehler', str(e))
             return
         return original_export_model_package_dialog(self)
+
+    def clone_room_object_dialog(self):
+        folder = filedialog.askdirectory(title='ROOM-Paket-Ordner auswählen')
+        if not folder:
+            return
+        try:
+            folder_path = Path(folder)
+            source_path = filedialog.askopenfilename(title='ROOMCTRL-Original-OBJ auswählen', initialdir=str(folder_path / 'room_scene_objects' / 'ROOMCTRL'), filetypes=[('OBJ-Dateien', '*.obj'), ('Alle Dateien', '*.*')])
+            if not source_path:
+                return
+            result = create_room_clone_files(folder_path, source_path)
+            lines = [
+                'ROOM-Clone-Dateien erstellt:',
+                f'Clone-ID: {result["clone_id"]}',
+                f'Dateien: {result["count"]}',
+                ''
+            ]
+            lines.extend(result['files'])
+            lines.append('')
+            lines.append('Diese clone-Dateien jetzt im Editor verschieben/rotieren/scalen und danach ROOM-Paket zurückbauen.')
+            self.output.delete('1.0', 'end')
+            self.output.insert('1.0', '\n'.join(lines))
+            messagebox.showinfo('Fertig', f'{result["count"]} Clone-Datei(en) erstellt')
+        except Exception as e:
+            self.output.delete('1.0', 'end')
+            self.output.insert('1.0', f'Fehler: {e}')
+            messagebox.showerror('Fehler', str(e))
 
     def rebuild_room_package_dialog(self):
         if self.parsed is None:
@@ -194,5 +225,6 @@ def install(App):
     App.is_room_entry = is_room_entry
     App.show_context_menu = show_context_menu
     App.export_model_package_dialog = export_model_package_dialog
+    App.clone_room_object_dialog = clone_room_object_dialog
     App.rebuild_room_package_dialog = rebuild_room_package_dialog
     App.show_selected = show_selected
