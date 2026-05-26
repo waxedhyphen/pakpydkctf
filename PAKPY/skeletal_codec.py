@@ -112,29 +112,6 @@ def _read_node_name_indices(asset,data_start,node_count,name_count):
         return values
     return []
 
-def _find_parent_table(asset,start,stop,node_count):
-    best={'score':-1,'offset':0,'values':[]}
-    if node_count<=0:
-        return best
-    for off in range(start,max(start,stop-node_count+1)):
-        values=list(asset[off:off+node_count])
-        if len(values)!=node_count:
-            continue
-        valid=sum(1 for v in values if v==255 or v<node_count)
-        roots=sum(1 for v in values if v==255)
-        backward=sum(1 for i,v in enumerate(values) if v==255 or v<i)
-        noself=sum(1 for i,v in enumerate(values) if v==255 or v!=i)
-        if valid<node_count:
-            continue
-        score=backward*4+noself+roots*8
-        if 1<=roots<=max(6,node_count//8):
-            score+=60
-        if values[:3]==[255,255,255]:
-            score+=50
-        if score>best['score']:
-            best={'score':score,'offset':off,'values':values}
-    return best
-
 def _find_skin_table(asset,start,stop,name_count,skin_bone_count):
     best={'score':-1,'offset':0,'values':[]}
     if skin_bone_count<=0:
@@ -153,6 +130,15 @@ def _find_skin_table(asset,start,stop,name_count,skin_bone_count):
         if score>best['score']:
             best={'score':score,'offset':off,'values':values}
     return best
+
+def _parent_name_table_from_skin(asset,skin_offset,node_count,name_count):
+    offset=skin_offset-node_count
+    if offset<0 or offset+node_count>len(asset):
+        return {'offset':0,'values':[]}
+    values=list(asset[offset:offset+node_count])
+    if not all(v==255 or v<name_count for v in values):
+        return {'offset':0,'values':[]}
+    return {'offset':offset,'values':values}
 
 def _score_trs_block(asset,offset,count,endian):
     if count<=0 or offset+count*40>len(asset):
@@ -204,14 +190,14 @@ def _find_trs_table(asset,start,stop,count):
                 best=candidate
     return best or {'offset':0,'endian':'be','score':0,'translations':[],'rotations':[],'scales':[],'spread':0.0}
 
-def _nearest_skin_parent(node_index,parent_values,skin_node_lookup):
-    parent=parent_values[node_index] if 0<=node_index<len(parent_values) else 255
+def _nearest_skin_parent(node_index,parent_nodes,skin_node_lookup):
+    parent=parent_nodes[node_index] if 0<=node_index<len(parent_nodes) else 255
     seen={node_index}
     while parent!=255 and parent not in seen:
         if parent in skin_node_lookup:
             return skin_node_lookup[parent]
         seen.add(parent)
-        parent=parent_values[parent] if 0<=parent<len(parent_values) else 255
+        parent=parent_nodes[parent] if 0<=parent<len(parent_nodes) else 255
     return -1
 
 def _make_tail(index,matrix,children,node_global_matrices):
@@ -223,16 +209,10 @@ def _make_tail(index,matrix,children,node_global_matrices):
                 return child_pos
     return [current[0],current[1]+0.035,current[2]]
 
-def _correct_global_matrices(node_global_matrices):
-    if not node_global_matrices:
-        return []
-    root_inv=_mat_inverse_affine(node_global_matrices[0])
-    return [_change_basis(_mat_mul(root_inv,m)) for m in node_global_matrices]
-
-def _derive_local_matrices(global_matrices,parent_values):
+def _derive_local_matrices(global_matrices,parent_nodes):
     out=[]
     for i,global_matrix in enumerate(global_matrices):
-        parent=parent_values[i] if i<len(parent_values) else 255
+        parent=parent_nodes[i] if i<len(parent_nodes) else 255
         if parent!=255 and 0<=parent<i and parent<len(global_matrices):
             out.append(_mat_mul(_mat_inverse_affine(global_matrices[parent]),global_matrix))
         else:
@@ -269,14 +249,25 @@ def parse_skel_asset(asset):
         node_name_indices=list(range(min(node_count,name_count)))
     search_start=data_start+4+len(node_name_indices)
     search_stop=min(len(asset),data_start+4096)
-    parent_info=_find_parent_table(asset,search_start,search_stop,node_count)
-    parent_values=parent_info.get('values') or [255]*node_count
-    skin_info=_find_skin_table(asset,parent_info.get('offset',search_start)+node_count,search_stop,name_count,skin_bone_count)
+    skin_info=_find_skin_table(asset,search_start,search_stop,name_count,skin_bone_count)
     skin_name_indices=skin_info.get('values') or [v for v in node_name_indices if 0<=v<name_count][:skin_bone_count]
+    parent_info=_parent_name_table_from_skin(asset,skin_info.get('offset',0),node_count,name_count)
+    parent_name_values=parent_info.get('values') or [255]*node_count
     transform_info=_find_trs_table(asset,data_start,len(asset),node_count)
     translations=transform_info.get('translations') or [[0.0,0.0,0.0] for _ in range(node_count)]
     rotations=transform_info.get('rotations') or [[1.0,0.0,0.0,0.0] for _ in range(node_count)]
     scales=transform_info.get('scales') or [[1.0,1.0,1.0] for _ in range(node_count)]
+    name_to_node={}
+    for node_index,name_index in enumerate(node_name_indices):
+        if 0<=name_index<name_count and name_index not in name_to_node:
+            name_to_node[name_index]=node_index
+    parent_nodes=[]
+    for node_index,name_index in enumerate(node_name_indices):
+        parent_name=parent_name_values[name_index] if 0<=name_index<len(parent_name_values) else 255
+        parent_node=name_to_node.get(parent_name,255) if parent_name!=255 else 255
+        if parent_node==node_index:
+            parent_node=255
+        parent_nodes.append(parent_node)
     raw_local_matrices=[]
     for i in range(node_count):
         t=translations[i] if i<len(translations) else [0.0,0.0,0.0]
@@ -285,27 +276,23 @@ def parse_skel_asset(asset):
         raw_local_matrices.append(_quat_to_mat4(t,q,s))
     raw_global_matrices=[]
     for i,local in enumerate(raw_local_matrices):
-        parent=parent_values[i] if i<len(parent_values) else 255
+        parent=parent_nodes[i] if i<len(parent_nodes) else 255
         if parent!=255 and 0<=parent<i and parent<len(raw_global_matrices):
             raw_global_matrices.append(_mat_mul(raw_global_matrices[parent],local))
         else:
             raw_global_matrices.append(local)
-    node_global_matrices=_correct_global_matrices(raw_global_matrices)
-    node_local_matrices=_derive_local_matrices(node_global_matrices,parent_values)
-    name_to_node={}
-    for node_index,name_index in enumerate(node_name_indices):
-        if 0<=name_index<name_count and name_index not in name_to_node:
-            name_to_node[name_index]=node_index
+    node_global_matrices=[_change_basis(m) for m in raw_global_matrices]
+    node_local_matrices=_derive_local_matrices(node_global_matrices,parent_nodes)
     skin_node_indices=[name_to_node[name_index] for name_index in skin_name_indices if name_index in name_to_node]
     skin_node_lookup={node_index:i for i,node_index in enumerate(skin_node_indices)}
     children={i:[] for i in range(node_count)}
-    for i,parent in enumerate(parent_values):
+    for i,parent in enumerate(parent_nodes):
         if parent!=255 and 0<=parent<node_count and parent!=i:
             children.setdefault(parent,[]).append(i)
     bones=[]
     for bone_index,node_index in enumerate(skin_node_indices):
         name_index=node_name_indices[node_index] if node_index<len(node_name_indices) else node_index
-        parent_index=_nearest_skin_parent(node_index,parent_values,skin_node_lookup)
+        parent_index=_nearest_skin_parent(node_index,parent_nodes,skin_node_lookup)
         global_matrix=node_global_matrices[node_index]
         if parent_index>=0:
             parent_global=node_global_matrices[skin_node_indices[parent_index]]
@@ -314,13 +301,13 @@ def parse_skel_asset(asset):
             local_matrix=global_matrix
         head=_mat_translation(global_matrix)
         tail=_make_tail(node_index,global_matrix,children,node_global_matrices)
-        bones.append({'index':bone_index,'node_index':node_index,'name_index':name_index,'name':names[name_index]['name'] if 0<=name_index<len(names) else f'bone_{bone_index:03d}','parent_index':parent_index,'parent_node_index':parent_values[node_index] if node_index<len(parent_values) else 255,'matrix':local_matrix,'global_matrix':global_matrix,'inverse_bind_matrix':_mat_inverse_affine(global_matrix),'translation':translations[node_index] if node_index<len(translations) else [0.0,0.0,0.0],'rotation':rotations[node_index] if node_index<len(rotations) else [1.0,0.0,0.0,0.0],'scale':scales[node_index] if node_index<len(scales) else [1.0,1.0,1.0],'head':head,'tail':tail})
+        bones.append({'index':bone_index,'node_index':node_index,'name_index':name_index,'name':names[name_index]['name'] if 0<=name_index<len(names) else f'bone_{bone_index:03d}','parent_index':parent_index,'parent_node_index':parent_nodes[node_index] if node_index<len(parent_nodes) else 255,'parent_name_index':parent_name_values[name_index] if 0<=name_index<len(parent_name_values) else 255,'matrix':local_matrix,'global_matrix':global_matrix,'inverse_bind_matrix':_mat_inverse_affine(global_matrix),'translation':translations[node_index] if node_index<len(translations) else [0.0,0.0,0.0],'rotation':rotations[node_index] if node_index<len(rotations) else [1.0,0.0,0.0,0.0],'scale':scales[node_index] if node_index<len(scales) else [1.0,1.0,1.0],'head':head,'tail':tail})
     nodes=[]
     for node_index,name_index in enumerate(node_name_indices):
         name=names[name_index]['name'] if 0<=name_index<len(names) else f'node_{node_index:03d}'
-        nodes.append({'index':node_index,'name_index':name_index,'name':name,'parent_index':parent_values[node_index] if node_index<len(parent_values) else 255,'matrix':node_local_matrices[node_index] if node_index<len(node_local_matrices) else _mat_identity(),'global_matrix':node_global_matrices[node_index] if node_index<len(node_global_matrices) else _mat_identity(),'raw_global_matrix':raw_global_matrices[node_index] if node_index<len(raw_global_matrices) else _mat_identity(),'translation':translations[node_index] if node_index<len(translations) else [0.0,0.0,0.0],'rotation':rotations[node_index] if node_index<len(rotations) else [1.0,0.0,0.0,0.0],'scale':scales[node_index] if node_index<len(scales) else [1.0,1.0,1.0]})
+        nodes.append({'index':node_index,'name_index':name_index,'name':name,'parent_index':parent_nodes[node_index] if node_index<len(parent_nodes) else 255,'parent_name_index':parent_name_values[name_index] if 0<=name_index<len(parent_name_values) else 255,'matrix':node_local_matrices[node_index] if node_index<len(node_local_matrices) else _mat_identity(),'global_matrix':node_global_matrices[node_index] if node_index<len(node_global_matrices) else _mat_identity(),'raw_global_matrix':raw_global_matrices[node_index] if node_index<len(raw_global_matrices) else _mat_identity(),'translation':translations[node_index] if node_index<len(translations) else [0.0,0.0,0.0],'rotation':rotations[node_index] if node_index<len(rotations) else [1.0,0.0,0.0,0.0],'scale':scales[node_index] if node_index<len(scales) else [1.0,1.0,1.0]})
     tail=asset[fields_offset:]
-    return {'type':'SKEL','version_a':version_a,'version_b':version_b,'marker':f'0x{marker:08X}','unknown_a':unknown_a,'size':len(asset),'sha1':sha1_bytes(asset),'name_count':name_count,'names':names,'fields':fields,'fields_offset':fields_offset,'data_start':data_start,'node_name_indices':node_name_indices,'parent_table_offset':parent_info.get('offset',0),'parent_table':parent_values,'skin_table_offset':skin_info.get('offset',0),'skin_name_indices':skin_name_indices,'skin_node_indices':skin_node_indices,'transform_offset':transform_info.get('offset',0),'transform_endian':transform_info.get('endian',''),'transform_format':'f32_trs_quat_scale','transform_stride':40,'transform_count':node_count,'transform_score':transform_info.get('score',0),'coordinate_fix':'root_removed_x_yz_flipped','tail_size':len(tail),'tail_sha1':sha1_bytes(tail),'node_count':node_count,'skin_bone_count':skin_bone_count,'nodes':nodes,'bones':bones,'status':'SKEL-Node-Tabelle, Parent-Tabelle, Skin-Bone-Liste und 40-Byte-TRS-Bind-Pose werden gelesen; root.move wird entfernt und Y/Z werden für Modellraum gespiegelt.'}
+    return {'type':'SKEL','version_a':version_a,'version_b':version_b,'marker':f'0x{marker:08X}','unknown_a':unknown_a,'size':len(asset),'sha1':sha1_bytes(asset),'name_count':name_count,'names':names,'fields':fields,'fields_offset':fields_offset,'data_start':data_start,'node_name_indices':node_name_indices,'parent_table_offset':parent_info.get('offset',0),'parent_name_table':parent_name_values,'skin_table_offset':skin_info.get('offset',0),'skin_name_indices':skin_name_indices,'skin_node_indices':skin_node_indices,'transform_offset':transform_info.get('offset',0),'transform_endian':transform_info.get('endian',''),'transform_format':'f32_trs_quat_scale','transform_stride':40,'transform_count':node_count,'transform_score':transform_info.get('score',0),'coordinate_fix':'parent_by_name_index_yz_flipped','tail_size':len(tail),'tail_sha1':sha1_bytes(tail),'node_count':node_count,'skin_bone_count':skin_bone_count,'nodes':nodes,'bones':bones,'status':'SKEL-Parent-Tabelle wird per Name-Index gelesen; Y/Z werden für Modellraum gespiegelt.'}
 
 def parse_rfrm_chunks(asset):
     if len(asset)<32 or asset[:4]!=b'RFRM':
