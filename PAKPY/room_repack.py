@@ -204,6 +204,50 @@ def clsn_tree_payload(vertices, triangle_count):
     return (1).to_bytes(4, 'big') + struct.pack('>6fIII', *(mn + mx + (0, triangle_count, 0x01000000)))
 
 
+def tri_normal(vertices, indices):
+    p = vertices[indices[0]]
+    q = vertices[indices[1]]
+    r = vertices[indices[2]]
+    ux, uy, uz = q[0] - p[0], q[1] - p[1], q[2] - p[2]
+    vx, vy, vz = r[0] - p[0], r[1] - p[1], r[2] - p[2]
+    nx = uy * vz - uz * vy
+    ny = uz * vx - ux * vz
+    nz = ux * vy - uy * vx
+    length = math.sqrt(nx * nx + ny * ny + nz * nz)
+    if length <= 0.0000001:
+        return (0.0, 1.0, 0.0)
+    return (nx / length, ny / length, nz / length)
+
+
+def surface_templates(vertices, triangles):
+    out = []
+    for tri in triangles:
+        out.append({'normal': tri_normal(vertices, tri['vertices']), 'material_index': tri.get('material_index', 0), 'flags': tri.get('flags', 0)})
+    return out
+
+
+def dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def choose_surface(index, vertices, face, old_triangles, templates, fallback_material):
+    normal = tri_normal(vertices, face[:3])
+    if index < len(old_triangles) and index < len(templates):
+        old = old_triangles[index]
+        if dot(normal, templates[index]['normal']) >= 0.985:
+            return old.get('material_index', fallback_material), old.get('flags', 0)
+    best = None
+    best_score = -2.0
+    for template in templates:
+        score = dot(normal, template['normal'])
+        if score > best_score:
+            best = template
+            best_score = score
+    if best is not None and best_score >= 0.5:
+        return best['material_index'], best['flags']
+    return fallback_material, 0
+
+
 def build_clsn_from_obj(original_asset, obj_path, transform):
     vertices, faces = parse_obj(obj_path)
     local_vertices = [to_local(vertex, transform) for vertex in vertices]
@@ -212,12 +256,12 @@ def build_clsn_from_obj(original_asset, obj_path, transform):
     tris = bytearray()
     tris += len(faces).to_bytes(4, 'big')
     old_triangles = original.get('triangles') or []
+    old_vertices = [item['pos'] for item in original.get('vertices', [])]
+    templates = surface_templates(old_vertices, old_triangles) if old_vertices and old_triangles else []
+    fallback_material = old_triangles[0].get('material_index', 0) if old_triangles else 0
     for index, face in enumerate(faces):
-        a, b, c, material_index = face
-        flags = 0
-        if index < len(old_triangles):
-            material_index = old_triangles[index].get('material_index', material_index)
-            flags = old_triangles[index].get('flags', 0)
+        a, b, c, obj_material = face
+        material_index, flags = choose_surface(index, local_vertices, face, old_triangles, templates, obj_material if obj_material != 0 else fallback_material)
         tris += int(a).to_bytes(4, 'big')
         tris += int(b).to_bytes(4, 'big')
         tris += int(c).to_bytes(4, 'big')
@@ -265,14 +309,14 @@ def build_dcln_from_obj(original_asset, obj_path, transform):
     info_payload = struct.pack('>6f', *(mn + mx))
     vert_payload = len(local_vertices).to_bytes(4, 'big') + b''.join(struct.pack('>fff', *vertex) for vertex in local_vertices)
     old_triangles = original.get('triangles') or []
+    old_vertices = [item['pos'] for item in original.get('vertices', [])]
+    templates = surface_templates(old_vertices, old_triangles) if old_vertices and old_triangles else []
+    fallback_material = old_triangles[0].get('material_index', 0) if old_triangles else 0
     tris = bytearray()
     tris += len(faces).to_bytes(4, 'big')
     for index, face in enumerate(faces):
-        a, b, c, material_index = face
-        flags = 0
-        if index < len(old_triangles):
-            material_index = old_triangles[index].get('material_index', material_index)
-            flags = old_triangles[index].get('flags', 0)
+        a, b, c, obj_material = face
+        material_index, flags = choose_surface(index, local_vertices, face, old_triangles, templates, obj_material if obj_material != 0 else fallback_material)
         tris += int(a).to_bytes(4, 'big')
         tris += int(b).to_bytes(4, 'big')
         tris += int(c).to_bytes(4, 'big')
