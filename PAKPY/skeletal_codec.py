@@ -1,5 +1,7 @@
 from pathlib import Path
 import json
+import math
+import struct
 from pak_core import PakError, get_entry_asset, safe_name, sha1_bytes, kind_to_ext
 
 ZERO_UUID = '00000000000000000000000000000000'
@@ -13,6 +15,9 @@ def be32(data, off):
 
 def be64(data, off):
     return int.from_bytes(data[off:off+8], 'big')
+
+def le32(data, off):
+    return int.from_bytes(data[off:off+4], 'little')
 
 def tag4(data, off):
     return data[off:off+4].decode('ascii', 'replace')
@@ -35,34 +40,183 @@ def read_name(asset, p):
     name = asset[p:p+size].split(b'\x00', 1)[0].decode('utf-8', 'replace')
     return name, size, p + size
 
-def _make_node_positions(parent_by_name_index, node_name_indices):
-    children = {}
-    for name_index in node_name_indices:
-        parent_name_index = parent_by_name_index.get(name_index, -1)
-        children.setdefault(parent_name_index, []).append(name_index)
-    depth = {}
-    order = {}
-    def visit(name_index, level, slot):
-        if name_index in depth:
-            return
-        depth[name_index] = level
-        order[name_index] = slot
-        for child_slot, child in enumerate(children.get(name_index, [])):
-            visit(child, level + 1, child_slot)
-    for root_slot, root in enumerate(children.get(-1, [])):
-        visit(root, 0, root_slot)
-    for name_index in node_name_indices:
-        if name_index not in depth:
-            visit(name_index, 0, len(order))
-    out = {}
-    for name_index in node_name_indices:
-        level = depth.get(name_index, 0)
-        slot = order.get(name_index, 0)
-        x = (slot % 7 - 3) * 0.018
-        y = (slot // 7) * 0.018
-        z = level * 0.045
-        out[name_index] = [round(x, 6), round(y, 6), round(z, 6)]
+def _safe_float(value):
+    value = float(value)
+    if not math.isfinite(value) or abs(value) < 0.00000001:
+        return 0.0
+    return value
+
+def _mat_identity():
+    return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
+def _mat_mul(a, b):
+    out = [0.0] * 16
+    for r in range(4):
+        for c in range(4):
+            out[r * 4 + c] = sum(a[r * 4 + k] * b[k * 4 + c] for k in range(4))
     return out
+
+def _mat3_inv(m):
+    a, b, c, d, e, f, g, h, i = m
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    if abs(det) <= 0.00000001:
+        return [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    inv_det = 1.0 / det
+    return [(e * i - f * h) * inv_det, (c * h - b * i) * inv_det, (b * f - c * e) * inv_det, (f * g - d * i) * inv_det, (a * i - c * g) * inv_det, (c * d - a * f) * inv_det, (d * h - e * g) * inv_det, (b * g - a * h) * inv_det, (a * e - b * d) * inv_det]
+
+def _mat_inverse_affine(m):
+    r = [m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]]
+    inv = _mat3_inv(r)
+    t = [m[3], m[7], m[11]]
+    it = [-(inv[0] * t[0] + inv[1] * t[1] + inv[2] * t[2]), -(inv[3] * t[0] + inv[4] * t[1] + inv[5] * t[2]), -(inv[6] * t[0] + inv[7] * t[1] + inv[8] * t[2])]
+    return [inv[0], inv[1], inv[2], it[0], inv[3], inv[4], inv[5], it[1], inv[6], inv[7], inv[8], it[2], 0.0, 0.0, 0.0, 1.0]
+
+def _quat_to_mat4(translation, rotation, scale):
+    w, x, y, z = [float(v) for v in rotation]
+    qlen = math.sqrt(w * w + x * x + y * y + z * z)
+    if qlen > 0.00000001:
+        w, x, y, z = w / qlen, x / qlen, y / qlen, z / qlen
+    sx, sy, sz = [float(v) for v in scale]
+    tx, ty, tz = [float(v) for v in translation]
+    xx, yy, zz = x * x, y * y, z * z
+    xy, xz, yz = x * y, x * z, y * z
+    wx, wy, wz = w * x, w * y, w * z
+    r00 = 1.0 - 2.0 * (yy + zz)
+    r01 = 2.0 * (xy - wz)
+    r02 = 2.0 * (xz + wy)
+    r10 = 2.0 * (xy + wz)
+    r11 = 1.0 - 2.0 * (xx + zz)
+    r12 = 2.0 * (yz - wx)
+    r20 = 2.0 * (xz - wy)
+    r21 = 2.0 * (yz + wx)
+    r22 = 1.0 - 2.0 * (xx + yy)
+    return [r00 * sx, r01 * sy, r02 * sz, tx, r10 * sx, r11 * sy, r12 * sz, ty, r20 * sx, r21 * sy, r22 * sz, tz, 0.0, 0.0, 0.0, 1.0]
+
+def _mat_translation(m):
+    return [_safe_float(m[3]), _safe_float(m[7]), _safe_float(m[11])]
+
+def _read_node_name_indices(asset, data_start, node_count, name_count):
+    if node_count <= 0 or data_start + 4 + node_count > len(asset):
+        return []
+    if le32(asset, data_start) != node_count:
+        return []
+    values = list(asset[data_start + 4:data_start + 4 + node_count])
+    if all(v == 255 or v < name_count for v in values):
+        return values
+    return []
+
+def _find_parent_table(asset, start, stop, node_count):
+    best = {'score': -1, 'offset': 0, 'values': []}
+    if node_count <= 0:
+        return best
+    for off in range(start, max(start, stop - node_count + 1)):
+        values = list(asset[off:off + node_count])
+        if len(values) != node_count:
+            continue
+        valid = sum(1 for v in values if v == 255 or v < node_count)
+        roots = sum(1 for v in values if v == 255)
+        backward = sum(1 for i, v in enumerate(values) if v == 255 or v < i)
+        noself = sum(1 for i, v in enumerate(values) if v == 255 or v != i)
+        if valid < node_count:
+            continue
+        score = backward * 4 + noself + roots * 8
+        if 1 <= roots <= max(6, node_count // 8):
+            score += 60
+        if values[:3] == [255, 255, 255]:
+            score += 50
+        if score > best['score']:
+            best = {'score': score, 'offset': off, 'values': values}
+    return best
+
+def _find_skin_table(asset, start, stop, name_count, skin_bone_count):
+    best = {'score': -1, 'offset': 0, 'values': []}
+    if skin_bone_count <= 0:
+        return best
+    for off in range(start, max(start, stop - skin_bone_count + 1)):
+        values = list(asset[off:off + skin_bone_count])
+        if len(values) != skin_bone_count:
+            continue
+        if not all(0 <= v < name_count for v in values):
+            continue
+        unique = len(set(values))
+        ascending = sum(1 for a, b in zip(values, values[1:]) if b > a)
+        score = unique * 5 + ascending
+        if unique == skin_bone_count:
+            score += 100
+        if values and values[0] > 0:
+            score += 10
+        if score > best['score']:
+            best = {'score': score, 'offset': off, 'values': values}
+    return best
+
+def _score_trs_block(asset, offset, count, endian):
+    if count <= 0 or offset + count * 40 > len(asset):
+        return None
+    fmt = ('>' if endian == 'be' else '<') + 'f' * 10
+    score = 0
+    translations = []
+    rotations = []
+    scales = []
+    for i in range(count):
+        try:
+            values = list(struct.unpack_from(fmt, asset, offset + i * 40))
+        except Exception:
+            return None
+        if not all(math.isfinite(v) and abs(v) < 1000000.0 for v in values):
+            return None
+        t = values[:3]
+        q = values[3:7]
+        s = values[7:10]
+        qlen = math.sqrt(sum(v * v for v in q))
+        if 0.98 <= qlen <= 1.02:
+            score += 8
+        elif 0.75 <= qlen <= 1.25:
+            score += 3
+        else:
+            score -= 10
+        if all(abs(abs(v) - 1.0) <= 0.02 for v in s):
+            score += 8
+        elif all(0.001 <= abs(v) <= 100.0 for v in s):
+            score += 2
+        else:
+            score -= 10
+        if sum(abs(v) for v in t) < 100.0:
+            score += 4
+        translations.append(t)
+        rotations.append(q)
+        scales.append(s)
+    spread = max((sum(abs(x) for x in t) for t in translations), default=0.0)
+    if spread < 100.0:
+        score += 40
+    return {'offset': offset, 'endian': endian, 'score': score, 'translations': translations, 'rotations': rotations, 'scales': scales, 'spread': spread}
+
+def _find_trs_table(asset, start, stop, count):
+    best = None
+    for off in range(start, max(start, stop - count * 40 + 1)):
+        for endian in ('be', 'le'):
+            candidate = _score_trs_block(asset, off, count, endian)
+            if candidate is not None and (best is None or candidate['score'] > best['score']):
+                best = candidate
+    return best or {'offset': 0, 'endian': 'be', 'score': 0, 'translations': [], 'rotations': [], 'scales': [], 'spread': 0.0}
+
+def _nearest_skin_parent(node_index, parent_values, skin_node_lookup):
+    parent = parent_values[node_index] if 0 <= node_index < len(parent_values) else 255
+    seen = {node_index}
+    while parent != 255 and parent not in seen:
+        if parent in skin_node_lookup:
+            return skin_node_lookup[parent]
+        seen.add(parent)
+        parent = parent_values[parent] if 0 <= parent < len(parent_values) else 255
+    return -1
+
+def _make_tail(index, matrix, children, node_global_matrices):
+    current = _mat_translation(matrix)
+    for child in children.get(index, []):
+        if 0 <= child < len(node_global_matrices):
+            child_pos = _mat_translation(node_global_matrices[child])
+            if sum(abs(child_pos[i] - current[i]) for i in range(3)) > 0.000001:
+                return child_pos
+    return [current[0], current[1] + 0.035, current[2]]
 
 def parse_skel_asset(asset):
     if not is_rfrm_type(asset, 'SKEL'):
@@ -85,74 +239,65 @@ def parse_skel_asset(asset):
     fields_offset = p
     fields = {}
     if p + 16 <= len(asset):
-        fields = {
-            'zero_or_flags': be32(asset, p),
-            'name_count_repeat': be16(asset, p + 4),
-            'node_count': be16(asset, p + 6),
-            'skin_bone_count': be16(asset, p + 8),
-            'group_count_a': be16(asset, p + 10),
-            'group_count_b': be16(asset, p + 12),
-            'flags_b': be16(asset, p + 14)
-        }
-    node_count = fields.get('node_count', 0)
-    skin_bone_count = fields.get('skin_bone_count', 0)
-    table_start = p + 16
-    parent_start = table_start + 1 if node_count and table_start < len(asset) and asset[table_start] == node_count and node_count < name_count else table_start
-    parent_raw = list(asset[parent_start:parent_start + node_count]) if node_count else []
-    node_name_indices = list(range(name_count)) if node_count == name_count else list(range(1, min(name_count, node_count + 1)))
-    parent_by_name_index = {}
-    for node_pos, name_index in enumerate(node_name_indices):
-        raw = parent_raw[node_pos] if node_pos < len(parent_raw) else 255
-        if raw == 255 or raw == node_pos:
-            parent_by_name_index[name_index] = -1
-        elif node_count == name_count:
-            parent_by_name_index[name_index] = raw if raw < name_count else -1
+        fields = {'zero_or_flags': be32(asset, p), 'name_count_repeat': be16(asset, p + 4), 'node_count': be16(asset, p + 6), 'skin_bone_count': be16(asset, p + 8), 'group_count_a': be16(asset, p + 10), 'group_count_b': be16(asset, p + 12), 'flags': be16(asset, p + 14)}
+    node_count = int(fields.get('node_count') or 0)
+    skin_bone_count = int(fields.get('skin_bone_count') or 0)
+    data_start = p + 16
+    node_name_indices = _read_node_name_indices(asset, data_start, node_count, name_count)
+    if not node_name_indices:
+        node_name_indices = list(range(min(node_count, name_count)))
+    search_start = data_start + 4 + len(node_name_indices)
+    search_stop = min(len(asset), data_start + 4096)
+    parent_info = _find_parent_table(asset, search_start, search_stop, node_count)
+    parent_values = parent_info.get('values') or [255] * node_count
+    skin_info = _find_skin_table(asset, parent_info.get('offset', search_start) + node_count, search_stop, name_count, skin_bone_count)
+    skin_name_indices = skin_info.get('values') or [v for v in node_name_indices if 0 <= v < name_count][:skin_bone_count]
+    transform_info = _find_trs_table(asset, data_start, len(asset), node_count)
+    translations = transform_info.get('translations') or [[0.0, 0.0, 0.0] for _ in range(node_count)]
+    rotations = transform_info.get('rotations') or [[1.0, 0.0, 0.0, 0.0] for _ in range(node_count)]
+    scales = transform_info.get('scales') or [[1.0, 1.0, 1.0] for _ in range(node_count)]
+    node_local_matrices = []
+    for i in range(node_count):
+        t = translations[i] if i < len(translations) else [0.0, 0.0, 0.0]
+        q = rotations[i] if i < len(rotations) else [1.0, 0.0, 0.0, 0.0]
+        s = scales[i] if i < len(scales) else [1.0, 1.0, 1.0]
+        node_local_matrices.append(_quat_to_mat4(t, q, s))
+    node_global_matrices = []
+    for i, local in enumerate(node_local_matrices):
+        parent = parent_values[i] if i < len(parent_values) else 255
+        if parent != 255 and 0 <= parent < i and parent < len(node_global_matrices):
+            node_global_matrices.append(_mat_mul(node_global_matrices[parent], local))
         else:
-            parent_by_name_index[name_index] = raw + 1 if raw + 1 < name_count else -1
-    bone_index_start = parent_start + len(parent_raw)
-    skin_name_indices = []
-    if skin_bone_count and bone_index_start + skin_bone_count <= len(asset):
-        values = list(asset[bone_index_start:bone_index_start + skin_bone_count])
-        if all(v < name_count for v in values) and len(set(values)) >= max(1, skin_bone_count // 2):
-            skin_name_indices = values
-    if not skin_name_indices:
-        start = 3 if name_count > 3 else 0
-        skin_name_indices = list(range(start, min(name_count, start + skin_bone_count)))
-    positions = _make_node_positions(parent_by_name_index, node_name_indices)
-    bone_lookup = {name_index: i for i, name_index in enumerate(skin_name_indices)}
+            node_global_matrices.append(local)
+    name_to_node = {}
+    for node_index, name_index in enumerate(node_name_indices):
+        if 0 <= name_index < name_count and name_index not in name_to_node:
+            name_to_node[name_index] = node_index
+    skin_node_indices = [name_to_node[name_index] for name_index in skin_name_indices if name_index in name_to_node]
+    skin_node_lookup = {node_index: i for i, node_index in enumerate(skin_node_indices)}
+    children = {i: [] for i in range(node_count)}
+    for i, parent in enumerate(parent_values):
+        if parent != 255 and 0 <= parent < node_count and parent != i:
+            children.setdefault(parent, []).append(i)
     bones = []
-    for index, name_index in enumerate(skin_name_indices):
-        parent_name_index = parent_by_name_index.get(name_index, -1)
-        parent_index = bone_lookup.get(parent_name_index, -1)
-        head = positions.get(name_index, [0.0, 0.0, round(index * 0.045, 6)])
-        child_heads = [positions[c] for c, pidx in parent_by_name_index.items() if pidx == name_index and c in positions]
-        if child_heads:
-            tail = child_heads[0]
+    for bone_index, node_index in enumerate(skin_node_indices):
+        name_index = node_name_indices[node_index] if node_index < len(node_name_indices) else node_index
+        parent_index = _nearest_skin_parent(node_index, parent_values, skin_node_lookup)
+        global_matrix = node_global_matrices[node_index]
+        if parent_index >= 0:
+            parent_global = node_global_matrices[skin_node_indices[parent_index]]
+            local_matrix = _mat_mul(_mat_inverse_affine(parent_global), global_matrix)
         else:
-            tail = [head[0], head[1], round(head[2] + 0.035, 6)]
-        bones.append({'index': index, 'name_index': name_index, 'name': names[name_index]['name'], 'parent_index': parent_index, 'parent_name_index': parent_name_index, 'head': head, 'tail': tail})
+            local_matrix = global_matrix
+        head = _mat_translation(global_matrix)
+        tail = _make_tail(node_index, global_matrix, children, node_global_matrices)
+        bones.append({'index': bone_index, 'node_index': node_index, 'name_index': name_index, 'name': names[name_index]['name'] if 0 <= name_index < len(names) else f'bone_{bone_index:03d}', 'parent_index': parent_index, 'parent_node_index': parent_values[node_index] if node_index < len(parent_values) else 255, 'matrix': local_matrix, 'global_matrix': global_matrix, 'inverse_bind_matrix': _mat_inverse_affine(global_matrix), 'translation': translations[node_index] if node_index < len(translations) else [0.0, 0.0, 0.0], 'rotation': rotations[node_index] if node_index < len(rotations) else [1.0, 0.0, 0.0, 0.0], 'scale': scales[node_index] if node_index < len(scales) else [1.0, 1.0, 1.0], 'head': head, 'tail': tail})
+    nodes = []
+    for node_index, name_index in enumerate(node_name_indices):
+        name = names[name_index]['name'] if 0 <= name_index < len(names) else f'node_{node_index:03d}'
+        nodes.append({'index': node_index, 'name_index': name_index, 'name': name, 'parent_index': parent_values[node_index] if node_index < len(parent_values) else 255, 'matrix': node_local_matrices[node_index] if node_index < len(node_local_matrices) else _mat_identity(), 'global_matrix': node_global_matrices[node_index] if node_index < len(node_global_matrices) else _mat_identity(), 'translation': translations[node_index] if node_index < len(translations) else [0.0, 0.0, 0.0], 'rotation': rotations[node_index] if node_index < len(rotations) else [1.0, 0.0, 0.0, 0.0], 'scale': scales[node_index] if node_index < len(scales) else [1.0, 1.0, 1.0]})
     tail = asset[fields_offset:]
-    return {
-        'type': 'SKEL',
-        'version_a': version_a,
-        'version_b': version_b,
-        'marker': f'0x{marker:08X}',
-        'unknown_a': unknown_a,
-        'size': len(asset),
-        'sha1': sha1_bytes(asset),
-        'name_count': name_count,
-        'names': names,
-        'fields': fields,
-        'fields_offset': fields_offset,
-        'parent_table_offset': parent_start,
-        'parent_table': parent_raw,
-        'skin_name_indices': skin_name_indices,
-        'tail_size': len(tail),
-        'tail_sha1': sha1_bytes(tail),
-        'skin_bone_count': skin_bone_count,
-        'bones': bones,
-        'status': 'SKEL-Bone-Namen und Parent-Tabelle werden gelesen. Bind-Pose bleibt bis zur vollständigen Matrix-Tabelle noch angenähert.'
-    }
+    return {'type': 'SKEL', 'version_a': version_a, 'version_b': version_b, 'marker': f'0x{marker:08X}', 'unknown_a': unknown_a, 'size': len(asset), 'sha1': sha1_bytes(asset), 'name_count': name_count, 'names': names, 'fields': fields, 'fields_offset': fields_offset, 'data_start': data_start, 'node_name_indices': node_name_indices, 'parent_table_offset': parent_info.get('offset', 0), 'parent_table': parent_values, 'skin_table_offset': skin_info.get('offset', 0), 'skin_name_indices': skin_name_indices, 'skin_node_indices': skin_node_indices, 'transform_offset': transform_info.get('offset', 0), 'transform_endian': transform_info.get('endian', ''), 'transform_format': 'f32_trs_quat_scale', 'transform_stride': 40, 'transform_count': node_count, 'transform_score': transform_info.get('score', 0), 'tail_size': len(tail), 'tail_sha1': sha1_bytes(tail), 'node_count': node_count, 'skin_bone_count': skin_bone_count, 'nodes': nodes, 'bones': bones, 'status': 'SKEL-Node-Tabelle, Parent-Tabelle, Skin-Bone-Liste und 40-Byte-TRS-Bind-Pose werden gelesen.'}
 
 def parse_rfrm_chunks(asset):
     if len(asset) < 32 or asset[:4] != b'RFRM':
