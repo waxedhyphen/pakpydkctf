@@ -5,6 +5,7 @@ from pak_core import PakError, safe_name, sha1_bytes, get_entry_asset, rebuild_p
 from pak_extract import export_txtr_bytes_as_png, make_material_texture_png_name, get_mtl_slot_for_ref_tag, export_model_entry_as_obj
 from txtr_repack import png_to_txtr_asset, can_repack_txtr_asset
 from dae_export import export_model_dae, write_model_debug_json
+from skel_probe import run_skel_probe_for_model
 
 def _package_dir_name(entry):
     base = entry.get('display_name') or entry.get('name') or entry['uuid_hex']
@@ -107,6 +108,8 @@ def _write_report(package_dir, manifest):
         lines.append(f'Experimental Skeletal DAE: {manifest["experimental_skeletal_dae"]}')
     lines.append(f'Bones: {manifest.get("bone_count", 0)}')
     lines.append(f'Faces: {manifest.get("face_count", 0)}')
+    if manifest.get('skel_probe_summary'):
+        lines.append(f'SKEL-Probe: {manifest["skel_probe_summary"]}')
     lines.append(f'Bearbeitbare PNGs: {manifest["editable_png_count"]}')
     lines.append(f'Nur Roh-Sicherung: {manifest["raw_only_count"]}')
     lines.append('')
@@ -158,11 +161,20 @@ def export_model_package(parsed, entry, out_dir, require_store=None, animation_r
         debug_json_path.write_text(json.dumps({'error': str(e)}, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     skeleton_json_path = debug_dir / 'skeleton_debug.json'
     skeleton_json_path.write_text(json.dumps(skeletal_dae.get('skeleton') or {}, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
-    manifest = {'version': 7, 'source_pak': Path(parsed['path']).name, 'entry_index': entry['index'], 'entry_type': entry['type'], 'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'obj': str(Path(obj_result['obj_path']).relative_to(package_dir)).replace('\\', '/'), 'obj_sha1': sha1_bytes(Path(obj_result['obj_path']).read_bytes()), 'mtl': str(Path(obj_result['mtl_path']).relative_to(package_dir)).replace('\\', '/') if obj_result.get('mtl_path') else '', 'mtl_sha1': sha1_bytes(Path(obj_result['mtl_path']).read_bytes()) if obj_result.get('mtl_path') else '', 'dae': str(dae_path.relative_to(package_dir)).replace('\\', '/'), 'dae_sha1': sha1_bytes(dae_path.read_bytes()), 'experimental_skeletal_dae': str(skeletal_dae_path.relative_to(package_dir)).replace('\\', '/') if skeletal_dae_path.is_file() else '', 'experimental_skeletal_dae_sha1': sha1_bytes(skeletal_dae_path.read_bytes()) if skeletal_dae_path.is_file() else '', 'experimental_skeletal_error': skeletal_error, 'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'), 'source_model_sha1': sha1_bytes(raw_source.read_bytes()), 'model_debug_json': str(debug_json_path.relative_to(package_dir)).replace('\\', '/'), 'skeleton_debug_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'), 'skeleton_uuid_hex': skeletal_dae.get('skeleton_uuid_hex', ''), 'skeleton_source_kind': skeletal_dae.get('skeleton_source_kind', ''), 'skeleton_source_path': skeletal_dae.get('skeleton_source_path', ''), 'bone_count': skeletal_dae.get('bone_count', 0), 'vertex_count': dae_result.get('vertex_count', 0), 'face_count': dae_result.get('face_count', 0), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'textures': textures, 'animations': animation_refs or [], 'skeleton_refs': skeleton_refs or []}
+    skel_probe = {'model_usage': {}, 'skeleton_count': 0, 'skeletons': []}
+    skel_probe_error = ''
+    if skeleton_refs:
+        try:
+            skel_probe = run_skel_probe_for_model(parsed, entry, skeleton_refs, debug_dir / 'skel_probe', require_store=require_store)
+        except Exception as e:
+            skel_probe_error = str(e)
+    skel_probe_path = debug_dir / 'skel_probe_summary.json'
+    skel_probe_path.write_text(json.dumps({'probe': skel_probe, 'error': skel_probe_error}, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
+    manifest = {'version': 8, 'source_pak': Path(parsed['path']).name, 'entry_index': entry['index'], 'entry_type': entry['type'], 'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'obj': str(Path(obj_result['obj_path']).relative_to(package_dir)).replace('\\', '/'), 'obj_sha1': sha1_bytes(Path(obj_result['obj_path']).read_bytes()), 'mtl': str(Path(obj_result['mtl_path']).relative_to(package_dir)).replace('\\', '/') if obj_result.get('mtl_path') else '', 'mtl_sha1': sha1_bytes(Path(obj_result['mtl_path']).read_bytes()) if obj_result.get('mtl_path') else '', 'dae': str(dae_path.relative_to(package_dir)).replace('\\', '/'), 'dae_sha1': sha1_bytes(dae_path.read_bytes()), 'experimental_skeletal_dae': str(skeletal_dae_path.relative_to(package_dir)).replace('\\', '/') if skeletal_dae_path.is_file() else '', 'experimental_skeletal_dae_sha1': sha1_bytes(skeletal_dae_path.read_bytes()) if skeletal_dae_path.is_file() else '', 'experimental_skeletal_error': skeletal_error, 'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'), 'source_model_sha1': sha1_bytes(raw_source.read_bytes()), 'model_debug_json': str(debug_json_path.relative_to(package_dir)).replace('\\', '/'), 'skeleton_debug_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'), 'skel_probe_summary': str(skel_probe_path.relative_to(package_dir)).replace('\\', '/'), 'skel_probe_error': skel_probe_error, 'skeleton_uuid_hex': skeletal_dae.get('skeleton_uuid_hex', ''), 'skeleton_source_kind': skeletal_dae.get('skeleton_source_kind', ''), 'skeleton_source_path': skeletal_dae.get('skeleton_source_path', ''), 'bone_count': skeletal_dae.get('bone_count', 0), 'vertex_count': dae_result.get('vertex_count', 0), 'face_count': dae_result.get('face_count', 0), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'textures': textures, 'animations': animation_refs or [], 'skeleton_refs': skeleton_refs or []}
     manifest_path = package_dir / 'repack_manifest.json'
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     _write_report(package_dir, manifest)
-    return {'package_dir': str(package_dir), 'manifest_path': str(manifest_path), 'obj': str(obj_result['obj_path']), 'mtl': str(obj_result.get('mtl_path', '')), 'dae': str(dae_path), 'experimental_skeletal_dae': str(skeletal_dae_path) if skeletal_dae_path.is_file() else '', 'texture_count': len(textures), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'bone_count': skeletal_dae.get('bone_count', 0), 'vertex_count': dae_result.get('vertex_count', 0), 'face_count': dae_result.get('face_count', 0), 'animation_count': len(animation_refs or []), 'experimental_skeletal_error': skeletal_error}
+    return {'package_dir': str(package_dir), 'manifest_path': str(manifest_path), 'obj': str(obj_result['obj_path']), 'mtl': str(obj_result.get('mtl_path', '')), 'dae': str(dae_path), 'experimental_skeletal_dae': str(skeletal_dae_path) if skeletal_dae_path.is_file() else '', 'texture_count': len(textures), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'bone_count': skeletal_dae.get('bone_count', 0), 'vertex_count': dae_result.get('vertex_count', 0), 'face_count': dae_result.get('face_count', 0), 'animation_count': len(animation_refs or []), 'experimental_skeletal_error': skeletal_error, 'skel_probe_error': skel_probe_error}
 
 def rebuild_model_package_from_folder(parsed, folder, out_path):
     folder = Path(folder)
