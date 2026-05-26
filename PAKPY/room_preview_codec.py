@@ -43,13 +43,14 @@ def collect_preview_refs(parsed, room_entry):
         transform = first_parent_transform(component)
         parents = component.get('parents') or []
         parent_name = parents[0]['name'] if parents else ''
+        parent_uuid = parents[0]['uuid_hex'] if parents else ''
         for uuid_hex, entry in known.items():
             if find_all(body, bytes.fromhex(uuid_hex)):
                 key = (component['uuid_hex'], uuid_hex)
                 if key in seen:
                     continue
                 seen.add(key)
-                refs.append({'uuid_hex': uuid_hex, 'entry': entry, 'entry_type': entry['type'], 'component_name': component['name'], 'component_uuid_hex': component['uuid_hex'], 'component_type_hash': component['type_hash'], 'layer_name': component['layer_name'], 'parent_name': parent_name, 'transform': transform})
+                refs.append({'uuid_hex': uuid_hex, 'entry': entry, 'entry_type': entry['type'], 'component_name': component['name'], 'component_uuid_hex': component['uuid_hex'], 'component_type_hash': component['type_hash'], 'layer_name': component['layer_name'], 'parent_name': parent_name, 'parent_component_uuid_hex': parent_uuid, 'transform': transform})
     return info, refs
 
 def rotate_xyz(point, rotation):
@@ -114,7 +115,7 @@ def box_triangles():
     return [(0, 1, 2), (0, 2, 3), (4, 6, 5), (4, 7, 6), (0, 4, 5), (0, 5, 1), (1, 5, 6), (1, 6, 2), (2, 6, 7), (2, 7, 3), (3, 7, 4), (3, 4, 0)]
 
 def write_mtl(path):
-    mats = {'dcln': (1, 0.2, 0.2), 'clsn': (0.2, 0.8, 1), 'wmdl': (0.6, 0.6, 0.6), 'cmdl': (0.8, 0.8, 0.4), 'smdl': (0.8, 0.4, 0.8), 'char': (0.4, 0.8, 0.4)}
+    mats = {'dcln': (1, 0.2, 0.2), 'clsn': (0.2, 0.8, 1), 'wmdl': (0.6, 0.6, 0.6), 'cmdl': (0.8, 0.8, 0.4), 'smdl': (0.8, 0.4, 0.8), 'char': (0.4, 0.8, 0.4), 'roomctrl': (1.0, 0.45, 0.05)}
     lines = []
     for name, color in mats.items():
         lines.append(f'newmtl {name}')
@@ -175,9 +176,35 @@ def write_split_obj(path, name, vertices, triangles, transform):
         lines.append(f'f {a + 1} {b + 1} {c + 1}')
     Path(path).write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
 
+def control_component_wanted(component):
+    if not component.get('actor_refs') or not component['actor_refs'].get('transform'):
+        return False
+    name = component.get('name') or ''
+    if name.startswith('Trigger -') or name.startswith('TriggerForce -') or name.startswith('Waypoint -') or name.startswith('ActorKeyframe -'):
+        return True
+    for token in ('Blocking Wall', 'Bounds', 'Out Of Bounds', 'OutOfBounds', 'Ledge Guardian'):
+        if token in name:
+            return True
+    return False
+
+def control_bounds(component):
+    name = component.get('name') or ''
+    if name.startswith('Waypoint -') or name.startswith('ActorKeyframe -'):
+        return ((-0.25, -0.25, -0.25), (0.25, 0.25, 0.25))
+    return ((-0.5, -0.5, -0.5), (0.5, 0.5, 0.5))
+
+def collect_room_controls(info):
+    out = []
+    for component in info['components']:
+        if not control_component_wanted(component):
+            continue
+        out.append({'uuid_hex': component['uuid_hex'], 'entry_type': 'ROOMCTRL', 'component_name': component['name'], 'component_uuid_hex': component['uuid_hex'], 'component_type_hash': component['type_hash'], 'layer_name': component['layer_name'], 'parent_name': component['name'], 'transform': component['actor_refs']['transform'], 'proxy_bounds': control_bounds(component)})
+    return out
+
 def write_room_scene_preview(parsed, room_entry, package_dir):
     package_dir = Path(package_dir)
     info, refs = collect_preview_refs(parsed, room_entry)
+    controls = collect_room_controls(info)
     obj_path = package_dir / 'room_scene_preview.obj'
     mtl_path = package_dir / 'room_scene_preview.mtl'
     tsv_path = package_dir / 'room_scene_preview.tsv'
@@ -187,24 +214,44 @@ def write_room_scene_preview(parsed, room_entry, package_dir):
     write_mtl(mtl_path)
     lines = ['o room_scene_preview', 'mtllib room_scene_preview.mtl']
     vertex_base = 1
-    counts = {'DCLN': 0, 'CLSN': 0, 'WMDL': 0, 'CMDL': 0, 'SMDL': 0, 'CHAR': 0, 'errors': 0}
+    counts = {'DCLN': 0, 'CLSN': 0, 'WMDL': 0, 'CMDL': 0, 'SMDL': 0, 'CHAR': 0, 'ROOMCTRL': 0, 'errors': 0}
     report = ['index\ttype\tuuid\tlayer\tparent_actor\tcomponent\tposition\trotation\tscale\tmode\tsplit_path']
     split_report = ['index\ttype\tuuid\tlayer\tparent_actor\tcomponent\tposition\trotation\tscale\tmode\tpath']
     manifest_objects = []
     used_names = defaultdict(int)
     written_split = 0
-    for index, ref in enumerate(refs):
+    all_items = []
+    for ref in refs:
+        all_items.append(('asset', ref))
+    for ref in controls:
+        all_items.append(('control', ref))
+    for index, pair in enumerate(all_items):
+        kind, ref = pair
         transform = ref.get('transform')
         name = obj_name(ref)
         split_rel = ''
         mode = ''
         try:
-            vertices, triangles, material, mode = build_preview_geometry(parsed, ref)
+            if kind == 'control':
+                vertices = box_vertices(ref['proxy_bounds'])
+                triangles = box_triangles()
+                material = 'roomctrl'
+                mode = 'room_control'
+            else:
+                vertices, triangles, material, mode = build_preview_geometry(parsed, ref)
             vertex_base = add_mesh(lines, vertices, triangles, transform, material, name, vertex_base)
             split_path = unique_split_path(split_root, ref['entry_type'], ref['uuid_hex'], used_names)
             write_split_obj(split_path, name, vertices, triangles, transform)
             split_rel = str(split_path.relative_to(package_dir))
-            manifest_objects.append({'index': index, 'path': split_rel, 'obj_sha1': sha1_bytes(split_path.read_bytes()), 'mode': mode, 'entry_index': ref['entry']['index'], 'entry_type': ref['entry_type'], 'entry_uuid_hex': ref['uuid_hex'], 'component_uuid_hex': ref['component_uuid_hex'], 'component_type_hash': ref['component_type_hash'], 'component_name': ref['component_name'], 'layer_name': ref['layer_name'], 'parent_name': ref['parent_name'], 'transform': transform_json(transform)})
+            item = {'index': index, 'path': split_rel, 'obj_sha1': sha1_bytes(split_path.read_bytes()), 'mode': mode, 'entry_type': ref['entry_type'], 'entry_uuid_hex': ref['uuid_hex'], 'component_uuid_hex': ref['component_uuid_hex'], 'component_type_hash': ref['component_type_hash'], 'component_name': ref['component_name'], 'layer_name': ref['layer_name'], 'parent_name': ref['parent_name'], 'transform': transform_json(transform)}
+            if kind == 'control':
+                item['entry_index'] = -1
+                item['proxy_bounds'] = [list(ref['proxy_bounds'][0]), list(ref['proxy_bounds'][1])]
+            else:
+                item['entry_index'] = ref['entry']['index']
+                if ref.get('parent_component_uuid_hex'):
+                    item['parent_component_uuid_hex'] = ref['parent_component_uuid_hex']
+            manifest_objects.append(item)
             written_split += 1
             counts[ref['entry_type']] += 1
         except Exception as e:
@@ -215,6 +262,6 @@ def write_room_scene_preview(parsed, room_entry, package_dir):
     obj_path.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
     tsv_path.write_text('\n'.join(report), encoding='utf-8', newline='\n')
     split_index_path.write_text('\n'.join(split_report), encoding='utf-8', newline='\n')
-    repack_manifest = {'version': 1, 'source_pak': Path(parsed['path']).name, 'room_entry_index': room_entry['index'], 'room_entry_uuid_hex': room_entry['uuid_hex'], 'room_entry_name': room_entry.get('display_name') or room_entry.get('name') or room_entry['uuid_hex'], 'object_root': str(split_root.relative_to(package_dir)), 'objects': manifest_objects}
+    repack_manifest = {'version': 2, 'source_pak': Path(parsed['path']).name, 'room_entry_index': room_entry['index'], 'room_entry_uuid_hex': room_entry['uuid_hex'], 'room_entry_name': room_entry.get('display_name') or room_entry.get('name') or room_entry['uuid_hex'], 'object_root': str(split_root.relative_to(package_dir)), 'objects': manifest_objects}
     repack_manifest_path.write_text(json.dumps(repack_manifest, indent=2, ensure_ascii=False), encoding='utf-8')
-    return {'preview_obj_path': str(obj_path), 'preview_mtl_path': str(mtl_path), 'preview_tsv_path': str(tsv_path), 'preview_split_dir': str(split_root), 'preview_split_tsv_path': str(split_index_path), 'preview_repack_manifest_path': str(repack_manifest_path), 'preview_split_count': written_split, 'preview_counts': counts, 'preview_ref_count': len(refs)}
+    return {'preview_obj_path': str(obj_path), 'preview_mtl_path': str(mtl_path), 'preview_tsv_path': str(tsv_path), 'preview_split_dir': str(split_root), 'preview_split_tsv_path': str(split_index_path), 'preview_repack_manifest_path': str(repack_manifest_path), 'preview_split_count': written_split, 'preview_counts': counts, 'preview_ref_count': len(refs) + len(controls)}
