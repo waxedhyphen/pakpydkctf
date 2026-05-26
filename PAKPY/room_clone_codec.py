@@ -4,7 +4,7 @@ import math
 import re
 import struct
 import uuid
-from pak_core import PakError, sha1_bytes
+from pak_core import PakError
 from room_scene_codec import parse_room_asset
 
 CLONE_NAME_RE = re.compile(r'^(clone[0-9]+)\.(.+)\.obj$', re.IGNORECASE)
@@ -18,6 +18,10 @@ def be64(data, off):
 
 def w64(buf, off, value):
     buf[off:off+8] = int(value).to_bytes(8, 'big')
+
+def obj_transform(item):
+    transform = item.get('transform') or {}
+    return {'position': tuple(float(x) for x in (transform.get('position') or (0.0, 0.0, 0.0))), 'rotation': tuple(float(x) for x in (transform.get('rotation') or (0.0, 0.0, 0.0))), 'scale': tuple(float(x) for x in (transform.get('scale') or (1.0, 1.0, 1.0)))}
 
 def parse_obj(path):
     vertices = []
@@ -46,7 +50,7 @@ def parse_obj(path):
     if not vertices or not faces:
         raise PakError(f'OBJ enthält keine nutzbare Geometrie: {path}')
     for face in faces:
-        for index in face[:3]:
+        for index in face:
             if index < 0 or index >= len(vertices):
                 raise PakError(f'OBJ-Face verweist auf ungültigen Vertex: {path}')
     return vertices, faces
@@ -173,6 +177,20 @@ def infer_proxy_transform(obj, obj_vertices):
         return None
     return transform
 
+def manifest_indexes(manifest):
+    objects = manifest.get('objects') or []
+    by_rel = {}
+    by_uuid = {}
+    for obj in objects:
+        rel = (obj.get('path') or '').replace('\\', '/')
+        if rel:
+            by_rel[rel] = obj
+        for key in ('component_uuid_hex', 'entry_uuid_hex'):
+            value = clean_hex(obj.get(key))
+            if value:
+                by_uuid.setdefault(value, obj)
+    return by_rel, by_uuid
+
 def find_clone_source(rest, rel_parent, by_rel, by_uuid):
     exact = (rel_parent / (rest + '.obj')).as_posix()
     if exact in by_rel:
@@ -189,21 +207,8 @@ def collect_clone_plans(folder, manifest):
     if not root.is_dir():
         return [], [], []
     objects = manifest.get('objects') or []
-    manifest_paths = set()
-    by_rel = {}
-    by_uuid = {}
-    for obj in objects:
-        rel = (obj.get('path') or '').replace('\\', '/')
-        if not rel:
-            continue
-        manifest_paths.add(rel)
-        by_rel[rel] = obj
-        component_uuid = clean_hex(obj.get('component_uuid_hex'))
-        entry_uuid = clean_hex(obj.get('entry_uuid_hex'))
-        if component_uuid:
-            by_uuid.setdefault(component_uuid, obj)
-        if entry_uuid:
-            by_uuid.setdefault(entry_uuid, obj)
+    manifest_paths = set((obj.get('path') or '').replace('\\', '/') for obj in objects if obj.get('path'))
+    by_rel, by_uuid = manifest_indexes(manifest)
     plans = []
     changed = []
     unsupported = []
@@ -288,14 +293,22 @@ def locate_layer_srip(asset, info, layer_index):
         raise PakError('Clone-Layer wurde nicht gefunden')
     p = layer['off'] + 32
     end = layer['off'] + layer['size']
-    while p + 32 <= end and asset[p:p+4] == b'RFRM':
-        child_size = be64(asset, p + 4)
-        child_end = p + 32 + child_size
-        if child_end > end:
-            break
-        if asset[p+20:p+24] == b'SRIP':
-            return {'layer_off': layer['off'], 'srip_off': p, 'insert_off': child_end}
-        p = child_end
+    while p + 24 <= end:
+        tag = asset[p:p+4]
+        size = be64(asset, p + 4) if p + 12 <= end else 0
+        if tag == b'RFRM' and p + 32 <= end:
+            child_end = p + 32 + size
+            if child_end <= end and asset[p+20:p+24] == b'SRIP':
+                return {'layer_off': layer['off'], 'srip_off': p, 'insert_off': child_end}
+            if child_end > p and child_end <= end:
+                p = child_end
+                continue
+        if tag in (b'LHED', b'XXXX'):
+            chunk_end = p + 24 + size
+            if chunk_end > p and chunk_end <= end:
+                p = chunk_end
+                continue
+        p += 1
     raise PakError(f'SRIP für Clone-Layer fehlt: {layer.get("name") or layer_index}')
 
 def insert_clone_blocks(asset_bytes, info, blocks_by_layer):
@@ -361,3 +374,79 @@ def apply_room_clones(parsed, folder, manifest, room_asset):
     if len(parsed_again['components']) <= len(info['components']):
         raise PakError('ROOM-Clone hat keine neuen Komponenten erzeugt')
     return cloned, clone_count, changed, unsupported
+
+def next_clone_id(root):
+    used = set()
+    for path in Path(root).rglob('clone*.obj'):
+        match = CLONE_NAME_RE.match(path.name)
+        if match:
+            try:
+                used.add(int(match.group(1)[5:]))
+            except Exception:
+                pass
+    number = 1
+    while number in used:
+        number += 1
+    return f'clone{number:04d}'
+
+def dist(a, b):
+    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
+
+def related_sources(source, objects):
+    out = [source]
+    name = (source.get('component_name') or '').lower()
+    layer = source.get('layer_name')
+    pos = obj_transform(source)['position']
+    if 'barrel' in name or 'throwableobject' in name:
+        for obj in objects:
+            if obj is source:
+                continue
+            if not (obj.get('entry_type') == 'ROOMCTRL' or obj.get('mode') == 'room_control'):
+                continue
+            if obj.get('layer_name') != layer:
+                continue
+            obj_name = (obj.get('component_name') or '').lower()
+            if 'rambi charge vulnerable' not in obj_name:
+                continue
+            if dist(pos, obj_transform(obj)['position']) <= 8.0:
+                out.append(obj)
+    return out
+
+def create_room_clone_files(folder, source_obj_path):
+    folder = Path(folder)
+    source_obj_path = Path(source_obj_path)
+    manifest_path = folder / 'room_scene_repack_manifest.json'
+    if not manifest_path.is_file():
+        raise PakError('room_scene_repack_manifest.json fehlt')
+    import json
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    root = folder / (manifest.get('object_root') or 'room_scene_objects')
+    if not root.is_dir():
+        raise PakError('room_scene_objects fehlt')
+    try:
+        rel = source_obj_path.relative_to(folder).as_posix()
+    except Exception:
+        raise PakError('Quelle muss im ROOM-Paket-Ordner liegen')
+    by_rel, by_uuid = manifest_indexes(manifest)
+    source = by_rel.get(rel)
+    if source is None:
+        raise PakError('Quelle ist kein Original-ROOMCTRL-Objekt aus dem Manifest')
+    if not (source.get('entry_type') == 'ROOMCTRL' or source.get('mode') == 'room_control'):
+        raise PakError('Clone-Erstellung geht aktuell nur für ROOMCTRL-Objekte')
+    clone_id = next_clone_id(root)
+    objects = manifest.get('objects') or []
+    sources = related_sources(source, objects)
+    written = []
+    for item in sources:
+        item_rel = (item.get('path') or '').replace('\\', '/')
+        src = folder / item_rel
+        if not src.is_file():
+            continue
+        dst = src.with_name(f'{clone_id}.{src.name}')
+        if dst.exists():
+            raise PakError(f'Clone-Datei existiert bereits: {dst.name}')
+        dst.write_bytes(src.read_bytes())
+        written.append(str(dst.relative_to(folder)))
+    if not written:
+        raise PakError('Keine Clone-Dateien erstellt')
+    return {'clone_id': clone_id, 'files': written, 'count': len(written)}
