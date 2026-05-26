@@ -3,6 +3,7 @@ import json
 from pak_core import PakError, safe_name, sha1_bytes, get_entry_asset, rebuild_pak
 from pak_extract import export_model_entry_as_obj, export_txtr_bytes_as_png, make_material_texture_png_name, get_mtl_slot_for_ref_tag
 from txtr_repack import png_to_txtr_asset, can_repack_txtr_asset
+from skeletal_codec import export_model_skeletal_sidecar
 
 def _package_dir_name(entry):
     base = entry.get('display_name') or entry.get('name') or entry['uuid_hex']
@@ -121,6 +122,16 @@ def _write_report(package_dir, manifest):
     lines.append(f'MTL: {manifest["mtl_name"]}')
     lines.append(f'Bearbeitbare PNGs: {manifest["editable_png_count"]}')
     lines.append(f'Nur Roh-Sicherung: {manifest["raw_only_count"]}')
+    skel = manifest.get('skeletal', {})
+    if skel:
+        lines.append('')
+        lines.append('Skeleton/Animation:')
+        lines.append(f'- Bones laut SKHD: {skel.get("bone_count", 0)}')
+        lines.append(f'- Skin-Komponenten: {skel.get("skin_component_count", 0)}')
+        lines.append(f'- Verlinkte SKEL: {skel.get("linked_skeleton_count", 0)}')
+        lines.append(f'- Animationen: {skel.get("resolved_animation_count", 0)}/{skel.get("animation_count", 0)} aufgelöst')
+        if skel.get('blender_script_file'):
+            lines.append(f'- Blender-Script: {skel["blender_script_file"]}')
     lines.append('')
     lines.append('Texturen:')
     for item in manifest.get('textures', []):
@@ -137,7 +148,7 @@ def _write_report(package_dir, manifest):
         lines.append(line)
     (package_dir / 'repack_report.txt').write_text('\n'.join(lines), encoding='utf-8')
 
-def export_model_package(parsed, entry, out_dir, require_store=None):
+def export_model_package(parsed, entry, out_dir, require_store=None, animation_refs=None):
     if entry['type'] not in ('CMDL', 'SMDL', 'WMDL'):
         raise PakError('Modellpaket geht nur bei CMDL, SMDL oder WMDL')
     out_dir = Path(out_dir)
@@ -147,8 +158,9 @@ def export_model_package(parsed, entry, out_dir, require_store=None):
     result = export_model_entry_as_obj(parsed, entry, package_dir, write_mtl=True, material_texture_map=material_texture_map)
     obj_path = Path(result['obj_path']) if result.get('obj_path') else None
     mtl_path = Path(result['mtl_path']) if result.get('mtl_path') else None
+    skeletal = export_model_skeletal_sidecar(parsed, entry, package_dir, require_store=require_store, animation_refs=animation_refs)
     manifest = {
-        'version': 2,
+        'version': 3,
         'source_pak': Path(parsed['path']).name,
         'entry_index': entry['index'],
         'entry_type': entry['type'],
@@ -160,7 +172,8 @@ def export_model_package(parsed, entry, out_dir, require_store=None):
         'mtl_sha1': sha1_bytes(mtl_path.read_bytes()) if mtl_path and mtl_path.is_file() else '',
         'editable_png_count': editable_count,
         'raw_only_count': raw_only_count,
-        'textures': textures
+        'textures': textures,
+        'skeletal': skeletal
     }
     manifest_path = package_dir / 'repack_manifest.json'
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8')
@@ -172,7 +185,11 @@ def export_model_package(parsed, entry, out_dir, require_store=None):
         'mtl_path': str(mtl_path) if mtl_path else '',
         'texture_count': len(textures),
         'editable_png_count': editable_count,
-        'raw_only_count': raw_only_count
+        'raw_only_count': raw_only_count,
+        'bone_count': skeletal.get('bone_count', 0),
+        'resolved_animation_count': skeletal.get('resolved_animation_count', 0),
+        'animation_count': skeletal.get('animation_count', 0),
+        'blender_script_file': skeletal.get('blender_script_file', '')
     }
 
 def rebuild_model_package_from_folder(parsed, folder, out_path):
