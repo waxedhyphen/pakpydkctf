@@ -1,7 +1,7 @@
 from pathlib import Path
 from pak_core import PakError, get_entry_asset, rebuild_pak
 from room_repack import read_manifest, validate_room_manifest, detect_room_object_changes
-from room_clone_linked import apply_room_clones
+from room_clone_named import apply_room_clones
 
 
 def rebuild_room_package_from_folder(parsed, folder, out_path):
