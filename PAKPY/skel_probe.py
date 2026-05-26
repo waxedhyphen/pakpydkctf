@@ -71,7 +71,8 @@ def parse_skel_layout(asset):
     if p + 16 <= len(asset):
         fields = {'zero_or_flags': be32(asset, p), 'name_count_repeat': be16(asset, p + 4), 'node_count': be16(asset, p + 6), 'skin_bone_count': be16(asset, p + 8), 'group_count_a': be16(asset, p + 10), 'group_count_b': be16(asset, p + 12), 'flags': be16(asset, p + 14)}
     data_start = p + 16
-    return {'type': 'SKEL', 'size': len(asset), 'sha1': sha1_bytes(asset), 'version_a': be32(asset, 24), 'version_b': be32(asset, 28), 'marker': f'0x{marker:08X}', 'unknown_a': unknown_a, 'name_count': name_count, 'names': names, 'fields_offset': fields_offset, 'fields': fields, 'data_start': data_start, 'data_start_hex': f'0x{data_start:X}', 'data_head_hex': asset[data_start:data_start+512].hex()}
+    data_probe_end = min(len(asset), data_start + 4096)
+    return {'type': 'SKEL', 'size': len(asset), 'sha1': sha1_bytes(asset), 'version_a': be32(asset, 24), 'version_b': be32(asset, 28), 'marker': f'0x{marker:08X}', 'unknown_a': unknown_a, 'name_count': name_count, 'names': names, 'fields_offset': fields_offset, 'fields': fields, 'data_start': data_start, 'data_start_hex': f'0x{data_start:X}', 'data_probe_size': data_probe_end - data_start, 'data_probe_hex': asset[data_start:data_probe_end].hex()}
 
 def collect_model_skin_usage(parsed, model_entry):
     asset = get_entry_asset(parsed, model_entry)
@@ -119,18 +120,29 @@ def _table_score_parent(values, node_count):
 def _table_score_skin(values, name_count, skin_bone_count):
     if not values or skin_bone_count <= 0:
         return 0, []
-    score = 0
     reasons = []
-    if len(values) == skin_bone_count:
-        score += 20
-        reasons.append('skin_count_matches')
-    if all(v < name_count for v in values):
-        score += 35
-        reasons.append('skin_name_indices_valid')
+    if len(values) != skin_bone_count:
+        return 0, ['skin_count_mismatch']
+    if not all(0 <= v < name_count for v in values):
+        invalid = sorted({v for v in values if v >= name_count or v < 0})[:12]
+        return 0, [f'skin_indices_invalid:{invalid}']
+    score = 55
+    reasons.append('skin_count_matches')
+    reasons.append('skin_name_indices_valid')
     if len(set(values)) == len(values):
         score += 15
         reasons.append('skin_indices_unique')
+    else:
+        reasons.append('skin_indices_not_unique')
     return score, reasons
+
+def _skin_values_valid(values, layout):
+    if not values:
+        return False
+    fields = layout.get('fields') or {}
+    name_count = int(layout.get('name_count') or 0)
+    skin_bone_count = int(fields.get('skin_bone_count') or 0)
+    return len(values) == skin_bone_count and all(0 <= int(v) < name_count for v in values)
 
 def probe_tables(asset, layout):
     fields = layout.get('fields') or {}
@@ -139,7 +151,7 @@ def probe_tables(asset, layout):
     name_count = int(layout.get('name_count') or 0)
     data_start = int(layout.get('data_start') or 0)
     out = []
-    end = min(len(asset), data_start + 96)
+    end = min(len(asset), data_start + 512)
     for off in range(data_start, end):
         parent_values = list(asset[off:off+node_count]) if node_count > 0 and off + node_count <= len(asset) else []
         parent_score, parent_reasons = _table_score_parent(parent_values, node_count)
@@ -150,7 +162,7 @@ def probe_tables(asset, layout):
         if score > 0:
             out.append({'offset': off, 'offset_hex': f'0x{off:X}', 'parent_size': len(parent_values), 'skin_offset': skin_off, 'skin_offset_hex': f'0x{skin_off:X}', 'skin_size': len(skin_values), 'score': score, 'reasons': parent_reasons + skin_reasons, 'parent_values': parent_values, 'skin_values': skin_values})
     out.sort(key=lambda item: item['score'], reverse=True)
-    return out[:24]
+    return out[:40]
 
 def _unpack_values(asset, off, count, endian):
     fmt = ('>' if endian == 'be' else '<') + 'f' * count
@@ -319,9 +331,9 @@ def _fallback_bone_names(layout, count, skin_values=None):
 def write_candidate_armature_dae(path, layout, table_candidate, transform_candidate):
     count = int(transform_candidate.get('count') or 0)
     translations = transform_candidate.get('translations') or []
-    skin_values = table_candidate.get('skin_values') if table_candidate else []
+    skin_values = table_candidate.get('skin_values') if table_candidate and _skin_values_valid(table_candidate.get('skin_values'), layout) else []
     names = _fallback_bone_names(layout, count, skin_values)
-    parent_map = _parent_map_from_table(table_candidate or {}, skin_values) if table_candidate else {0: -1}
+    parent_map = _parent_map_from_table(table_candidate or {}, skin_values) if skin_values else {0: -1}
     children = {i: [] for i in range(count)}
     roots = []
     for i in range(count):
@@ -361,6 +373,11 @@ def write_candidate_armature_dae(path, layout, table_candidate, transform_candid
 def write_probe_outputs(out_dir, skeleton_uuid, asset, layout, table_candidates, transform_candidates, model_usage=None):
     out_dir = Path(out_dir) / safe_name(skeleton_uuid)
     out_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = out_dir / 'skeleton_source.skel'
+    raw_path.write_bytes(asset)
+    data_path = out_dir / 'skeleton_data_after_names.bin'
+    data_start = int(layout.get('data_start') or 0)
+    data_path.write_bytes(asset[data_start:])
     (out_dir / 'layout.json').write_text(json.dumps(layout, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     (out_dir / 'model_skin_usage.json').write_text(json.dumps(model_usage or {}, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     (out_dir / 'table_candidates.json').write_text(json.dumps(table_candidates, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
@@ -379,7 +396,7 @@ def write_probe_outputs(out_dir, skeleton_uuid, asset, layout, table_candidates,
         small['translations'] = candidate.get('translations', [])[:32]
         (out_dir / f'candidate_{rank:02d}.json').write_text(json.dumps(small, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
         dae_files.append(str(dae_path))
-    summary = {'skeleton_uuid_hex': skeleton_uuid, 'skeleton_uuid': format_uuid(skeleton_uuid), 'layout_json': str(out_dir / 'layout.json'), 'table_candidates_json': str(out_dir / 'table_candidates.json'), 'transform_candidates_json': str(out_dir / 'transform_candidates.json'), 'candidate_scores_csv': str(out_dir / 'candidate_scores.csv'), 'candidate_armatures': dae_files, 'best_transform': transform_candidates[0] if transform_candidates else {}, 'best_table': table_candidates[0] if table_candidates else {}}
+    summary = {'skeleton_uuid_hex': skeleton_uuid, 'skeleton_uuid': format_uuid(skeleton_uuid), 'raw_skel': str(raw_path), 'raw_skel_sha1': sha1_bytes(asset), 'data_after_names': str(data_path), 'layout_json': str(out_dir / 'layout.json'), 'table_candidates_json': str(out_dir / 'table_candidates.json'), 'transform_candidates_json': str(out_dir / 'transform_candidates.json'), 'candidate_scores_csv': str(out_dir / 'candidate_scores.csv'), 'candidate_armatures': dae_files, 'best_transform': transform_candidates[0] if transform_candidates else {}, 'best_table': table_candidates[0] if table_candidates else {}}
     (out_dir / 'summary.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     return summary
 
