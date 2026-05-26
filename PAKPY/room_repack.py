@@ -191,12 +191,17 @@ def chunk(tag, payload, version=0):
     return bytes(head) + payload
 
 
-def tree_payload(vertices, triangle_count):
+def dcln_tree_payload(vertices, triangle_count):
     mn, mx = bounds(vertices)
     center = tuple((a + b) * 0.5 for a, b in zip(mn, mx))
     half = tuple(max((b - a) * 0.5, 0.0001) for a, b in zip(mn, mx))
     values = (1.0, 0.0, 0.0, center[0], 0.0, 1.0, 0.0, center[1], 0.0, 0.0, 1.0, center[2], half[0], half[1], half[2])
     return (1).to_bytes(4, 'big') + struct.pack('>15fIII', *(values + (0, triangle_count, 0x01000000)))
+
+
+def clsn_tree_payload(vertices, triangle_count):
+    mn, mx = bounds(vertices)
+    return (1).to_bytes(4, 'big') + struct.pack('>6fIII', *(mn + mx + (0, triangle_count, 0x01000000)))
 
 
 def build_clsn_from_obj(original_asset, obj_path, transform):
@@ -228,7 +233,7 @@ def build_clsn_from_obj(original_asset, obj_path, transform):
         elif tag == 'TRIS':
             parts.append(chunk('TRIS', bytes(tris), version))
         elif tag == 'TREE':
-            parts.append(chunk('TREE', tree_payload(local_vertices, len(faces)), version))
+            parts.append(chunk('TREE', clsn_tree_payload(local_vertices, len(faces)), version))
         else:
             parts.append(source[item['off']:item['off'] + 24 + item['size']])
     body = b''.join(parts)
@@ -284,7 +289,7 @@ def build_dcln_from_obj(original_asset, obj_path, transform):
         elif tag == 'TRIS':
             parts.append(chunk('TRIS', bytes(tris), version))
         elif tag == 'TREE':
-            parts.append(chunk('TREE', tree_payload(local_vertices, len(faces)), version))
+            parts.append(chunk('TREE', dcln_tree_payload(local_vertices, len(faces)), version))
         else:
             parts.append(source[item['off']:item['off'] + 24 + item['size']])
     body = b''.join(parts)
