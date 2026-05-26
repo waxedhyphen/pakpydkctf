@@ -2,9 +2,9 @@ from pathlib import Path
 import json
 import mimetypes
 import struct
-from pak_core import PakError, get_entry_asset, safe_name, sha1_bytes
+from pak_core import PakError, get_entry_asset, safe_name
 from pak_extract import parse_chunks, parse_head, parse_meshes, parse_vbufs, parse_ibufs, parse_material_names, decompress_gpu_blocks, decode_gpu_block_data, parse_indices, build_faces, read_half
-from skeletal_codec import parse_skel_asset, resolve_ref, ZERO_UUID
+from skeletal_codec import parse_skel_asset, resolve_ref
 
 def _align4(data, pad=b'\x00'):
     while len(data) % 4:
@@ -47,12 +47,12 @@ def _parse_vertices(vertex_buffer, raw_vertex_data):
     weights = []
     normal_semantics = {1}
     tangent_semantics = {2, 3, 12, 13}
-    uv_semantics = {4, 5, 6, 7, 8}
+    uv_semantics = {4, 5, 6, 7, 8, 9, 10, 11}
     for index in range(actual_vertex_count):
         base = index * stride
         position = [0.0, 0.0, 0.0]
         normal = [0.0, 0.0, 1.0]
-        uv = [0.0, 0.0]
+        uv = None
         joint = [0, 0, 0, 0]
         weight = [1.0, 0.0, 0.0, 0.0]
         for component in vertex_buffer['components']:
@@ -69,13 +69,13 @@ def _parse_vertices(vertex_buffer, raw_vertex_data):
                     weight = _normalise_weights(value)
                 elif typ in tangent_semantics and normal == [0.0, 0.0, 1.0]:
                     normal = value[:3]
-            elif fmt in (20, 21) and typ in uv_semantics and entry + 4 <= len(raw_vertex_data):
+            elif fmt in (20, 21) and typ in uv_semantics and entry + 4 <= len(raw_vertex_data) and uv is None:
                 uv = [read_half(raw_vertex_data, entry), 1.0 - read_half(raw_vertex_data, entry + 2)]
             elif fmt == 22 and typ == 9 and entry + 4 <= len(raw_vertex_data):
                 joint = _read_u8x4(raw_vertex_data, entry)
         positions.append(position)
         normals.append(normal)
-        uvs.append(uv)
+        uvs.append(uv if uv is not None else [0.0, 0.0])
         joints.append(joint)
         weights.append(weight)
     return {'positions': positions, 'normals': normals, 'uvs': uvs, 'joints': joints, 'weights': weights, 'reported_vertex_count': reported_vertex_count, 'actual_vertex_count': actual_vertex_count, 'truncated': actual_vertex_count < reported_vertex_count}
@@ -127,10 +127,7 @@ def load_model_with_skin(data):
 def _fallback_bones(count):
     if count <= 0:
         count = 1
-    bones = []
-    for index in range(count):
-        bones.append({'index': index, 'name': f'bone_{index:03d}', 'parent_index': -1 if index == 0 else 0, 'head': [0.0, 0.0, 0.0], 'tail': [0.0, 0.0, 0.035]})
-    return bones
+    return [{'index': i, 'name': f'bone_{i:03d}', 'parent_index': -1 if i == 0 else 0, 'head': [0.0, 0.0, 0.0], 'tail': [0.0, 0.0, 0.035]} for i in range(count)]
 
 def _load_skeleton(parsed, model, require_store, skeleton_refs):
     for ref in skeleton_refs or []:
@@ -192,7 +189,10 @@ def _sanitize_parent_list(bones):
     parents = []
     count = len(bones)
     for index, bone in enumerate(bones):
-        parent = int(bone.get('parent_index', -1)) if str(bone.get('parent_index', -1)).lstrip('-').isdigit() else -1
+        try:
+            parent = int(bone.get('parent_index', -1))
+        except Exception:
+            parent = -1
         if parent < 0 or parent >= count or parent == index:
             parent = -1
         parents.append(parent)
@@ -240,7 +240,7 @@ def _normalise_bone_nodes(bones):
         out.append({'index': index, 'name': bone.get('name') or f'bone_{index:03d}', 'parent_index': parent, 'head': local, 'tail': tail})
     return out
 
-def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=None):
+def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=None, include_skin=True):
     bones = _normalise_bone_nodes(bones)
     positions, normals, uvs, joints, weights, primitives, face_count = _mesh_arrays(model, len(bones))
     texture_map = texture_map or {}
@@ -282,42 +282,50 @@ def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=No
         images.append({'bufferView': view, 'mimeType': mime, 'name': image_path.stem})
         textures.append({'source': len(images) - 1})
         return len(textures) - 1
-    flat_pos = [x for item in positions for x in item]
-    flat_normals = [x for item in normals for x in item]
-    flat_uvs = [x for item in uvs for x in item]
-    flat_joints = [x for item in joints for x in item]
-    flat_weights = [x for item in weights for x in item]
-    mins = [min(p[i] for p in positions) for i in range(3)]
-    maxs = [max(p[i] for p in positions) for i in range(3)]
-    pos_acc = add_accessor(_pack_floats(flat_pos), 5126, len(positions), 'VEC3', target=34962, min_value=mins, max_value=maxs)
-    normal_acc = add_accessor(_pack_floats(flat_normals), 5126, len(normals), 'VEC3', target=34962)
-    uv_acc = add_accessor(_pack_floats(flat_uvs), 5126, len(uvs), 'VEC2', target=34962)
-    joint_acc = add_accessor(_pack_u16(flat_joints), 5123, len(joints), 'VEC4', target=34962)
-    weight_acc = add_accessor(_pack_floats(flat_weights), 5126, len(weights), 'VEC4', target=34962)
+    pos_acc = add_accessor(_pack_floats([x for item in positions for x in item]), 5126, len(positions), 'VEC3', target=34962, min_value=[min(p[i] for p in positions) for i in range(3)], max_value=[max(p[i] for p in positions) for i in range(3)])
+    normal_acc = add_accessor(_pack_floats([x for item in normals for x in item]), 5126, len(normals), 'VEC3', target=34962)
+    uv_acc = add_accessor(_pack_floats([x for item in uvs for x in item]), 5126, len(uvs), 'VEC2', target=34962)
+    joint_acc = None
+    weight_acc = None
+    if include_skin:
+        joint_acc = add_accessor(_pack_u16([x for item in joints for x in item]), 5123, len(joints), 'VEC4', target=34962)
+        weight_acc = add_accessor(_pack_floats([x for item in weights for x in item]), 5126, len(weights), 'VEC4', target=34962)
     primitive_items = []
     for primitive in primitives:
         idx_acc = add_accessor(_pack_u32(primitive['indices']), 5125, len(primitive['indices']), 'SCALAR', target=34963)
-        primitive_items.append({'attributes': {'POSITION': pos_acc, 'NORMAL': normal_acc, 'TEXCOORD_0': uv_acc, 'JOINTS_0': joint_acc, 'WEIGHTS_0': weight_acc}, 'indices': idx_acc, 'material': primitive['material_index'] if primitive['material_index'] < max(1, len(model['materials'])) else 0})
-    global_positions = _global_bind_positions(bones)
-    ibm = []
-    for pos in global_positions:
-        ibm.extend(_inverse_translation_matrix(pos))
-    ibm_acc = add_accessor(_pack_floats(ibm), 5126, len(bones), 'MAT4')
+        attributes = {'POSITION': pos_acc, 'NORMAL': normal_acc, 'TEXCOORD_0': uv_acc}
+        if include_skin:
+            attributes['JOINTS_0'] = joint_acc
+            attributes['WEIGHTS_0'] = weight_acc
+        primitive_items.append({'attributes': attributes, 'indices': idx_acc, 'material': primitive['material_index'] if primitive['material_index'] < max(1, len(model['materials'])) else 0})
     nodes = []
-    for bone in bones:
-        nodes.append({'name': bone['name'], 'translation': bone['head']})
-    for index, bone in enumerate(bones):
-        parent_index = bone.get('parent_index', -1)
-        if parent_index >= 0 and parent_index < len(nodes) and parent_index != index:
-            nodes[parent_index].setdefault('children', []).append(index)
-    mesh_node_index = len(nodes)
-    nodes.append({'name': entry_name, 'mesh': 0, 'skin': 0})
     root_joints = []
-    for index, bone in enumerate(bones):
-        parent_index = bone.get('parent_index', -1)
-        if parent_index < 0 or parent_index >= len(bones) or parent_index == index:
-            root_joints.append(index)
-    scene_nodes = [mesh_node_index] + root_joints
+    skins = []
+    mesh_node_index = 0
+    if include_skin:
+        global_positions = _global_bind_positions(bones)
+        ibm = []
+        for pos in global_positions:
+            ibm.extend(_inverse_translation_matrix(pos))
+        ibm_acc = add_accessor(_pack_floats(ibm), 5126, len(bones), 'MAT4')
+        for bone in bones:
+            nodes.append({'name': bone['name'], 'translation': bone['head']})
+        for index, bone in enumerate(bones):
+            parent_index = bone.get('parent_index', -1)
+            if parent_index >= 0 and parent_index < len(nodes) and parent_index != index:
+                nodes[parent_index].setdefault('children', []).append(index)
+        for index, bone in enumerate(bones):
+            parent_index = bone.get('parent_index', -1)
+            if parent_index < 0 or parent_index >= len(bones) or parent_index == index:
+                root_joints.append(index)
+        mesh_node_index = len(nodes)
+        nodes.append({'name': entry_name, 'mesh': 0, 'skin': 0})
+        skin = {'name': entry_name + '_skin', 'joints': list(range(len(bones))), 'inverseBindMatrices': ibm_acc}
+        if root_joints:
+            skin['skeleton'] = root_joints[0]
+        skins.append(skin)
+    else:
+        nodes.append({'name': entry_name, 'mesh': 0})
     materials = []
     for index, name in enumerate(model['materials'] or ['material_0']):
         tex_path = ''
@@ -331,15 +339,14 @@ def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=No
         if tex_index is not None:
             mat['pbrMetallicRoughness']['baseColorTexture'] = {'index': tex_index}
         materials.append(mat)
-    skin = {'name': entry_name + '_skin', 'joints': list(range(len(bones))), 'inverseBindMatrices': ibm_acc}
-    if root_joints:
-        skin['skeleton'] = root_joints[0]
-    gltf = {'asset': {'version': '2.0', 'generator': 'PAKPY'}, 'scene': 0, 'scenes': [{'nodes': scene_nodes}], 'nodes': nodes, 'meshes': [{'name': entry_name, 'primitives': primitive_items}], 'skins': [skin], 'materials': materials, 'buffers': [{'byteLength': len(bin_blob)}], 'bufferViews': buffer_views, 'accessors': accessors}
+    scene_nodes = [mesh_node_index] + root_joints if include_skin else [0]
+    gltf = {'asset': {'version': '2.0', 'generator': 'PAKPY'}, 'scene': 0, 'scenes': [{'nodes': scene_nodes}], 'nodes': nodes, 'meshes': [{'name': entry_name, 'primitives': primitive_items}], 'materials': materials, 'buffers': [{'byteLength': len(bin_blob)}], 'bufferViews': buffer_views, 'accessors': accessors}
+    if include_skin:
+        gltf['skins'] = skins
     if images:
         gltf['images'] = images
         gltf['textures'] = textures
-    json_blob = json.dumps(gltf, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
-    json_blob = _align4(json_blob, b' ')
+    json_blob = _align4(json.dumps(gltf, separators=(',', ':'), ensure_ascii=False).encode('utf-8'), b' ')
     bin_data = _align4(bytes(bin_blob), b'\x00')
     total_len = 12 + 8 + len(json_blob) + 8 + len(bin_data)
     out = bytearray()
@@ -350,14 +357,19 @@ def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=No
     out.extend(bin_data)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(out)
-    return {'glb_path': str(path), 'vertex_count': len(positions), 'face_count': face_count, 'bone_count': len(bones)}
+    return {'glb_path': str(path), 'vertex_count': len(positions), 'face_count': face_count, 'bone_count': len(bones) if include_skin else 0}
 
 def export_rigged_model_glb(parsed, entry, out_path, require_store=None, skeleton_refs=None, texture_map=None, texture_root=None):
     asset = get_entry_asset(parsed, entry)
     model = load_model_with_skin(asset)
     entry_name = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
     skeleton = _load_skeleton(parsed, model, require_store, skeleton_refs or [])
-    result = _write_glb(out_path, model, skeleton['bones'], entry_name, texture_map=texture_map, texture_root=texture_root)
-    skeleton_json = {'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry_name, 'model_type': entry['type'], 'skhd_bone_count': model.get('bone_count', 0), 'skel_uuid_hex': skeleton.get('source_uuid', ''), 'skel_source_kind': skeleton.get('source_kind', ''), 'skel_source_path': skeleton.get('source_path', ''), 'bones': skeleton['bones'], 'raw_skel_summary': skeleton.get('summary', {})}
-    result['skeleton'] = skeleton_json
+    result = _write_glb(out_path, model, skeleton['bones'], entry_name, texture_map=texture_map, texture_root=texture_root, include_skin=True)
+    result['skeleton'] = {'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry_name, 'model_type': entry['type'], 'skhd_bone_count': model.get('bone_count', 0), 'skel_uuid_hex': skeleton.get('source_uuid', ''), 'skel_source_kind': skeleton.get('source_kind', ''), 'skel_source_path': skeleton.get('source_path', ''), 'bones': skeleton['bones'], 'raw_skel_summary': skeleton.get('summary', {})}
     return result
+
+def export_textured_model_glb(parsed, entry, out_path, texture_map=None, texture_root=None):
+    asset = get_entry_asset(parsed, entry)
+    model = load_model_with_skin(asset)
+    entry_name = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
+    return _write_glb(out_path, model, [], entry_name, texture_map=texture_map, texture_root=texture_root, include_skin=False)
