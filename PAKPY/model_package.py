@@ -42,44 +42,10 @@ def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
         for ref in material.get('txtr_refs', []):
             raw_asset, txtr_entry, source = _resolve_txtr_asset(parsed, ref, require_store)
             if txtr_entry is None:
-                textures.append({
-                    'missing': True,
-                    'txtr_entry_index': -1,
-                    'txtr_uuid_hex': ref['uuid_hex'],
-                    'txtr_name': ref['uuid_hex'],
-                    'material_index': material['index'],
-                    'material_name': material['name'],
-                    'ref_tag': ref['tag'],
-                    'mtl_slot': get_mtl_slot_for_ref_tag(ref['tag']),
-                    'png_name': '',
-                    'png_sha1': '',
-                    'raw_name': '',
-                    'raw_sha1': '',
-                    'editable_png': False,
-                    'export_error': 'TXTR weder im aktuellen PAK noch in den requireten Dateien gefunden',
-                    'source_kind': '',
-                    'source_path': ''
-                })
+                textures.append({'missing': True, 'txtr_entry_index': -1, 'txtr_uuid_hex': ref['uuid_hex'], 'txtr_name': ref['uuid_hex'], 'material_index': material['index'], 'material_name': material['name'], 'ref_tag': ref['tag'], 'mtl_slot': get_mtl_slot_for_ref_tag(ref['tag']), 'png_name': '', 'png_sha1': '', 'raw_name': '', 'raw_sha1': '', 'editable_png': False, 'export_error': 'TXTR weder im aktuellen PAK noch in den requireten Dateien gefunden', 'source_kind': '', 'source_path': ''})
                 continue
             if txtr_entry.get('type') != 'TXTR':
-                textures.append({
-                    'missing': False,
-                    'txtr_entry_index': txtr_entry['index'] if source == 'pak' else -1,
-                    'txtr_uuid_hex': txtr_entry['uuid_hex'],
-                    'txtr_name': txtr_entry.get('display_name') or txtr_entry.get('name') or txtr_entry['uuid_hex'],
-                    'material_index': material['index'],
-                    'material_name': material['name'],
-                    'ref_tag': ref['tag'],
-                    'mtl_slot': get_mtl_slot_for_ref_tag(ref['tag']),
-                    'png_name': '',
-                    'png_sha1': '',
-                    'raw_name': '',
-                    'raw_sha1': '',
-                    'editable_png': False,
-                    'export_error': f'Referenz ist kein TXTR sondern {txtr_entry.get("type") or "unbekannt"}',
-                    'source_kind': source,
-                    'source_path': require_store.get_required_source(ref['uuid_hex']) if source == 'require' and require_store is not None else ''
-                })
+                textures.append({'missing': False, 'txtr_entry_index': txtr_entry['index'] if source == 'pak' else -1, 'txtr_uuid_hex': txtr_entry['uuid_hex'], 'txtr_name': txtr_entry.get('display_name') or txtr_entry.get('name') or txtr_entry['uuid_hex'], 'material_index': material['index'], 'material_name': material['name'], 'ref_tag': ref['tag'], 'mtl_slot': get_mtl_slot_for_ref_tag(ref['tag']), 'png_name': '', 'png_sha1': '', 'raw_name': '', 'raw_sha1': '', 'editable_png': False, 'export_error': f'Referenz ist kein TXTR sondern {txtr_entry.get("type") or "unbekannt"}', 'source_kind': source, 'source_path': require_store.get_required_source(ref['uuid_hex']) if source == 'require' and require_store is not None else ''})
                 continue
             raw_name = _raw_txtr_name(material, ref, txtr_entry)
             raw_path = raw_dir / raw_name
@@ -103,24 +69,7 @@ def _strict_texture_slots(parsed, entry, package_dir, require_store=None):
                 editable_count += 1
             else:
                 raw_only_count += 1
-            textures.append({
-                'missing': False,
-                'txtr_entry_index': txtr_entry['index'] if source == 'pak' else -1,
-                'txtr_uuid_hex': txtr_entry['uuid_hex'],
-                'txtr_name': txtr_entry.get('display_name') or txtr_entry.get('name') or txtr_entry['uuid_hex'],
-                'material_index': material['index'],
-                'material_name': material['name'],
-                'ref_tag': ref['tag'],
-                'mtl_slot': get_mtl_slot_for_ref_tag(ref['tag']),
-                'png_name': f'textures/png/{png_name}' if png_exported else '',
-                'png_sha1': sha1_bytes(png_path.read_bytes()) if png_exported else '',
-                'raw_name': f'textures/raw_txtr/{raw_name}',
-                'raw_sha1': sha1_bytes(raw_asset),
-                'editable_png': editable_png,
-                'export_error': export_error or '',
-                'source_kind': source,
-                'source_path': require_store.get_required_source(ref['uuid_hex']) if source == 'require' and require_store is not None else ''
-            })
+            textures.append({'missing': False, 'txtr_entry_index': txtr_entry['index'] if source == 'pak' else -1, 'txtr_uuid_hex': txtr_entry['uuid_hex'], 'txtr_name': txtr_entry.get('display_name') or txtr_entry.get('name') or txtr_entry['uuid_hex'], 'material_index': material['index'], 'material_name': material['name'], 'ref_tag': ref['tag'], 'mtl_slot': get_mtl_slot_for_ref_tag(ref['tag']), 'png_name': f'textures/png/{png_name}' if png_exported else '', 'png_sha1': sha1_bytes(png_path.read_bytes()) if png_exported else '', 'raw_name': f'textures/raw_txtr/{raw_name}', 'raw_sha1': sha1_bytes(raw_asset), 'editable_png': editable_png, 'export_error': export_error or '', 'source_kind': source, 'source_path': require_store.get_required_source(ref['uuid_hex']) if source == 'require' and require_store is not None else ''})
         if slot_map:
             material_texture_map[material['index']] = dict(slot_map)
             material_texture_map[str(material['name'])] = dict(slot_map)
@@ -164,47 +113,16 @@ def export_model_package(parsed, entry, out_dir, require_store=None, animation_r
     rigged_dir.mkdir(parents=True, exist_ok=True)
     base = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
     rigged_path = rigged_dir / f'{base}.glb'
-    rigged = export_rigged_model_glb(parsed, entry, rigged_path, require_store=require_store, skeleton_refs=skeleton_refs)
+    rigged = export_rigged_model_glb(parsed, entry, rigged_path, require_store=require_store, skeleton_refs=skeleton_refs, texture_map=material_texture_map, texture_root=package_dir)
     skeleton_dir = package_dir / 'skeleton'
     skeleton_dir.mkdir(parents=True, exist_ok=True)
     skeleton_json_path = skeleton_dir / 'skeleton.json'
     skeleton_json_path.write_text(json.dumps(rigged['skeleton'], indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
-    manifest = {
-        'version': 4,
-        'source_pak': Path(parsed['path']).name,
-        'entry_index': entry['index'],
-        'entry_type': entry['type'],
-        'entry_uuid_hex': entry['uuid_hex'],
-        'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'],
-        'rigged_glb': str(rigged_path.relative_to(package_dir)).replace('\\', '/'),
-        'rigged_glb_sha1': sha1_bytes(rigged_path.read_bytes()),
-        'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'),
-        'source_model_sha1': sha1_bytes(raw_source.read_bytes()),
-        'skeleton_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'),
-        'bone_count': rigged.get('bone_count', 0),
-        'vertex_count': rigged.get('vertex_count', 0),
-        'face_count': rigged.get('face_count', 0),
-        'editable_png_count': editable_count,
-        'raw_only_count': raw_only_count,
-        'textures': textures,
-        'animations': animation_refs or [],
-        'skeleton_refs': skeleton_refs or []
-    }
+    manifest = {'version': 5, 'source_pak': Path(parsed['path']).name, 'entry_index': entry['index'], 'entry_type': entry['type'], 'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'rigged_glb': str(rigged_path.relative_to(package_dir)).replace('\\', '/'), 'rigged_glb_sha1': sha1_bytes(rigged_path.read_bytes()), 'source_model': str(raw_source.relative_to(package_dir)).replace('\\', '/'), 'source_model_sha1': sha1_bytes(raw_source.read_bytes()), 'skeleton_json': str(skeleton_json_path.relative_to(package_dir)).replace('\\', '/'), 'bone_count': rigged.get('bone_count', 0), 'vertex_count': rigged.get('vertex_count', 0), 'face_count': rigged.get('face_count', 0), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'textures': textures, 'animations': animation_refs or [], 'skeleton_refs': skeleton_refs or []}
     manifest_path = package_dir / 'repack_manifest.json'
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
     _write_report(package_dir, manifest)
-    return {
-        'package_dir': str(package_dir),
-        'manifest_path': str(manifest_path),
-        'rigged_glb': str(rigged_path),
-        'texture_count': len(textures),
-        'editable_png_count': editable_count,
-        'raw_only_count': raw_only_count,
-        'bone_count': rigged.get('bone_count', 0),
-        'vertex_count': rigged.get('vertex_count', 0),
-        'face_count': rigged.get('face_count', 0),
-        'animation_count': len(animation_refs or [])
-    }
+    return {'package_dir': str(package_dir), 'manifest_path': str(manifest_path), 'rigged_glb': str(rigged_path), 'texture_count': len(textures), 'editable_png_count': editable_count, 'raw_only_count': raw_only_count, 'bone_count': rigged.get('bone_count', 0), 'vertex_count': rigged.get('vertex_count', 0), 'face_count': rigged.get('face_count', 0), 'animation_count': len(animation_refs or [])}
 
 def rebuild_model_package_from_folder(parsed, folder, out_path):
     folder = Path(folder)
