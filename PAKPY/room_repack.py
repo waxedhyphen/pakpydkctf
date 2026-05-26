@@ -89,10 +89,14 @@ def patch_room_transform(parsed, room_entry, objects):
         component = by_uuid.get(component_uuid)
         if component is None:
             continue
-        parents = component.get('parents') or []
-        if not parents:
-            continue
-        parent_uuid = clean_hex(obj.get('parent_component_uuid_hex')) or parents[0]['uuid_hex']
+        parent_uuid = clean_hex(obj.get('parent_component_uuid_hex'))
+        if not parent_uuid and (obj.get('entry_type') == 'ROOMCTRL' or obj.get('mode') == 'room_control'):
+            parent_uuid = component_uuid
+        if not parent_uuid:
+            parents = component.get('parents') or []
+            if not parents:
+                continue
+            parent_uuid = parents[0]['uuid_hex']
         if parent_uuid in patched_parent_uuids:
             continue
         parent = by_uuid.get(parent_uuid)
@@ -310,6 +314,33 @@ def infer_obj_transform(parsed, obj, entry, obj_vertices):
     return transform
 
 
+def proxy_vertices_from_obj(obj):
+    proxy_bounds = obj.get('proxy_bounds') or [[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]]
+    mn = tuple(float(x) for x in proxy_bounds[0])
+    mx = tuple(float(x) for x in proxy_bounds[1])
+    x0, y0, z0 = mn
+    x1, y1, z1 = mx
+    return [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0), (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+
+
+def infer_roomctrl_transform(obj, obj_vertices):
+    vertices = proxy_vertices_from_obj(obj)
+    if len(vertices) != len(obj_vertices):
+        return None
+    affine = solve_affine(vertices, obj_vertices)
+    if affine is None:
+        return None
+    transform = affine_to_transform(affine)
+    if transform is None:
+        return None
+    mn, mx = bounds(obj_vertices)
+    diag = math.sqrt((mx[0] - mn[0]) ** 2 + (mx[1] - mn[1]) ** 2 + (mx[2] - mn[2]) ** 2)
+    allowed = max(0.025, diag * 0.0015)
+    if max_transform_error(vertices, obj_vertices, transform) > allowed:
+        return None
+    return transform
+
+
 def chunk(tag, payload, version=0):
     head = bytearray(24)
     head[0:4] = tag.encode('ascii')
@@ -491,13 +522,23 @@ def detect_room_object_changes(parsed, folder, manifest):
         new_sha1 = sha1_bytes(path.read_bytes())
         if old_sha1 and new_sha1 == old_sha1:
             continue
+        obj_vertices, obj_faces = parse_obj(path)
+        if obj.get('entry_type') == 'ROOMCTRL' or obj.get('mode') == 'room_control':
+            inferred = infer_roomctrl_transform(obj, obj_vertices)
+            if inferred is None:
+                unsupported.append(f'ROOMCTRL: {rel}')
+                continue
+            if not nearly_same_transform(object_transform(obj), inferred):
+                transformed_objects[index] = set_object_transform(obj, inferred)
+                inferred_transform_count += 1
+                changed_objects.append(f'{rel} (ROOMCTRL Transform)')
+            continue
         entry_index = obj.get('entry_index')
         if entry_index is None or entry_index < 0 or entry_index >= len(parsed['entries']):
             raise PakError(f'Objekt verweist auf ungültigen Eintrag: {rel}')
         entry = parsed['entries'][entry_index]
         if entry['uuid_hex'] != clean_hex(obj.get('entry_uuid_hex')):
             raise PakError(f'Objekt passt nicht zum aktuellen PAK: {rel}')
-        obj_vertices, obj_faces = parse_obj(path)
         inferred = infer_obj_transform(parsed, obj, entry, obj_vertices)
         if inferred is not None and not nearly_same_transform(object_transform(obj), inferred):
             transformed_objects[index] = set_object_transform(obj, inferred)
