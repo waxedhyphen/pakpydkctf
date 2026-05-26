@@ -1,17 +1,41 @@
 from pathlib import Path
+import tkinter as tk
 from tkinter import filedialog, messagebox
 from pak_core import PakError, get_entry_asset, get_entry_payload, format_meta_lines
-from model_package import rebuild_model_package_from_folder
 from room_deep_codec import format_room_info_lines, export_room_package
 from room_repack import rebuild_room_package_from_folder
 
 def install(App):
+    original_init = App.__init__
     original_show_context_menu = App.show_context_menu
     original_export_model_package_dialog = App.export_model_package_dialog
     original_show_selected = App.show_selected
 
     def is_room_entry(self, entry):
         return entry.get('type') == 'ROOM'
+
+    def find_button(widget, text):
+        for child in widget.winfo_children():
+            try:
+                if isinstance(child, tk.Button) and child.cget('text') == text:
+                    return child
+            except Exception:
+                pass
+            found = find_button(child, text)
+            if found is not None:
+                return found
+        return None
+
+    def __init__(self, root):
+        original_init(self, root)
+        model_button = find_button(self.root, 'Modellpaket zurückbauen')
+        if model_button is not None:
+            parent = model_button.master
+            button = tk.Button(parent, text='ROOM-Paket zurückbauen', command=self.rebuild_room_package_dialog, width=21)
+            try:
+                button.pack(side='left', padx=(8, 0), after=model_button)
+            except Exception:
+                button.pack(side='left', padx=(8, 0))
 
     def show_context_menu(self, event):
         iid = self.tree.identify_row(event.y)
@@ -85,57 +109,37 @@ def install(App):
             return
         return original_export_model_package_dialog(self)
 
-    def rebuild_model_package_dialog(self):
+    def rebuild_room_package_dialog(self):
         if self.parsed is None:
             messagebox.showerror('Fehler', 'Noch keine PAK-Datei eingelesen')
             return
-        folder = filedialog.askdirectory(title='Modell- oder ROOM-Paket-Ordner auswählen')
+        folder = filedialog.askdirectory(title='ROOM-Paket-Ordner auswählen')
         if not folder:
             return
         try:
             folder_path = Path(folder)
+            if not (folder_path / 'room_scene_repack_manifest.json').is_file():
+                raise PakError('room_scene_repack_manifest.json fehlt')
             source = Path(self.parsed['path'])
-            if (folder_path / 'room_scene_repack_manifest.json').is_file():
-                out_path = filedialog.asksaveasfilename(title='Neues PAK speichern', defaultextension='.pak', initialfile=source.stem + '_room_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
-                if not out_path:
-                    return
-                result = rebuild_room_package_from_folder(self.parsed, folder_path, out_path)
-                self.pak_var.set(result['out_path'])
-                self.load_pak()
-                lines = [
-                    'ROOM-Paket zurückgebaut:',
-                    result['out_path'],
-                    '',
-                    f'Geänderte PAK-Einträge: {result["changed_count"]}',
-                    f'ROOM-Transform-Patches: {result["transform_patch_count"]}',
-                    f'Geänderte OBJ-Assets: {len(result["changed_objects"])}'
-                ]
-                if result['changed_objects']:
-                    lines.append('')
-                    lines.extend(result['changed_objects'][:80])
-                    if len(result['changed_objects']) > 80:
-                        lines.append(f'... {len(result["changed_objects"]) - 80} weitere')
-                self.output.delete('1.0', 'end')
-                self.output.insert('1.0', '\n'.join(lines))
-                messagebox.showinfo('Fertig', result['out_path'])
-                return
-            out_path = filedialog.asksaveasfilename(title='Neues PAK speichern', defaultextension='.pak', initialfile=source.stem + '_model_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
+            out_path = filedialog.asksaveasfilename(title='Neues PAK speichern', defaultextension='.pak', initialfile=source.stem + '_room_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
             if not out_path:
                 return
-            result = rebuild_model_package_from_folder(self.parsed, folder_path, out_path)
+            result = rebuild_room_package_from_folder(self.parsed, folder_path, out_path)
             self.pak_var.set(result['out_path'])
             self.load_pak()
             lines = [
-                'Modellpaket zurückgebaut:',
+                'ROOM-Paket zurückgebaut:',
                 result['out_path'],
                 '',
-                f'Geänderte PNGs: {result["changed_count"]}'
+                f'Geänderte PAK-Einträge: {result["changed_count"]}',
+                f'ROOM-Transform-Patches: {result["transform_patch_count"]}',
+                f'Geänderte OBJ-Assets: {len(result["changed_objects"])}'
             ]
-            if result['changed_files']:
+            if result['changed_objects']:
                 lines.append('')
-                lines.extend(result['changed_files'][:60])
-                if len(result['changed_files']) > 60:
-                    lines.append(f'... {len(result["changed_files"]) - 60} weitere')
+                lines.extend(result['changed_objects'][:80])
+                if len(result['changed_objects']) > 80:
+                    lines.append(f'... {len(result["changed_objects"]) - 80} weitere')
             self.output.delete('1.0', 'end')
             self.output.insert('1.0', '\n'.join(lines))
             messagebox.showinfo('Fertig', result['out_path'])
@@ -186,8 +190,9 @@ def install(App):
             return
         return original_show_selected(self, event)
 
+    App.__init__ = __init__
     App.is_room_entry = is_room_entry
     App.show_context_menu = show_context_menu
     App.export_model_package_dialog = export_model_package_dialog
-    App.rebuild_model_package_dialog = rebuild_model_package_dialog
+    App.rebuild_room_package_dialog = rebuild_room_package_dialog
     App.show_selected = show_selected
