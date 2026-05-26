@@ -188,6 +188,25 @@ def _mesh_arrays(model, bone_count):
 def _inverse_translation_matrix(t):
     return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -float(t[0]), -float(t[1]), -float(t[2]), 1.0]
 
+def _sanitize_parent_list(bones):
+    parents = []
+    count = len(bones)
+    for index, bone in enumerate(bones):
+        parent = int(bone.get('parent_index', -1)) if str(bone.get('parent_index', -1)).lstrip('-').isdigit() else -1
+        if parent < 0 or parent >= count or parent == index:
+            parent = -1
+        parents.append(parent)
+    for index in range(count):
+        seen = {index}
+        parent = parents[index]
+        while parent >= 0:
+            if parent in seen:
+                parents[index] = -1
+                break
+            seen.add(parent)
+            parent = parents[parent]
+    return parents
+
 def _global_bind_positions(bones):
     out = []
     for index, bone in enumerate(bones):
@@ -201,15 +220,14 @@ def _global_bind_positions(bones):
     return out
 
 def _normalise_bone_nodes(bones):
+    parents = _sanitize_parent_list(bones)
     globals_by_index = []
     for index, bone in enumerate(bones):
         head = bone.get('head') or [0.0, 0.0, 0.0]
         globals_by_index.append([float(head[0]), float(head[1]), float(head[2])])
     out = []
     for index, bone in enumerate(bones):
-        parent = bone.get('parent_index', -1)
-        if parent == index or parent < 0 or parent >= len(bones):
-            parent = -1
+        parent = parents[index]
         head_global = globals_by_index[index]
         if parent >= 0:
             parent_global = globals_by_index[parent]
