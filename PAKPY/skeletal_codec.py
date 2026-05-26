@@ -6,7 +6,6 @@ SKELETAL_REF_TYPES={'SKEL','ANIM'}
 def be16(d,o): return int.from_bytes(d[o:o+2],'big')
 def be32(d,o): return int.from_bytes(d[o:o+4],'big')
 def be64(d,o): return int.from_bytes(d[o:o+8],'big')
-def le32(d,o): return int.from_bytes(d[o:o+4],'little')
 def tag4(d,o): return d[o:o+4].decode('ascii','replace')
 def is_rfrm_type(a,t): return len(a)>=32 and a[:4]==b'RFRM' and tag4(a,20)==t
 def format_uuid(h): return h if not h or len(h)!=32 else f'{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}'
@@ -19,12 +18,8 @@ def _sf(v):
     v=float(v)
     return 0.0 if not math.isfinite(v) or abs(v)<1e-8 else v
 def _id(): return [1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]
-def _basis(): return [1.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,0.0,1.0]
 def _mm(a,b):
-    r=[0.0]*16
-    for y in range(4):
-        for x in range(4): r[y*4+x]=sum(a[y*4+k]*b[k*4+x] for k in range(4))
-    return r
+    return [sum(a[y*4+k]*b[k*4+x] for k in range(4)) for y in range(4) for x in range(4)]
 def _m3i(m):
     a,b,c,d,e,f,g,h,i=m;det=a*(e*i-f*h)-b*(d*i-f*g)+c*(d*h-e*g)
     if abs(det)<=1e-8: return [1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0]
@@ -40,51 +35,80 @@ def _qmat(t,q,s):
     sx,sy,sz=[float(v) for v in s];tx,ty,tz=[float(v) for v in t]
     xx,yy,zz=x*x,y*y,z*z;xy,xz,yz=x*y,x*z,y*z;wx,wy,wz=w*x,w*y,w*z
     return [(1-2*(yy+zz))*sx,2*(xy-wz)*sy,2*(xz+wy)*sz,tx,2*(xy+wz)*sx,(1-2*(xx+zz))*sy,2*(yz-wx)*sz,ty,2*(xz-wy)*sx,2*(yz+wx)*sy,(1-2*(xx+yy))*sz,tz,0,0,0,1]
-def _cb(m):
-    b=_basis();return _mm(_mm(b,m),b)
 def _tr(m): return [_sf(m[3]),_sf(m[7]),_sf(m[11])]
-def _node_names(a,start,n,names):
-    if n<=0 or start+4+n>len(a) or le32(a,start)!=n: return []
-    v=list(a[start+4:start+4+n])
-    return v if all(x==255 or x<names for x in v) else []
-def _parent(a,start,stop,n):
-    best=(-1,0,[])
-    for o in range(start,max(start,stop-n+1)):
-        v=list(a[o:o+n])
-        if len(v)!=n or not all(x==255 or x<n for x in v): continue
-        roots=sum(1 for x in v if x==255);back=sum(1 for i,x in enumerate(v) if x==255 or x<i);score=back*4+roots*8+(60 if 1<=roots<=max(6,n//8) else 0)+(50 if v[:3]==[255,255,255] else 0)
-        if score>best[0]: best=(score,o,v)
-    return {'score':best[0],'offset':best[1],'values':best[2]}
-def _skin(a,start,stop,names,count):
-    best=(-1,0,[])
-    for o in range(start,max(start,stop-count+1)):
-        v=list(a[o:o+count])
-        if len(v)!=count or not all(0<=x<names for x in v): continue
-        u=len(set(v));asc=sum(1 for x,y in zip(v,v[1:]) if y>x);score=u*5+asc+(100 if u==count else 0)+(10 if v and v[0]>0 else 0)
-        if score>best[0]: best=(score,o,v)
-    return {'score':best[0],'offset':best[1],'values':best[2]}
-def _trs_score(a,o,n,endian):
+def _read_name_array(a,p):
+    if p+8>len(a): raise PakError('Name-Array ist abgeschnitten')
+    unknown=be32(a,p);count=be32(a,p+4);p+=8;names=[]
+    if count<0 or count>4096: raise PakError('Name-Array-Zähler ist ungültig')
+    for i in range(count):
+        name,size,p=read_name(a,p);names.append({'index':i,'name':name,'size':size})
+    trailing=be32(a,p) if p+4<=len(a) else 0
+    p+=4 if p+4<=len(a) else 0
+    return {'unknown':unknown,'count':count,'names':names,'trailing_unknown':trailing},p
+def _parse_skeleton_map(a,p):
+    if p+4>len(a): return {},p
+    count_a=be16(a,p);count_b=a[p+2];count_c=a[p+3];start=p;p+=4
+    values=list(a[p:p+count_a]);p+=count_a
+    u16_values=[]
+    for _ in range(count_a*2):
+        if p+2>len(a): break
+        u16_values.append(be16(a,p));p+=2
+    u32_values=[]
+    for _ in range(count_b):
+        if p+4>len(a): break
+        u32_values.append(be32(a,p));p+=4
+    tail_u16=[]
+    for _ in range(count_c):
+        if p+2>len(a): break
+        tail_u16.append(be16(a,p));p+=2
+    unknown=be32(a,p) if p+4<=len(a) else 0
+    p+=4 if p+4<=len(a) else 0
+    return {'offset':start,'count_a':count_a,'count_b':count_b,'count_c':count_c,'values':values,'u16_values':u16_values,'u32_values':u32_values,'tail_u16':tail_u16,'unknown':unknown,'size':p-start},p
+def _parse_animation_attributes(a,p):
+    start=p
+    if p>=len(a): return {'present':False,'offset':start,'size':0},p
+    present=bool(a[p]);p+=1
+    out={'present':present,'offset':start,'size':1}
+    if not present:
+        return out,p
+    has_visibility=bool(a[p]) if p<len(a) else False;p+=1
+    out['has_visibility_group_names']=has_visibility
+    if has_visibility:
+        names,p=_read_name_array(a,p);out['visibility_group_names']=names
+    has_info=bool(a[p]) if p<len(a) else False;p+=1
+    out['has_info_data']=has_info
+    if has_info:
+        info_names,p=_read_name_array(a,p)
+        count=be32(a,p) if p+4<=len(a) else 0;p+=4 if p+4<=len(a) else 0
+        infos=[]
+        for _ in range(count):
+            if p+12>len(a): break
+            flag=be32(a,p);x,y=struct.unpack_from('>ff',a,p+4);p+=12;infos.append({'flag':flag,'x':x,'y':y})
+        out['info_names']=info_names;out['info_count']=count;out['infos']=infos
+    out['size']=p-start
+    return out,p
+def _coord_score(a,o,n,endian):
     if n<=0 or o+n*40>len(a): return None
     fmt=('>' if endian=='be' else '<')+'f'*10;score=0;ts=[];qs=[];ss=[]
     for i in range(n):
         try: vals=list(struct.unpack_from(fmt,a,o+i*40))
         except Exception: return None
         if not all(math.isfinite(x) and abs(x)<1000000 for x in vals): return None
-        t=vals[:3];q=vals[3:7];s=vals[7:10];ql=math.sqrt(sum(x*x for x in q))
-        score+=8 if 0.98<=ql<=1.02 else 3 if 0.75<=ql<=1.25 else -10
-        score+=8 if all(abs(abs(x)-1)<=0.02 for x in s) else 2 if all(0.001<=abs(x)<=100 for x in s) else -10
-        if sum(abs(x) for x in t)<100: score+=4
-        ts.append(t);qs.append(q);ss.append(s)
+        q=vals[:4];s=vals[4:7];t=vals[7:10];ql=math.sqrt(sum(x*x for x in q))
+        score+=12 if 0.98<=ql<=1.02 else 4 if 0.75<=ql<=1.25 else -25
+        score+=12 if all(abs(abs(x)-1)<=0.02 for x in s) else 3 if all(0.001<=abs(x)<=100 for x in s) else -25
+        score+=6 if sum(abs(x) for x in t)<100 else -10
+        qs.append(q);ss.append(s);ts.append(t)
     spread=max((sum(abs(x) for x in t) for t in ts),default=0.0)
-    if spread<100: score+=40
+    if spread<100: score+=60
     return {'offset':o,'endian':endian,'score':score,'translations':ts,'rotations':qs,'scales':ss,'spread':spread}
-def _trs(a,start,stop,n):
+def _coords(a,start,stop,n):
     best=None
-    for o in range(start,max(start,stop-n*40+1)):
+    for o in range(start,max(start,min(stop,len(a)-n*40)+1)):
         for e in ('be','le'):
-            c=_trs_score(a,o,n,e)
+            c=_coord_score(a,o,n,e)
             if c is not None and (best is None or c['score']>best['score']): best=c
-    return best or {'offset':0,'endian':'be','score':0,'translations':[],'rotations':[],'scales':[],'spread':0.0}
+    return best or {'offset':start,'endian':'be','score':0,'translations':[[0,0,0] for _ in range(n)],'rotations':[[1,0,0,0] for _ in range(n)],'scales':[[1,1,1] for _ in range(n)],'spread':0.0}
 def _nearest(node,parent,lookup):
     p=parent[node] if 0<=node<len(parent) else 255;seen={node}
     while p!=255 and p not in seen:
@@ -98,16 +122,6 @@ def _tail(i,m,children,globals):
             p=_tr(globals[ch])
             if sum(abs(p[j]-c[j]) for j in range(3))>1e-6: return p
     return [c[0],c[1]+0.035,c[2]]
-def _correct(globals):
-    if not globals: return []
-    root_inv=_inv(globals[0])
-    return [_cb(_mm(root_inv,m)) for m in globals]
-def _locals(globals,parent):
-    out=[]
-    for i,g in enumerate(globals):
-        p=parent[i] if i<len(parent) else 255
-        out.append(_mm(_inv(globals[p]),g) if p!=255 and 0<=p<i and p<len(globals) else g)
-    return out
 def parse_skel_asset(a):
     if not is_rfrm_type(a,'SKEL'): raise PakError('Keine SKEL-Ressource')
     if len(a)<44: raise PakError('SKEL ist zu klein')
@@ -116,20 +130,27 @@ def parse_skel_asset(a):
     p+=12;names=[]
     for i in range(name_count):
         name,size,p=read_name(a,p);names.append({'index':i,'name':name,'size':size})
-    fields_offset=p;fields={}
-    if p+16<=len(a): fields={'zero_or_flags':be32(a,p),'name_count_repeat':be16(a,p+4),'node_count':be16(a,p+6),'skin_bone_count':be16(a,p+8),'group_count_a':be16(a,p+10),'group_count_b':be16(a,p+12),'flags':be16(a,p+14)}
-    node_count=int(fields.get('node_count') or 0);skin_count=int(fields.get('skin_bone_count') or 0);data_start=p+16
-    node_names=_node_names(a,data_start,node_count,name_count) or list(range(min(node_count,name_count)))
-    search_start=data_start+4+len(node_names);search_stop=min(len(a),data_start+4096)
-    parent_info=_parent(a,search_start,search_stop,node_count);parent=parent_info.get('values') or [255]*node_count
-    skin_info=_skin(a,parent_info.get('offset',search_start)+node_count,search_stop,name_count,skin_count);skin_names=skin_info.get('values') or [x for x in node_names if 0<=x<name_count][:skin_count]
-    tr=_trs(a,data_start,len(a),node_count);ts=tr.get('translations') or [[0,0,0] for _ in range(node_count)];qs=tr.get('rotations') or [[1,0,0,0] for _ in range(node_count)];ss=tr.get('scales') or [[1,1,1] for _ in range(node_count)]
+    fields_offset=p
+    fields={'zero_or_flags':be32(a,p),'name_count_repeat':be16(a,p+4),'node_count':be16(a,p+6),'skin_bone_count':be16(a,p+8),'aux_u32_count':be16(a,p+10),'aux_u8_count':be16(a,p+12),'has_skeleton_map':bool(a[p+14])} if p+15<=len(a) else {}
+    node_count=int(fields.get('node_count') or 0);skin_count=int(fields.get('skin_bone_count') or 0);p+=15
+    skeleton_map={};node_names=list(range(min(node_count,name_count)))
+    if fields.get('has_skeleton_map'):
+        skeleton_map,p=_parse_skeleton_map(a,p)
+        node_names=list(skeleton_map.get('values') or node_names)
+    animation_attributes,p=_parse_animation_attributes(a,p)
+    runtime_offset=p
+    runtime={'offset':runtime_offset,'unknown_count_b':a[p] if p<len(a) else 0,'unknown_count_c':a[p+1] if p+1<len(a) else 0,'unknown_count_a':a[p+2] if p+2<len(a) else 0,'unknown_count_e':a[p+3] if p+3<len(a) else 0,'unknown_count_d':be32(a,p+4) if p+8<=len(a) else 0}
+    p+=8
+    parent_offset=p;parent=list(a[p:p+node_count]) if node_count>0 and p+node_count<=len(a) else [255]*node_count;p+=len(parent)
+    skin_offset=p;skin_names=list(a[p:p+skin_count]) if skin_count>0 and p+skin_count<=len(a) else [x for x in node_names if 0<=x<name_count][:skin_count];p+=len(skin_names)
+    flags_offset=p;node_flags=list(a[p:p+node_count]) if node_count>0 and p+node_count<=len(a) else [];p+=len(node_flags)
+    tr=_coords(a,p,min(len(a),p+256),node_count);coord_offset=tr.get('offset',p);aux_data=a[p:coord_offset]
+    ts=tr.get('translations') or [[0,0,0] for _ in range(node_count)];qs=tr.get('rotations') or [[1,0,0,0] for _ in range(node_count)];ss=tr.get('scales') or [[1,1,1] for _ in range(node_count)]
     raw_local=[_qmat(ts[i] if i<len(ts) else [0,0,0],qs[i] if i<len(qs) else [1,0,0,0],ss[i] if i<len(ss) else [1,1,1]) for i in range(node_count)]
     raw_global=[]
     for i,m in enumerate(raw_local):
-        p=parent[i] if i<len(parent) else 255
-        raw_global.append(_mm(raw_global[p],m) if p!=255 and 0<=p<i and p<len(raw_global) else m)
-    globals=_correct(raw_global);locals_=_locals(globals,parent)
+        pv=parent[i] if i<len(parent) else 255
+        raw_global.append(_mm(raw_global[pv],m) if pv!=255 and 0<=pv<i and pv<len(raw_global) else m)
     name_to_node={}
     for ni,nam in enumerate(node_names):
         if 0<=nam<name_count and nam not in name_to_node: name_to_node[nam]=ni
@@ -139,14 +160,13 @@ def parse_skel_asset(a):
         if pv!=255 and 0<=pv<node_count and pv!=i: children.setdefault(pv,[]).append(i)
     bones=[]
     for bi,ni in enumerate(skin_nodes):
-        name_index=node_names[ni] if ni<len(node_names) else ni;pi=_nearest(ni,parent,lookup);g=globals[ni]
-        lm=_mm(_inv(globals[skin_nodes[pi]]),g) if pi>=0 else g;head=_tr(g)
-        bones.append({'index':bi,'node_index':ni,'name_index':name_index,'name':names[name_index]['name'] if 0<=name_index<len(names) else f'bone_{bi:03d}','parent_index':pi,'parent_node_index':parent[ni] if ni<len(parent) else 255,'matrix':lm,'global_matrix':g,'inverse_bind_matrix':_inv(g),'translation':ts[ni] if ni<len(ts) else [0,0,0],'rotation':qs[ni] if ni<len(qs) else [1,0,0,0],'scale':ss[ni] if ni<len(ss) else [1,1,1],'head':head,'tail':_tail(ni,g,children,globals)})
+        name_index=node_names[ni] if ni<len(node_names) else ni;pi=_nearest(ni,parent,lookup);g=raw_global[ni]
+        lm=_mm(_inv(raw_global[skin_nodes[pi]]),g) if pi>=0 else g;head=_tr(g)
+        bones.append({'index':bi,'node_index':ni,'name_index':name_index,'name':names[name_index]['name'] if 0<=name_index<len(names) else f'bone_{bi:03d}','parent_index':pi,'parent_node_index':parent[ni] if ni<len(parent) else 255,'matrix':lm,'global_matrix':g,'inverse_bind_matrix':_inv(g),'translation':ts[ni] if ni<len(ts) else [0,0,0],'rotation':qs[ni] if ni<len(qs) else [1,0,0,0],'scale':ss[ni] if ni<len(ss) else [1,1,1],'head':head,'tail':_tail(ni,g,children,raw_global)})
     nodes=[]
     for ni,nam in enumerate(node_names):
-        nodes.append({'index':ni,'name_index':nam,'name':names[nam]['name'] if 0<=nam<len(names) else f'node_{ni:03d}','parent_index':parent[ni] if ni<len(parent) else 255,'matrix':locals_[ni] if ni<len(locals_) else _id(),'global_matrix':globals[ni] if ni<len(globals) else _id(),'raw_global_matrix':raw_global[ni] if ni<len(raw_global) else _id(),'translation':ts[ni] if ni<len(ts) else [0,0,0],'rotation':qs[ni] if ni<len(qs) else [1,0,0,0],'scale':ss[ni] if ni<len(ss) else [1,1,1]})
-    tail=a[fields_offset:]
-    return {'type':'SKEL','version_a':va,'version_b':vb,'marker':f'0x{marker:08X}','unknown_a':ua,'size':len(a),'sha1':sha1_bytes(a),'name_count':name_count,'names':names,'fields':fields,'fields_offset':fields_offset,'data_start':data_start,'node_name_indices':node_names,'parent_table_offset':parent_info.get('offset',0),'parent_table':parent,'skin_table_offset':skin_info.get('offset',0),'skin_name_indices':skin_names,'skin_node_indices':skin_nodes,'transform_offset':tr.get('offset',0),'transform_endian':tr.get('endian',''),'transform_format':'f32_trs_quat_scale','transform_stride':40,'transform_count':node_count,'transform_score':tr.get('score',0),'coordinate_fix':'root_removed_x_yz_flipped','tail_size':len(tail),'tail_sha1':sha1_bytes(tail),'node_count':node_count,'skin_bone_count':skin_count,'nodes':nodes,'bones':bones,'status':'SKEL-Parent-Tabelle wird als Node-Tabelle gelesen; root.move wird entfernt und Y/Z werden für Modellraum gespiegelt.'}
+        nodes.append({'index':ni,'name_index':nam,'name':names[nam]['name'] if 0<=nam<len(names) else f'node_{ni:03d}','parent_index':parent[ni] if ni<len(parent) else 255,'flags':node_flags[ni] if ni<len(node_flags) else 0,'matrix':raw_local[ni] if ni<len(raw_local) else _id(),'global_matrix':raw_global[ni] if ni<len(raw_global) else _id(),'translation':ts[ni] if ni<len(ts) else [0,0,0],'rotation':qs[ni] if ni<len(qs) else [1,0,0,0],'scale':ss[ni] if ni<len(ss) else [1,1,1]})
+    return {'type':'SKEL','version_a':va,'version_b':vb,'marker':f'0x{marker:08X}','unknown_a':ua,'size':len(a),'sha1':sha1_bytes(a),'name_count':name_count,'names':names,'fields':fields,'fields_offset':fields_offset,'data_start':fields_offset+15,'skeleton_map_offset':skeleton_map.get('offset',0),'skeleton_map_count':skeleton_map.get('count_a',0),'skeleton_map':skeleton_map,'node_name_indices':node_names,'animation_attributes':animation_attributes,'has_info_data':bool(animation_attributes.get('has_info_data')),'runtime_header':runtime,'parent_table_offset':parent_offset,'parent_table':parent,'skin_table_offset':skin_offset,'skin_name_indices':skin_names,'skin_node_indices':skin_nodes,'flags_offset':flags_offset,'node_flags':node_flags,'aux_offset':flags_offset+len(node_flags),'aux_size':len(aux_data),'aux_data_hex':aux_data.hex(),'transform_offset':coord_offset,'transform_endian':tr.get('endian',''),'transform_format':'f32_quat_scale_pos','transform_stride':40,'transform_count':node_count,'transform_score':tr.get('score',0),'bind_matrix_mode':'skel_quat_scale_pos','coordinate_fix':'none','node_count':node_count,'skin_bone_count':skin_count,'nodes':nodes,'bones':bones,'status':'SKEL wird strukturell dekodiert: Skeleton-Map, Parent/Skin/Flags und Coord-Block im Format Quaternion + Scale + Position. SMDL-Joints werden ueber Skin-Namensindizes auf Coord-Nodes gemappt; keine SMDL-basierte Offset-Korrektur wird auf die Bind-Pose angewendet.'}
 def parse_rfrm_chunks(a):
     if len(a)<32 or a[:4]!=b'RFRM': return []
     out=[];p=32
