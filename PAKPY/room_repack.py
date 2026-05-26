@@ -4,6 +4,7 @@ import math
 import struct
 from pak_core import PakError, get_entry_asset, rebuild_pak, sha1_bytes
 from room_scene_codec import parse_room_asset
+from room_preview_codec import build_preview_geometry
 from clsn_codec import parse_clsn_asset
 from dcln_codec import parse_dcln_asset
 
@@ -56,6 +57,12 @@ def transform_list(value, fallback):
 def object_transform(item):
     transform = item.get('transform') or {}
     return {'position': transform_list(transform.get('position'), (0.0, 0.0, 0.0)), 'rotation': transform_list(transform.get('rotation'), (0.0, 0.0, 0.0)), 'scale': transform_list(transform.get('scale'), (1.0, 1.0, 1.0))}
+
+
+def set_object_transform(item, transform):
+    out = dict(item)
+    out['transform'] = {'position': list(transform['position']), 'rotation': list(transform['rotation']), 'scale': list(transform['scale'])}
+    return out
 
 
 def nearly_same_transform(a, b):
@@ -150,6 +157,26 @@ def parse_obj(path):
     return vertices, faces
 
 
+def rotate_xyz(point, rotation):
+    x, y, z = point
+    rx, ry, rz = rotation
+    cx, sx = math.cos(rx), math.sin(rx)
+    cy, sy = math.cos(ry), math.sin(ry)
+    cz, sz = math.cos(rz), math.sin(rz)
+    y, z = y * cx - z * sx, y * sx + z * cx
+    x, z = x * cy + z * sy, -x * sy + z * cy
+    x, y = x * cz - y * sz, x * sz + y * cz
+    return (x, y, z)
+
+
+def apply_transform(point, transform):
+    scale = transform['scale']
+    position = transform['position']
+    p = (point[0] * scale[0], point[1] * scale[1], point[2] * scale[2])
+    p = rotate_xyz(p, transform['rotation'])
+    return (p[0] + position[0], p[1] + position[1], p[2] + position[2])
+
+
 def inverse_rotate_xyz(point, rotation):
     x, y, z = point
     rx, ry, rz = rotation
@@ -181,6 +208,106 @@ def bounds(vertices):
     ys = [v[1] for v in vertices]
     zs = [v[2] for v in vertices]
     return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))
+
+
+def solve4(matrix, vector):
+    a = [list(row) + [float(vector[i])] for i, row in enumerate(matrix)]
+    n = 4
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda row: abs(a[row][col]))
+        if abs(a[pivot][col]) < 0.000000000001:
+            return None
+        if pivot != col:
+            a[col], a[pivot] = a[pivot], a[col]
+        div = a[col][col]
+        for j in range(col, n + 1):
+            a[col][j] /= div
+        for row in range(n):
+            if row == col:
+                continue
+            factor = a[row][col]
+            if factor == 0:
+                continue
+            for j in range(col, n + 1):
+                a[row][j] -= factor * a[col][j]
+    return [a[i][n] for i in range(n)]
+
+
+def solve_affine(source_vertices, target_vertices):
+    normal = [[0.0 for _ in range(4)] for _ in range(4)]
+    rhs = [[0.0 for _ in range(3)] for _ in range(4)]
+    for src, dst in zip(source_vertices, target_vertices):
+        row = (src[0], src[1], src[2], 1.0)
+        for i in range(4):
+            for j in range(4):
+                normal[i][j] += row[i] * row[j]
+            for axis in range(3):
+                rhs[i][axis] += row[i] * dst[axis]
+    solved = []
+    for axis in range(3):
+        params = solve4(normal, [rhs[i][axis] for i in range(4)])
+        if params is None:
+            return None
+        solved.append(params)
+    return {'matrix': [[solved[0][0], solved[0][1], solved[0][2]], [solved[1][0], solved[1][1], solved[1][2]], [solved[2][0], solved[2][1], solved[2][2]]], 'position': (solved[0][3], solved[1][3], solved[2][3])}
+
+
+def norm(v):
+    return math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+
+
+def matrix_to_euler_xyz(r):
+    value = max(-1.0, min(1.0, -r[2][0]))
+    ry = math.asin(value)
+    cy = math.cos(ry)
+    if abs(cy) > 0.000001:
+        rx = math.atan2(r[2][1], r[2][2])
+        rz = math.atan2(r[1][0], r[0][0])
+    else:
+        rx = 0.0
+        rz = math.atan2(-r[0][1], r[1][1])
+    return (rx, ry, rz)
+
+
+def affine_to_transform(affine):
+    m = affine['matrix']
+    columns = [(m[0][0], m[1][0], m[2][0]), (m[0][1], m[1][1], m[2][1]), (m[0][2], m[1][2], m[2][2])]
+    scale = tuple(norm(col) for col in columns)
+    if any(value <= 0.0000001 for value in scale):
+        return None
+    r = [[columns[0][0] / scale[0], columns[1][0] / scale[1], columns[2][0] / scale[2]], [columns[0][1] / scale[0], columns[1][1] / scale[1], columns[2][1] / scale[2]], [columns[0][2] / scale[0], columns[1][2] / scale[1], columns[2][2] / scale[2]]]
+    return {'position': affine['position'], 'rotation': matrix_to_euler_xyz(r), 'scale': scale}
+
+
+def max_transform_error(source_vertices, target_vertices, transform):
+    max_error = 0.0
+    for src, dst in zip(source_vertices, target_vertices):
+        p = apply_transform(src, transform)
+        error = math.sqrt((p[0] - dst[0]) ** 2 + (p[1] - dst[1]) ** 2 + (p[2] - dst[2]) ** 2)
+        if error > max_error:
+            max_error = error
+    return max_error
+
+
+def infer_obj_transform(parsed, obj, entry, obj_vertices):
+    try:
+        vertices, triangles, material, mode = build_preview_geometry(parsed, {'entry': entry, 'entry_type': entry['type']})
+    except Exception:
+        return None
+    if len(vertices) != len(obj_vertices) or len(vertices) < 4:
+        return None
+    affine = solve_affine(vertices, obj_vertices)
+    if affine is None:
+        return None
+    transform = affine_to_transform(affine)
+    if transform is None:
+        return None
+    mn, mx = bounds(obj_vertices)
+    diag = math.sqrt((mx[0] - mn[0]) ** 2 + (mx[1] - mn[1]) ** 2 + (mx[2] - mn[2]) ** 2)
+    allowed = max(0.025, diag * 0.0015)
+    if max_transform_error(vertices, obj_vertices, transform) > allowed:
+        return None
+    return transform
 
 
 def chunk(tag, payload, version=0):
@@ -350,11 +477,10 @@ def detect_room_object_changes(parsed, folder, manifest):
     changed_objects = []
     unsupported = []
     objects = manifest.get('objects') or []
+    transformed_objects = [dict(item) for item in objects]
     room_entry = validate_room_manifest(parsed, manifest)
-    new_room_asset, room_transform_patches = patch_room_transform(parsed, room_entry, objects)
-    if new_room_asset is not None:
-        replacements[room_entry['index']] = {'asset_bytes': new_room_asset}
-    for obj in objects:
+    inferred_transform_count = 0
+    for index, obj in enumerate(objects):
         rel = obj.get('path') or ''
         if not rel:
             continue
@@ -371,6 +497,13 @@ def detect_room_object_changes(parsed, folder, manifest):
         entry = parsed['entries'][entry_index]
         if entry['uuid_hex'] != clean_hex(obj.get('entry_uuid_hex')):
             raise PakError(f'Objekt passt nicht zum aktuellen PAK: {rel}')
+        obj_vertices, obj_faces = parse_obj(path)
+        inferred = infer_obj_transform(parsed, obj, entry, obj_vertices)
+        if inferred is not None and not nearly_same_transform(object_transform(obj), inferred):
+            transformed_objects[index] = set_object_transform(obj, inferred)
+            inferred_transform_count += 1
+            changed_objects.append(f'{rel} (Transform)')
+            continue
         entry_type = entry.get('type')
         original_asset = get_entry_asset(parsed, entry)
         if entry_type == 'CLSN':
@@ -381,7 +514,10 @@ def detect_room_object_changes(parsed, folder, manifest):
             changed_objects.append(rel)
         else:
             unsupported.append(f'{entry_type}: {rel}')
-    return replacements, changed_objects, unsupported, room_transform_patches
+    new_room_asset, room_transform_patches = patch_room_transform(parsed, room_entry, transformed_objects)
+    if new_room_asset is not None:
+        replacements[room_entry['index']] = {'asset_bytes': new_room_asset}
+    return replacements, changed_objects, unsupported, room_transform_patches + inferred_transform_count
 
 
 def rebuild_room_package_from_folder(parsed, folder, out_path):
