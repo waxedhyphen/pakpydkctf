@@ -1,5 +1,6 @@
 import skeletal_codec
 import dae_export
+import rigged_gltf
 
 def _vec3(value):
     value=value or [0.0,0.0,0.0]
@@ -9,6 +10,9 @@ def _vec3(value):
 
 def _sub(a,b):
     return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]
+
+def _add(a,b):
+    return [a[0]+b[0],a[1]+b[1],a[2]+b[2]]
 
 def _len(v):
     return (v[0]*v[0]+v[1]*v[1]+v[2]*v[2])**0.5
@@ -66,6 +70,35 @@ def _patched_write_bone_node(lines,level,bones,children,index):
         dae_export._w(lines,level+1,f'<node id="{end_sid}" sid="{end_sid}" name="{dae_export._e(end_sid)}" type="JOINT"><matrix>{dae_export._jf(_local_tail_matrix(bone))}</matrix></node>')
     dae_export._w(lines,level,'</node>')
 
+def _global_heads(bones):
+    heads=[]
+    for index,bone in enumerate(bones):
+        parent=int(bone.get('parent_index',-1)) if bone.get('parent_index',-1) is not None else -1
+        head=_vec3(bone.get('head'))
+        heads.append(_add(heads[parent],head) if 0<=parent<len(heads) else head)
+    return heads
+
+def _patched_normalise_bone_nodes(original):
+    def normalise(bones):
+        out=original(bones)
+        base_count=len(out)
+        heads=_global_heads(out)
+        has_child={int(bone.get('parent_index',-1)) for bone in out if 0<=int(bone.get('parent_index',-1) if bone.get('parent_index',-1) is not None else -1)<base_count}
+        for index in range(base_count):
+            if index in has_child:
+                continue
+            tail=_vec3(out[index].get('tail'))
+            delta=_sub(tail,heads[index])
+            if _len(delta)<=0.000001:
+                continue
+            out.append({'index':len(out),'name':str(out[index].get('name') or f'bone_{index:03d}')+'_end','parent_index':index,'head':delta,'tail':tail})
+        return out
+    return normalise
+
 def install():
     skeletal_codec._tail=_patched_tail
     dae_export._write_bone_node=_patched_write_bone_node
+    if not getattr(rigged_gltf._normalise_bone_nodes,'_skeletal_tail_patch',False):
+        patched=_patched_normalise_bone_nodes(rigged_gltf._normalise_bone_nodes)
+        patched._skeletal_tail_patch=True
+        rigged_gltf._normalise_bone_nodes=patched
