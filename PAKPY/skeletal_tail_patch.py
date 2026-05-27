@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import os
+import shlex
 import shutil
 import struct
 import subprocess
@@ -245,12 +246,14 @@ def _find_blender_exe():
     existing=sorted((path for path in candidates if path.is_file()),key=lambda p:str(p),reverse=True)
     return str(existing[0]) if existing else ''
 
-def _connected_blend_script(glb_path,blend_path):
+def _connected_blend_script(glb_path,blend_path,obj_path=None):
     return '\n'.join([
         'import bpy',
         'from pathlib import Path',
+        'from mathutils import Vector',
         f'GLB_PATH={json.dumps(str(glb_path))}',
         f'BLEND_PATH={json.dumps(str(blend_path))}',
+        f'OBJ_PATH={json.dumps(str(obj_path or ""))}',
         'EPS=0.0001',
         'try:',
         "    bpy.ops.object.mode_set(mode='OBJECT')",
@@ -266,12 +269,12 @@ def _connected_blend_script(glb_path,blend_path):
         "armatures=[obj for obj in bpy.context.scene.objects if obj.type=='ARMATURE']",
         "if not armatures:",
         "    raise RuntimeError('No armature imported from GLB')",
-        'obj=max(armatures,key=lambda item: len(item.data.bones))',
+        'armature_obj=max(armatures,key=lambda item: len(item.data.bones))',
         "bpy.ops.object.select_all(action='DESELECT')",
-        'obj.select_set(True)',
-        'bpy.context.view_layer.objects.active=obj',
+        'armature_obj.select_set(True)',
+        'bpy.context.view_layer.objects.active=armature_obj',
         "bpy.ops.object.mode_set(mode='EDIT')",
-        'eb=obj.data.edit_bones',
+        'eb=armature_obj.data.edit_bones',
         'for bone in eb:',
         '    bone.use_connect=False',
         'connected=0',
@@ -287,13 +290,79 @@ def _connected_blend_script(glb_path,blend_path):
         '    bone.use_connect=True',
         '    connected+=1',
         "bpy.ops.object.mode_set(mode='OBJECT')",
+        'def _base_material_name(name):',
+        "    text=str(name or '')",
+        "    if len(text)>4 and text[-4]=='.' and text[-3:].isdigit():",
+        '        text=text[:-4]',
+        '    return text.strip()',
+        "target_meshes=[mesh_obj for mesh_obj in bpy.context.scene.objects if mesh_obj.type=='MESH' and mesh_obj.data.materials]",
+        'target_material_names={}',
+        'for mesh_obj in target_meshes:',
+        '    names=[]',
+        '    for mat in mesh_obj.data.materials:',
+        '        names.append(_base_material_name(mat.name if mat else ""))',
+        '        if mat:',
+        '            mat.name="__PAKPY_GLB__"+mat.name',
+        '    target_material_names[mesh_obj.name]=names',
+        'def _import_obj_materials():',
+        '    if not OBJ_PATH or not Path(OBJ_PATH).is_file():',
+        '        return {}, 0',
+        '    before=set(bpy.context.scene.objects)',
+        '    try:',
+        '        bpy.ops.wm.obj_import(filepath=OBJ_PATH)',
+        '    except Exception:',
+        '        try:',
+        '            bpy.ops.import_scene.obj(filepath=OBJ_PATH)',
+        '        except Exception:',
+        '            return {}, 0',
+        '    imported=[obj for obj in bpy.context.scene.objects if obj not in before]',
+        '    materials={}',
+        '    for mesh_obj in imported:',
+        "        if mesh_obj.type!='MESH':",
+        '            continue',
+        '        for mat in mesh_obj.data.materials:',
+        '            if mat:',
+        '                materials.setdefault(_base_material_name(mat.name), mat)',
+        "    bpy.ops.object.select_all(action='DESELECT')",
+        '    for mesh_obj in imported:',
+        '        mesh_obj.select_set(True)',
+        '    if imported:',
+        '        bpy.ops.object.delete()',
+        '    return materials, len(materials)',
+        'obj_materials, obj_material_count=_import_obj_materials()',
+        'material_copies=0',
+        'if obj_materials:',
+        '    for mesh_obj in target_meshes:',
+        '        for material_index,mat in enumerate(list(mesh_obj.data.materials)):',
+        '            names=target_material_names.get(mesh_obj.name, [])',
+        '            material_name=names[material_index] if material_index<len(names) else _base_material_name(mat.name if mat else "")',
+        '            source=obj_materials.get(material_name)',
+        '            if source:',
+        '                source.name=material_name',
+        '                mesh_obj.data.materials[material_index]=source',
+        '                material_copies+=1',
+        '            elif mat and material_name:',
+        '                mat.name=material_name',
+        '    if material_copies:',
+        '        try:',
+        '            bpy.ops.file.pack_all()',
+        '        except Exception:',
+        '            pass',
+        'else:',
+        '    for mesh_obj in target_meshes:',
+        '        names=target_material_names.get(mesh_obj.name, [])',
+        '        for material_index,mat in enumerate(list(mesh_obj.data.materials)):',
+        '            if mat and material_index<len(names):',
+        '                mat.name=names[material_index]',
         'Path(BLEND_PATH).parent.mkdir(parents=True,exist_ok=True)',
         'bpy.ops.wm.save_as_mainfile(filepath=BLEND_PATH)',
         "print('PAKPY_CONNECTED_BONES=%d' % connected)",
+        "print('PAKPY_OBJ_MATERIALS=%d' % obj_material_count)",
+        "print('PAKPY_MATERIAL_COPIES=%d' % material_copies)",
         ''
     ])
 
-def _write_connected_blend(glb_path,debug_dir=None):
+def _write_connected_blend(glb_path,debug_dir=None,obj_path=None):
     glb_path=Path(glb_path)
     blend_path=glb_path.with_suffix('.blend')
     blender=_find_blender_exe()
@@ -302,7 +371,7 @@ def _write_connected_blend(glb_path,debug_dir=None):
     script_dir=Path(debug_dir) if debug_dir else glb_path.parent
     script_dir.mkdir(parents=True,exist_ok=True)
     script_path=script_dir/(glb_path.stem+'.connected_blend_tmp.py')
-    script_path.write_text(_connected_blend_script(glb_path,blend_path),encoding='utf-8',newline='\n')
+    script_path.write_text(_connected_blend_script(glb_path,blend_path,obj_path=obj_path),encoding='utf-8',newline='\n')
     creationflags=0x08000000 if os.name=='nt' else 0
     try:
         completed=subprocess.run([blender,'--background','--factory-startup','--python',str(script_path)],capture_output=True,text=True,timeout=300,creationflags=creationflags)
@@ -317,6 +386,98 @@ def _write_connected_blend(glb_path,debug_dir=None):
         output=((completed.stdout or '')+'\n'+(completed.stderr or '')).strip()
         return {'blend_path':'','error':output[-2000:] or f'Blender returned {completed.returncode}'}
     return {'blend_path':str(blend_path),'error':''}
+
+def _texture_png_path_from_manifest(package_dir,item):
+    text=str(item.get('png_name') or '').replace('\\','/')
+    if not text:
+        return ''
+    if '/' in text:
+        return text
+    nested=Path(package_dir)/'textures'/'png'/text
+    return f'textures/png/{text}' if nested.is_file() else text
+
+def _is_base_color_candidate(item):
+    tag=str(item.get('ref_tag') or '').upper()
+    if str(item.get('mtl_slot') or '')=='map_Kd':
+        return True
+    blocked=('NMAP','NRML','NORM','SPCT','SPEC','SPCF','EMIS','ICAN','REFV','REFS','FUR')
+    return not any(part in tag for part in blocked)
+
+def _texture_map_from_manifest(package_dir,manifest):
+    material_slots={}
+    material_names={}
+    fallback_kd={}
+    for item in (manifest or {}).get('textures',[]):
+        if item.get('missing'):
+            continue
+        png_name=_texture_png_path_from_manifest(package_dir,item)
+        if not png_name:
+            continue
+        try:
+            material_index=int(item.get('material_index',0))
+        except Exception:
+            material_index=0
+        material_name=str(item.get('material_name') or '')
+        key=(material_index,material_name)
+        material_names[material_index]=material_name
+        slot=str(item.get('mtl_slot') or '')
+        if slot:
+            material_slots.setdefault(material_index,{}).setdefault(slot,png_name)
+        if key not in fallback_kd and _is_base_color_candidate(item):
+            material_slots.setdefault(material_index,{})
+            fallback_kd[key]=png_name
+    out={}
+    for material_index,slot_map in material_slots.items():
+        material_name=material_names.get(material_index,'')
+        fallback=fallback_kd.get((material_index,material_name),'')
+        if 'map_Kd' not in slot_map and fallback:
+            slot_map['map_Kd']=fallback
+        if slot_map:
+            out[material_index]=dict(slot_map)
+            if material_name:
+                out[material_name]=dict(slot_map)
+    return out
+
+def _texture_map_from_mtl(package_dir,mtl_path):
+    mtl_path=Path(mtl_path) if mtl_path else None
+    if not mtl_path or not mtl_path.is_file():
+        return {}
+    out={}
+    material_name=''
+    slot_map={}
+    def finish():
+        if not material_name or not slot_map:
+            return
+        data=dict(slot_map)
+        out[material_name]=data
+    for raw_line in mtl_path.read_text(encoding='utf-8',errors='replace').splitlines():
+        line=raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        try:
+            parts=shlex.split(line)
+        except Exception:
+            parts=line.split()
+        if not parts:
+            continue
+        key=parts[0]
+        if key=='newmtl':
+            finish()
+            material_name=' '.join(parts[1:]).strip()
+            slot_map={}
+            continue
+        if key not in ('map_Kd','map_Bump','map_Ks','map_Ke') or len(parts)<2:
+            continue
+        text=' '.join(parts[1:]).replace('\\','/')
+        texture_path=Path(text)
+        if not texture_path.is_absolute():
+            texture_path=mtl_path.parent/texture_path
+        try:
+            slot_map[key]=os.path.relpath(str(texture_path),str(package_dir)).replace('\\','/')
+        except Exception:
+            slot_map[key]=str(texture_path).replace('\\','/')
+    finish()
+    return out
 
 def _export_rigged_with_connected_joints(original):
     def export_rigged_model_glb(parsed,entry,out_path,require_store=None,skeleton_refs=None,texture_map=None,texture_root=None):
@@ -335,20 +496,23 @@ def _export_package_with_glb(original):
         package_dir=Path(result['package_dir']);base=model_package.safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
         glb_path=package_dir/'model'/f'{base}.experimental_skeletal.glb'
         try:
-            rigged_gltf.export_rigged_model_glb(parsed,entry,glb_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map={},texture_root=package_dir)
+            manifest_path=package_dir/'repack_manifest.json'
+            existing_manifest=json.loads(manifest_path.read_text(encoding='utf-8')) if manifest_path.is_file() else {}
+            texture_map=_texture_map_from_mtl(package_dir,result.get('mtl','')) or _texture_map_from_manifest(package_dir,existing_manifest)
+            glb_result=rigged_gltf.export_rigged_model_glb(parsed,entry,glb_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map=texture_map,texture_root=package_dir)
             result['experimental_skeletal_glb']=str(glb_path);result['experimental_skeletal_glb_error']=''
-            blend_result=_write_connected_blend(glb_path,package_dir/'debug')
+            blend_result=_write_connected_blend(glb_path,package_dir/'debug',obj_path=result.get('obj',''))
             result['experimental_skeletal_blend']=blend_result.get('blend_path','')
             result['experimental_skeletal_blend_error']=blend_result.get('error','')
             old_script_path=glb_path.with_suffix('.connect_blender.py')
             if old_script_path.is_file():
                 old_script_path.unlink()
-            manifest_path=package_dir/'repack_manifest.json'
             if manifest_path.is_file():
                 manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
                 manifest['experimental_skeletal_glb']=str(glb_path.relative_to(package_dir)).replace('\\','/')
                 manifest['experimental_skeletal_glb_sha1']=model_package.sha1_bytes(glb_path.read_bytes())
                 manifest['experimental_skeletal_glb_error']=''
+                manifest['experimental_skeletal_coordinate_fix']=glb_result.get('coordinate_fix','')
                 if blend_result.get('blend_path') and Path(blend_result['blend_path']).is_file():
                     blend_path=Path(blend_result['blend_path'])
                     manifest['experimental_skeletal_blend']=str(blend_path.relative_to(package_dir)).replace('\\','/')

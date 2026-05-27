@@ -193,6 +193,49 @@ def _common_missing_skin_parent(skin_nodes,parent,lookup):
         return -1,0
     node,count=max(counts.items(),key=lambda item:item[1])
     return node,count
+def _name_side(name):
+    text=str(name or '').lower()
+    parts=[p for p in text.replace('-','_').replace('.','_').split('_') if p]
+    if parts and parts[0] in ('l','left'): return -1
+    if parts and parts[0] in ('r','right'): return 1
+    if 'left' in parts: return -1
+    if 'right' in parts: return 1
+    return 0
+def _skin_side_score(skin_nodes,skin_names,names,raw_global):
+    score=0;evidence=0
+    for node,name_index in zip(skin_nodes,skin_names):
+        if not (0<=node<len(raw_global) and 0<=name_index<len(names)):
+            continue
+        side=_name_side(names[name_index].get('name',''))
+        x=_tr(raw_global[node])[0]
+        if side==0 or abs(x)<1e-5:
+            continue
+        evidence+=1
+        score+=1 if (side<0 and x<0) or (side>0 and x>0) else -1
+    return score,evidence
+def _resolve_skin_table(skin_values,skin_count,node_count,node_names,name_to_node,names,raw_global):
+    name_names=list(skin_values)
+    name_nodes=[name_to_node[x] for x in name_names if x in name_to_node]
+    name_valid=len(name_nodes)==len(name_names)==skin_count
+    node_valid=len(skin_values)==skin_count and len(set(skin_values))==len(skin_values) and all(0<=x<node_count for x in skin_values)
+    if node_valid:
+        node_nodes=list(skin_values)
+        node_names_out=[node_names[ni] if 0<=ni<len(node_names) else ni for ni in node_nodes]
+    else:
+        node_nodes=[];node_names_out=[]
+    if node_valid and name_valid:
+        node_score,node_evidence=_skin_side_score(node_nodes,node_names_out,names,raw_global)
+        name_score,name_evidence=_skin_side_score(name_nodes,name_names,names,raw_global)
+        if node_evidence or name_evidence:
+            if node_score>name_score:
+                return 'node_indices',node_names_out,node_nodes
+            if name_score>node_score:
+                return 'name_indices',name_names,name_nodes
+        if node_names_out!=name_names:
+            return 'node_indices',node_names_out,node_nodes
+    if node_valid:
+        return 'node_indices',node_names_out,node_nodes
+    return 'name_indices',name_names,name_nodes
 def _apply_helper_parent_bone(bones,skin_nodes,parent,node_names,names,raw_global,raw_local,ts,qs,ss,children):
     if len(bones)<=1:
         return [],[]
@@ -253,7 +296,7 @@ def parse_skel_asset(a):
     runtime_blob=a[table_scan_start:table_layout['parent_offset']]
     runtime={'offset':runtime_offset,'size':len(runtime_blob),'raw_hex':runtime_blob.hex()}
     parent_offset=table_layout['parent_offset'];parent=table_layout['parent']
-    skin_offset=table_layout['skin_offset'];skin_names=table_layout['skin']
+    skin_offset=table_layout['skin_offset'];skin_values=table_layout['skin']
     flags_offset=table_layout['flags_offset'];node_flags=table_layout['flags']
     aux_data=a[flags_offset+len(node_flags):coord_offset]
     ts=tr.get('translations') or [[0,0,0] for _ in range(node_count)];qs=tr.get('rotations') or [[1,0,0,0] for _ in range(node_count)];ss=tr.get('scales') or [[1,1,1] for _ in range(node_count)]
@@ -265,7 +308,8 @@ def parse_skel_asset(a):
     name_to_node={}
     for ni,nam in enumerate(node_names):
         if 0<=nam<name_count and nam not in name_to_node: name_to_node[nam]=ni
-    skin_nodes=[name_to_node[x] for x in skin_names if x in name_to_node];lookup={n:i for i,n in enumerate(skin_nodes)}
+    skin_table_mode,skin_names,skin_nodes=_resolve_skin_table(skin_values,skin_count,node_count,node_names,name_to_node,names,raw_global)
+    lookup={n:i for i,n in enumerate(skin_nodes)}
     children={i:[] for i in range(node_count)}
     for i,pv in enumerate(parent):
         if pv!=255 and 0<=pv<node_count and pv!=i: children.setdefault(pv,[]).append(i)
@@ -278,7 +322,7 @@ def parse_skel_asset(a):
     nodes=[]
     for ni,nam in enumerate(node_names):
         nodes.append({'index':ni,'name_index':nam,'name':names[nam]['name'] if 0<=nam<len(names) else f'node_{ni:03d}','parent_index':parent[ni] if ni<len(parent) else 255,'flags':node_flags[ni] if ni<len(node_flags) else 0,'matrix':raw_local[ni] if ni<len(raw_local) else _id(),'global_matrix':raw_global[ni] if ni<len(raw_global) else _id(),'translation':ts[ni] if ni<len(ts) else [0,0,0],'rotation':qs[ni] if ni<len(qs) else [1,0,0,0],'scale':ss[ni] if ni<len(ss) else [1,1,1]})
-    return {'type':'SKEL','version_a':va,'version_b':vb,'marker':f'0x{marker:08X}','unknown_a':ua,'size':len(a),'sha1':sha1_bytes(a),'name_count':name_count,'names':names,'fields':fields,'fields_offset':fields_offset,'data_start':fields_offset+15,'skeleton_map_offset':skeleton_map.get('offset',0),'skeleton_map_count':skeleton_map.get('count_a',0),'skeleton_map':skeleton_map,'node_name_indices':node_names,'animation_attributes':animation_attributes,'has_info_data':bool(animation_attributes.get('has_info_data')),'runtime_header':runtime,'parent_table_offset':parent_offset,'parent_table':parent,'skin_table_offset':skin_offset,'skin_name_indices':skin_names,'skin_node_indices':skin_nodes,'helper_node_indices':helper_nodes,'flags_offset':flags_offset,'node_flags':node_flags,'aux_offset':flags_offset+len(node_flags),'aux_size':len(aux_data),'aux_data_hex':aux_data.hex(),'transform_offset':coord_offset,'transform_endian':tr.get('endian',''),'transform_format':'f32_quat_scale_pos','transform_stride':40,'transform_count':node_count,'transform_score':tr.get('score',0),'table_score':table_layout.get('score',0),'bind_matrix_mode':'skel_quat_scale_pos','coordinate_fix':'none','node_count':node_count,'skin_bone_count':skin_count,'nodes':nodes,'bones':bones,'status':'SKEL wird strukturell dekodiert: Skeleton-Map, Parent/Skin/Flags und Coord-Block im Format Quaternion + Scale + Position. Parent/Skin/Flags werden ueber den gefundenen Coord-Block validiert statt blind nach einem festen Runtime-Header gelesen. Wenn alle Skin-Bones denselben nicht gewichteten Parent verlieren, wird dieser als Helper-Bone angehaengt, ohne die vorhandenen Joint-Indizes zu verschieben.'}
+    return {'type':'SKEL','version_a':va,'version_b':vb,'marker':f'0x{marker:08X}','unknown_a':ua,'size':len(a),'sha1':sha1_bytes(a),'name_count':name_count,'names':names,'fields':fields,'fields_offset':fields_offset,'data_start':fields_offset+15,'skeleton_map_offset':skeleton_map.get('offset',0),'skeleton_map_count':skeleton_map.get('count_a',0),'skeleton_map':skeleton_map,'node_name_indices':node_names,'animation_attributes':animation_attributes,'has_info_data':bool(animation_attributes.get('has_info_data')),'runtime_header':runtime,'parent_table_offset':parent_offset,'parent_table':parent,'skin_table_offset':skin_offset,'skin_table_mode':skin_table_mode,'skin_table_values':skin_values,'skin_name_indices':skin_names,'skin_node_indices':skin_nodes,'helper_node_indices':helper_nodes,'flags_offset':flags_offset,'node_flags':node_flags,'aux_offset':flags_offset+len(node_flags),'aux_size':len(aux_data),'aux_data_hex':aux_data.hex(),'transform_offset':coord_offset,'transform_endian':tr.get('endian',''),'transform_format':'f32_quat_scale_pos','transform_stride':40,'transform_count':node_count,'transform_score':tr.get('score',0),'table_score':table_layout.get('score',0),'bind_matrix_mode':'skel_quat_scale_pos','coordinate_fix':'none','node_count':node_count,'skin_bone_count':skin_count,'nodes':nodes,'bones':bones,'status':'SKEL wird strukturell dekodiert: Skeleton-Map, Parent/Skin/Flags und Coord-Block im Format Quaternion + Scale + Position. Die Skin-Tabelle wird als Node-Index-Tabelle behandelt, wenn alle Werte valide Node-Indizes sind; dadurch bleiben Modell-Joint-Indizes in derselben Reihenfolge wie die SKEL-Nodes.'}
 def parse_rfrm_chunks(a):
     if len(a)<32 or a[:4]!=b'RFRM': return []
     out=[];p=32

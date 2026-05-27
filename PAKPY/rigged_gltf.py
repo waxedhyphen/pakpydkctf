@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import mimetypes
+import os
 import struct
 from pak_core import PakError, get_entry_asset, safe_name
 from pak_extract import parse_chunks, parse_head, parse_meshes, parse_vbufs, parse_ibufs, parse_material_names, decompress_gpu_blocks, decode_gpu_block_data, parse_indices, build_faces, read_half
@@ -19,6 +20,17 @@ def _pack_u32(values):
 
 def _pack_u16(values):
     return struct.pack('<' + 'H' * len(values), *values) if values else b''
+
+def _pack_gltf_uvs(uvs):
+    values = []
+    for uv in uvs:
+        if uv is None or len(uv) < 2:
+            u, v = 0.0, 0.0
+        else:
+            u, v = float(uv[0]), float(uv[1])
+        # Stored UVs match OBJ/Blender space; glTF needs the opposite V.
+        values.extend([u, 1.0 - v])
+    return _pack_floats(values)
 
 def _read_vec4_half(data, off):
     return [read_half(data, off + i * 2) for i in range(4)]
@@ -240,6 +252,17 @@ def _normalise_bone_nodes(bones):
         out.append({'index': index, 'name': bone.get('name') or f'bone_{index:03d}', 'parent_index': parent, 'head': local, 'tail': tail})
     return out
 
+def _apply_entry_material_names(model, entry):
+    if not entry.get('model_materials'):
+        return
+    material_names = list(model.get('materials', []))
+    max_index = max((m['index'] for m in entry['model_materials']), default=-1)
+    while len(material_names) <= max_index:
+        material_names.append(f'material_{len(material_names)}')
+    for material in entry['model_materials']:
+        material_names[material['index']] = str(material.get('name') or f'material_{material["index"]}')
+    model['materials'] = material_names
+
 def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=None, include_skin=True):
     bones = _normalise_bone_nodes(bones)
     positions, normals, uvs, joints, weights, primitives, face_count = _mesh_arrays(model, len(bones))
@@ -276,15 +299,17 @@ def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=No
         image_path = texture_root / path_text
         if not image_path.is_file():
             return None
-        data = image_path.read_bytes()
-        view = add_view(data)
         mime = mimetypes.guess_type(str(image_path))[0] or 'image/png'
-        images.append({'bufferView': view, 'mimeType': mime, 'name': image_path.stem})
+        try:
+            uri = os.path.relpath(str(image_path), str(Path(path).parent)).replace('\\', '/')
+        except Exception:
+            uri = str(image_path).replace('\\', '/')
+        images.append({'uri': uri, 'mimeType': mime, 'name': image_path.stem})
         textures.append({'source': len(images) - 1})
         return len(textures) - 1
     pos_acc = add_accessor(_pack_floats([x for item in positions for x in item]), 5126, len(positions), 'VEC3', target=34962, min_value=[min(p[i] for p in positions) for i in range(3)], max_value=[max(p[i] for p in positions) for i in range(3)])
     normal_acc = add_accessor(_pack_floats([x for item in normals for x in item]), 5126, len(normals), 'VEC3', target=34962)
-    uv_acc = add_accessor(_pack_floats([x for item in uvs for x in item]), 5126, len(uvs), 'VEC2', target=34962)
+    uv_acc = add_accessor(_pack_gltf_uvs(uvs), 5126, len(uvs), 'VEC2', target=34962)
     joint_acc = None
     weight_acc = None
     if include_skin:
@@ -328,16 +353,25 @@ def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=No
         nodes.append({'name': entry_name, 'mesh': 0})
     materials = []
     for index, name in enumerate(model['materials'] or ['material_0']):
-        tex_path = ''
         info = texture_map.get(index) or texture_map.get(str(name)) or {}
         if isinstance(info, str):
-            tex_path = info
-        elif isinstance(info, dict):
-            tex_path = info.get('map_Kd') or info.get('baseColorTexture') or ''
-        tex_index = add_image(tex_path)
+            info = {'map_Kd': info}
+        elif not isinstance(info, dict):
+            info = {}
+        base_tex = info.get('map_Kd') or info.get('baseColorTexture') or ''
+        normal_tex = info.get('map_Bump') or info.get('normalTexture') or ''
+        emissive_tex = info.get('map_Ke') or info.get('emissiveTexture') or ''
+        base_tex_index = add_image(base_tex)
+        normal_tex_index = add_image(normal_tex)
+        emissive_tex_index = add_image(emissive_tex)
         mat = {'name': str(name), 'pbrMetallicRoughness': {'baseColorFactor': [1.0, 1.0, 1.0, 1.0], 'metallicFactor': 0.0, 'roughnessFactor': 1.0}}
-        if tex_index is not None:
-            mat['pbrMetallicRoughness']['baseColorTexture'] = {'index': tex_index}
+        if base_tex_index is not None:
+            mat['pbrMetallicRoughness']['baseColorTexture'] = {'index': base_tex_index}
+        if normal_tex_index is not None:
+            mat['normalTexture'] = {'index': normal_tex_index}
+        if emissive_tex_index is not None:
+            mat['emissiveTexture'] = {'index': emissive_tex_index}
+            mat['emissiveFactor'] = [1.0, 1.0, 1.0]
         materials.append(mat)
     scene_nodes = [mesh_node_index] + root_joints if include_skin else [0]
     gltf = {'asset': {'version': '2.0', 'generator': 'PAKPY'}, 'scene': 0, 'scenes': [{'nodes': scene_nodes}], 'nodes': nodes, 'meshes': [{'name': entry_name, 'primitives': primitive_items}], 'materials': materials, 'buffers': [{'byteLength': len(bin_blob)}], 'bufferViews': buffer_views, 'accessors': accessors}
@@ -362,14 +396,19 @@ def _write_glb(path, model, bones, entry_name, texture_map=None, texture_root=No
 def export_rigged_model_glb(parsed, entry, out_path, require_store=None, skeleton_refs=None, texture_map=None, texture_root=None):
     asset = get_entry_asset(parsed, entry)
     model = load_model_with_skin(asset)
+    _apply_entry_material_names(model, entry)
     entry_name = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
     skeleton = _load_skeleton(parsed, model, require_store, skeleton_refs or [])
     result = _write_glb(out_path, model, skeleton['bones'], entry_name, texture_map=texture_map, texture_root=texture_root, include_skin=True)
+    result['coordinate_fix'] = 'none'
     result['skeleton'] = {'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry_name, 'model_type': entry['type'], 'skhd_bone_count': model.get('bone_count', 0), 'skel_uuid_hex': skeleton.get('source_uuid', ''), 'skel_source_kind': skeleton.get('source_kind', ''), 'skel_source_path': skeleton.get('source_path', ''), 'bones': skeleton['bones'], 'raw_skel_summary': skeleton.get('summary', {})}
     return result
 
 def export_textured_model_glb(parsed, entry, out_path, texture_map=None, texture_root=None):
     asset = get_entry_asset(parsed, entry)
     model = load_model_with_skin(asset)
+    _apply_entry_material_names(model, entry)
     entry_name = safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
-    return _write_glb(out_path, model, [], entry_name, texture_map=texture_map, texture_root=texture_root, include_skin=False)
+    result = _write_glb(out_path, model, [], entry_name, texture_map=texture_map, texture_root=texture_root, include_skin=False)
+    result['coordinate_fix'] = 'none'
+    return result
