@@ -1,6 +1,7 @@
-import skeletal_codec
-import dae_export
+from pathlib import Path
+import json
 import rigged_gltf
+import model_package
 
 def _vec3(value):
     value=value or [0.0,0.0,0.0]
@@ -17,88 +18,80 @@ def _add(a,b):
 def _len(v):
     return (v[0]*v[0]+v[1]*v[1]+v[2]*v[2])**0.5
 
-def _unit(v,fallback):
-    l=_len(v)
-    return list(fallback) if l<=0.000001 else [v[0]/l,v[1]/l,v[2]/l]
-
-def _parent(index,children):
-    for p,items in children.items():
-        if index in items:
-            return p
-    return -1
-
-def _y_axis(matrix):
-    if isinstance(matrix,list) and len(matrix)==16:
-        return _unit([float(matrix[1]),float(matrix[5]),float(matrix[9])],[0.0,1.0,0.0])
-    return [0.0,1.0,0.0]
-
-def _patched_tail(index,matrix,children,globals_):
-    head=_vec3(skeletal_codec._tr(matrix))
-    for child in children.get(index,[]):
-        if 0<=child<len(globals_):
-            child_head=_vec3(skeletal_codec._tr(globals_[child]))
-            if _len(_sub(child_head,head))>0.000001:
-                return child_head
-    parent=_parent(index,children)
-    size=0.035
-    if 0<=parent<len(globals_):
-        size=max(size,_len(_sub(head,_vec3(skeletal_codec._tr(globals_[parent])))))
-    axis=_y_axis(matrix)
-    return [head[0]+axis[0]*size,head[1]+axis[1]*size,head[2]+axis[2]*size]
-
-def _transform_point(matrix,point):
-    return [matrix[0]*point[0]+matrix[1]*point[1]+matrix[2]*point[2]+matrix[3],matrix[4]*point[0]+matrix[5]*point[1]+matrix[6]*point[2]+matrix[7],matrix[8]*point[0]+matrix[9]*point[1]+matrix[10]*point[2]+matrix[11]]
-
-def _local_tail_matrix(bone):
-    tail=_vec3(bone.get('tail'))
-    matrix=bone.get('global_matrix')
-    if isinstance(matrix,list) and len(matrix)==16:
-        local=_transform_point(skeletal_codec._inv(matrix),tail)
-    else:
-        local=_sub(tail,_vec3(bone.get('head')))
-    return dae_export._translation_matrix(local)
-
-def _patched_write_bone_node(lines,level,bones,children,index):
-    bone=bones[index]
-    sid=dae_export._sid(bone.get('name') or f'bone_{index:03d}',f'bone_{index:03d}')
-    dae_export._w(lines,level,f'<node id="{sid}" sid="{sid}" name="{dae_export._e(bone.get("name") or sid)}" type="JOINT"><matrix>{dae_export._jf(dae_export._bone_matrix(bone))}</matrix>')
-    child_items=children.get(index,[])
-    for child in child_items:
-        _patched_write_bone_node(lines,level+1,bones,children,child)
-    if not child_items:
-        end_sid=dae_export._sid((bone.get('name') or f'bone_{index:03d}')+'_end',f'bone_{index:03d}_end')
-        dae_export._w(lines,level+1,f'<node id="{end_sid}" sid="{end_sid}" name="{dae_export._e(end_sid)}" type="JOINT"><matrix>{dae_export._jf(_local_tail_matrix(bone))}</matrix></node>')
-    dae_export._w(lines,level,'</node>')
-
 def _global_heads(bones):
     heads=[]
-    for index,bone in enumerate(bones):
+    for bone in bones:
         parent=int(bone.get('parent_index',-1)) if bone.get('parent_index',-1) is not None else -1
         head=_vec3(bone.get('head'))
         heads.append(_add(heads[parent],head) if 0<=parent<len(heads) else head)
     return heads
 
-def _patched_normalise_bone_nodes(original):
+def _append_leaf_end_nodes(original):
     def normalise(bones):
         out=original(bones)
         base_count=len(out)
         heads=_global_heads(out)
-        has_child={int(bone.get('parent_index',-1)) for bone in out if 0<=int(bone.get('parent_index',-1) if bone.get('parent_index',-1) is not None else -1)<base_count}
-        for index in range(base_count):
+        has_child=set()
+        for bone in out[:base_count]:
+            parent=bone.get('parent_index',-1)
+            try:
+                parent=int(parent)
+            except Exception:
+                parent=-1
+            if 0<=parent<base_count:
+                has_child.add(parent)
+        for index,bone in enumerate(out[:base_count]):
             if index in has_child:
                 continue
-            tail=_vec3(out[index].get('tail'))
+            tail=_vec3(bone.get('tail'))
             delta=_sub(tail,heads[index])
             if _len(delta)<=0.000001:
                 continue
-            out.append({'index':len(out),'name':str(out[index].get('name') or f'bone_{index:03d}')+'_end','parent_index':index,'head':delta,'tail':tail})
+            out.append({'index':len(out),'name':str(bone.get('name') or f'bone_{index:03d}')+'_end','parent_index':index,'head':delta,'tail':tail})
         return out
     return normalise
 
+def _export_package_with_glb(original):
+    def export_model_package(parsed,entry,out_dir,require_store=None,animation_refs=None,skeleton_refs=None):
+        result=original(parsed,entry,out_dir,require_store=require_store,animation_refs=animation_refs,skeleton_refs=skeleton_refs)
+        if not skeleton_refs:
+            return result
+        package_dir=Path(result['package_dir'])
+        base=model_package.safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
+        glb_path=package_dir/'model'/f'{base}.experimental_skeletal.glb'
+        try:
+            rigged_gltf.export_rigged_model_glb(parsed,entry,glb_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map={},texture_root=package_dir)
+            result['experimental_skeletal_glb']=str(glb_path)
+            result['experimental_skeletal_glb_error']=''
+            manifest_path=package_dir/'repack_manifest.json'
+            if manifest_path.is_file():
+                manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
+                manifest['experimental_skeletal_glb']=str(glb_path.relative_to(package_dir)).replace('\\','/')
+                manifest['experimental_skeletal_glb_sha1']=model_package.sha1_bytes(glb_path.read_bytes())
+                manifest['experimental_skeletal_glb_error']=''
+                manifest_path.write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding='utf-8',newline='\n')
+        except Exception as e:
+            result['experimental_skeletal_glb']=''
+            result['experimental_skeletal_glb_error']=str(e)
+        return result
+    return export_model_package
+
 def install():
-    skeletal_codec._tail=_patched_tail
-    dae_export._write_bone_node=_patched_write_bone_node
-    if not getattr(rigged_gltf._normalise_bone_nodes,'_skeletal_tail_patch',False):
-        patched=_patched_normalise_bone_nodes(rigged_gltf._normalise_bone_nodes)
-        patched._skeletal_tail_patch=True
+    if not getattr(rigged_gltf._normalise_bone_nodes,'_leaf_end_nodes_patch',False):
+        patched=_append_leaf_end_nodes(rigged_gltf._normalise_bone_nodes)
+        patched._leaf_end_nodes_patch=True
         rigged_gltf._normalise_bone_nodes=patched
+    if not getattr(model_package.export_model_package,'_glb_package_patch',False):
+        patched_package=_export_package_with_glb(model_package.export_model_package)
+        patched_package._glb_package_patch=True
+        model_package.export_model_package=patched_package
+        try:
+            import gui
+            gui.export_model_package=patched_package
+        except Exception:
+            pass
+        try:
+            import char_skeletal_package_patch
+            char_skeletal_package_patch.export_model_package=patched_package
+        except Exception:
+            pass
