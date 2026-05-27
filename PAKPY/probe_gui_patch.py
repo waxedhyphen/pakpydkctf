@@ -1,6 +1,6 @@
 import json
 import tkinter as tk
-from tkinter import filedialog,messagebox,ttk
+from tkinter import messagebox,ttk
 from probe_core import list_anim_options,run_anim_probe
 
 def install(App):
@@ -40,7 +40,7 @@ def install(App):
         out_row=tk.Frame(top)
         out_row.pack(fill='x',pady=(10,0))
         tk.Label(out_row,text='Output').pack(side='left')
-        self.probe_out_var=tk.StringVar(value='')
+        self.probe_out_var=tk.StringVar(value=self.dialog_dirs.get('probe_output_dir',''))
         tk.Entry(out_row,textvariable=self.probe_out_var).pack(side='left',fill='x',expand=True,padx=(8,8))
         tk.Button(out_row,text='Auswählen',command=self.choose_probe_output,width=12).pack(side='left')
         select_row=tk.Frame(top)
@@ -60,24 +60,20 @@ def install(App):
         scroll.pack(side='left',fill='y')
         self.fill_probe_anim_list()
     def choose_probe_output(self):
-        path=filedialog.askdirectory(title='Probe-Output-Ordner auswählen')
+        path=self.ask_directory('probe_output_dir',title='Probe-Output-Ordner auswählen')
         if path:
             self.probe_out_var.set(path)
-            try:
-                self.remember_dialog_dir('probe_output_dir',path)
-            except Exception:
-                pass
     def fill_probe_anim_list(self):
         for child in self.probe_anim_frame.winfo_children(): child.destroy()
         self.probe_anim_vars={}
         rows=list_anim_options(self.parsed,self.require_store)
         head=tk.Frame(self.probe_anim_frame)
         head.pack(fill='x')
-        tk.Label(head,text=f'ANIM-Dateien: {len(rows)}').pack(side='left')
+        tk.Label(head,text=f'ANIM-Dateien aus aktueller PAK: {len(rows)}').pack(side='left')
         for row in rows:
             var=tk.BooleanVar(value=True)
             self.probe_anim_vars[row['uuid_hex']]=var
-            text=f"{row['name']} | {row['file']} | {row['source']} | {row['size']} Bytes"
+            text=f"{row['name']} | {row['file']} | {row['size']} Bytes"
             tk.Checkbutton(self.probe_anim_frame,text=text,variable=var,anchor='w',justify='left').pack(fill='x',anchor='w')
     def set_probe_anim_selection(self,value):
         for var in self.probe_anim_vars.values(): var.set(bool(value))
@@ -89,6 +85,7 @@ def install(App):
         if not out:
             messagebox.showerror('Probe','Output-Ordner auswählen')
             return
+        self.remember_dialog_dir('probe_output_dir',out)
         selected=[k for k,v in self.probe_anim_vars.items() if v.get()]
         try:
             result=run_anim_probe(self.parsed,self.require_store,out,selected)
