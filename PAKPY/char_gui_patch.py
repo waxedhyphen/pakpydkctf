@@ -36,7 +36,7 @@ def install(App):
         try:
             item = self.get_selected_item()
             if item['kind'] == 'entry' and self.is_char_entry(item['entry']):
-                out_dir = filedialog.askdirectory(title='Zielordner für CHAR-Paket auswählen')
+                out_dir = self.ask_directory('char_package_export_dir', title='Zielordner für CHAR-Paket auswählen')
                 if not out_dir:
                     return
                 result = export_char_package(self.parsed, item['entry'], out_dir, require_store=self.require_store)

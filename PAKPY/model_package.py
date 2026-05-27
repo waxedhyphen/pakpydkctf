@@ -106,6 +106,12 @@ def _write_report(package_dir, manifest):
     lines.append(f'DAE: {manifest["dae"]}')
     if manifest.get('experimental_skeletal_dae'):
         lines.append(f'Experimental Skeletal DAE: {manifest["experimental_skeletal_dae"]}')
+    if manifest.get('experimental_skeletal_glb'):
+        lines.append(f'Experimental Skeletal GLB: {manifest["experimental_skeletal_glb"]}')
+    if manifest.get('experimental_skeletal_blend'):
+        lines.append(f'Blender Connected Rig: {manifest["experimental_skeletal_blend"]}')
+    elif manifest.get('experimental_skeletal_blend_error'):
+        lines.append(f'Blender Connected Rig Fehler: {manifest["experimental_skeletal_blend_error"]}')
     lines.append(f'Bones: {manifest.get("bone_count", 0)}')
     lines.append(f'Faces: {manifest.get("face_count", 0)}')
     if manifest.get('skel_probe_summary'):

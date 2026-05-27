@@ -70,7 +70,7 @@ def install(App):
         try:
             item = self.get_selected_item()
             if item['kind'] == 'entry' and self.is_room_entry(item['entry']):
-                out_dir = filedialog.askdirectory(title='Zielordner für ROOM-Paket auswählen')
+                out_dir = self.ask_directory('room_package_export_dir', title='Zielordner für ROOM-Paket auswählen')
                 if not out_dir:
                     return
                 result = export_room_package(self.parsed, item['entry'], out_dir)
@@ -114,12 +114,12 @@ def install(App):
         return original_export_model_package_dialog(self)
 
     def clone_room_object_dialog(self):
-        folder = filedialog.askdirectory(title='ROOM-Paket-Ordner auswählen')
+        folder = self.ask_directory('room_clone_package_dir', title='ROOM-Paket-Ordner auswählen')
         if not folder:
             return
         try:
             folder_path = Path(folder)
-            source_path = filedialog.askopenfilename(title='ROOMCTRL-Original-OBJ auswählen', initialdir=str(folder_path / 'room_scene_objects' / 'ROOMCTRL'), filetypes=[('OBJ-Dateien', '*.obj'), ('Alle Dateien', '*.*')])
+            source_path = self.ask_open_file('room_clone_source_obj_open', title='ROOMCTRL-Original-OBJ auswählen', initialdir=str(folder_path / 'room_scene_objects' / 'ROOMCTRL'), filetypes=[('OBJ-Dateien', '*.obj'), ('Alle Dateien', '*.*')])
             if not source_path:
                 return
             result = create_room_clone_files(folder_path, source_path)
@@ -144,7 +144,7 @@ def install(App):
         if self.parsed is None:
             messagebox.showerror('Fehler', 'Noch keine PAK-Datei eingelesen')
             return
-        folder = filedialog.askdirectory(title='ROOM-Paket-Ordner auswählen')
+        folder = self.ask_directory('room_package_rebuild_dir', title='ROOM-Paket-Ordner auswählen')
         if not folder:
             return
         try:
@@ -152,7 +152,7 @@ def install(App):
             if not (folder_path / 'room_scene_repack_manifest.json').is_file():
                 raise PakError('room_scene_repack_manifest.json fehlt')
             source = Path(self.parsed['path'])
-            out_path = filedialog.asksaveasfilename(title='Neues PAK speichern', defaultextension='.pak', initialfile=source.stem + '_room_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
+            out_path = self.ask_save_file('room_package_rebuild_save', title='Neues PAK speichern', defaultextension='.pak', initialfile=source.stem + '_room_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
             if not out_path:
                 return
             result = rebuild_room_package_from_folder(self.parsed, folder_path, out_path)

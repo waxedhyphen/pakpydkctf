@@ -1,6 +1,9 @@
 from pathlib import Path
 import json
+import os
+import shutil
 import struct
+import subprocess
 import rigged_gltf
 import model_package
 
@@ -51,47 +54,62 @@ def _cm_inv_rt(m):
 def _cm_from_basis(head,x,y,z):
     return [x[0],x[1],x[2],0.0,y[0],y[1],y[2],0.0,z[0],z[1],z[2],0.0,head[0],head[1],head[2],1.0]
 
-def _basis_to_target(head,target):
+def _project_axis(axis,normal):
+    projected=_sub(axis,[normal[0]*_dot(axis,normal),normal[1]*_dot(axis,normal),normal[2]*_dot(axis,normal)])
+    return None if _len(projected)<=0.000001 else _unit(projected,[1.0,0.0,0.0])
+
+def _basis_from_source(head,target,source_matrix):
     y=_unit(_sub(target,head),[0.0,1.0,0.0])
+    if isinstance(source_matrix,list) and len(source_matrix)==16:
+        source_x=_unit([source_matrix[0],source_matrix[1],source_matrix[2]],[1.0,0.0,0.0])
+        source_z=_unit([source_matrix[8],source_matrix[9],source_matrix[10]],[0.0,0.0,1.0])
+        x=_project_axis(source_x,y)
+        if x is not None:
+            z=_unit(_cross(x,y),[0.0,0.0,1.0])
+            return x,y,z
+        z=_project_axis(source_z,y)
+        if z is not None:
+            x=_unit(_cross(y,z),[1.0,0.0,0.0])
+            return x,y,z
     ref=[0.0,0.0,1.0] if abs(_dot(y,[0.0,0.0,1.0]))<0.95 else [1.0,0.0,0.0]
-    x=_unit(_cross(ref,y),[1.0,0.0,0.0])
+    x=_unit(_cross(y,ref),[1.0,0.0,0.0])
     z=_unit(_cross(x,y),[0.0,0.0,1.0])
     return x,y,z
 
 def _global_heads(bones):
-    heads=[]
+    local_heads=[_vec3(bone.get('head')) for bone in bones]
+    parents=[]
     for bone in bones:
         parent=bone.get('parent_index',-1)
         try:
             parent=int(parent)
         except Exception:
             parent=-1
-        head=_vec3(bone.get('head'))
-        heads.append(_add(heads[parent],head) if 0<=parent<len(heads) else head)
-    return heads
+        parents.append(parent if 0<=parent<len(bones) else -1)
+    memo={}
+    visiting=set()
+    def resolve(index):
+        if index in memo:
+            return memo[index]
+        parent=parents[index]
+        if parent<0 or parent==index or parent in visiting:
+            out=local_heads[index]
+        else:
+            visiting.add(index)
+            out=_add(resolve(parent),local_heads[index])
+            visiting.discard(index)
+        memo[index]=out
+        return out
+    return [resolve(index) for index in range(len(bones))]
 
-def _append_leaf_end_nodes(original):
+def _capture_export_bones(original):
     def normalise(bones):
         out=original(bones)
-        base_count=len(out)
-        heads=_global_heads(out)
-        has_child=set()
-        for bone in out[:base_count]:
-            parent=bone.get('parent_index',-1)
-            try:
-                parent=int(parent)
-            except Exception:
-                parent=-1
-            if 0<=parent<base_count:
-                has_child.add(parent)
-        for index,bone in enumerate(out[:base_count]):
-            if index in has_child:
-                continue
-            tail=_vec3(bone.get('tail'))
-            delta=_sub(tail,heads[index])
-            if _len(delta)<=0.000001:
-                continue
-            out.append({'index':len(out),'name':str(bone.get('name') or f'bone_{index:03d}')+'_end','parent_index':index,'head':delta,'tail':tail,'_end_node':True})
+        for index,bone in enumerate(out):
+            source=bones[index] if index<len(bones) else {}
+            for key in ('matrix','global_matrix','inverse_bind_matrix','translation','rotation','scale'):
+                if key in source:
+                    bone[key]=source[key]
         rigged_gltf._last_skeletal_export_bones=out
         return out
     return normalise
@@ -108,26 +126,29 @@ def _children_by_parent(bones):
             children.setdefault(parent,[]).append(index)
     return children
 
-def _oriented_globals(bones):
+def _connected_globals(bones):
     heads=_global_heads(bones)
     children=_children_by_parent(bones)
     globals_=[]
     for index,bone in enumerate(bones):
-        child_items=children.get(index,[])
-        if child_items:
-            target=heads[child_items[0]]
+        parent=bone.get('parent_index',-1)
+        try:
+            parent=int(parent)
+        except Exception:
+            parent=-1
+        target=heads[index]
+        if 0<=parent<len(heads):
+            head=heads[parent]
         else:
-            parent=bone.get('parent_index',-1)
-            try:
-                parent=int(parent)
-            except Exception:
-                parent=-1
-            if 0<=parent<len(heads):
-                target=_add(heads[index],_sub(heads[index],heads[parent]))
+            child_items=children.get(index,[])
+            if child_items:
+                direction=_unit(_sub(heads[child_items[0]],target),[0.0,1.0,0.0])
             else:
-                target=_add(heads[index],[0.0,0.035,0.0])
-        x,y,z=_basis_to_target(heads[index],target)
-        globals_.append(_cm_from_basis(heads[index],x,y,z))
+                tail=_vec3(bone.get('tail'))
+                direction=_unit(_sub(tail,target),[0.0,1.0,0.0])
+            head=_sub(target,[direction[0]*0.035,direction[1]*0.035,direction[2]*0.035])
+        x,y,z=_basis_from_source(head,target,bone.get('global_matrix') or bone.get('matrix'))
+        globals_.append(_cm_from_basis(head,x,y,z))
     return globals_
 
 def _local_matrices(bones,globals_):
@@ -183,7 +204,7 @@ def _patch_glb_bind_pose(path,bones):
     count=min(len(bones),len(joints),len(nodes))
     if count<=0:
         return False
-    globals_=_oriented_globals(bones[:count])
+    globals_=_connected_globals(bones[:count])
     locals_=_local_matrices(bones[:count],globals_)
     for index in range(count):
         node=nodes[joints[index]]
@@ -204,99 +225,105 @@ def _patch_glb_bind_pose(path,bones):
     _write_glb(path,chunks,gltf)
     return True
 
-def _connect_script_text(armature_hint,bones):
-    real=[bone for bone in bones if not bone.get('_end_node')]
-    heads=_global_heads(real)
-    names=[str(bone.get('name') or f'bone_{i:03d}') for i,bone in enumerate(real)]
-    head_map={names[i]:heads[i] for i in range(len(names))}
-    roots=[];connections=[]
-    for index,bone in enumerate(real):
-        parent=bone.get('parent_index',-1)
-        try:
-            parent=int(parent)
-        except Exception:
-            parent=-1
-        if 0<=parent<len(real):
-            connections.append([names[parent],names[index]])
-        else:
-            roots.append(names[index])
-    return "\n".join([
-        "import bpy",
-        "from mathutils import Vector",
-        f"ARMATURE_HINT={json.dumps(armature_hint)}",
-        f"HEADS={json.dumps(head_map,separators=(',',':'))}",
-        f"CONNECTIONS={json.dumps(connections,separators=(',',':'))}",
-        f"ROOTS={json.dumps(roots,separators=(',',':'))}",
-        "EPS=0.0001",
-        "def armature_object():",
-        "    obj=bpy.context.object",
-        "    if obj is not None and obj.type=='ARMATURE':",
-        "        return obj",
-        "    for obj in bpy.context.scene.objects:",
-        "        if obj.type=='ARMATURE' and (ARMATURE_HINT in obj.name or not ARMATURE_HINT):",
-        "            return obj",
-        "    for obj in bpy.context.scene.objects:",
-        "        if obj.type=='ARMATURE':",
-        "            return obj",
-        "    raise RuntimeError('No armature found')",
-        "def run():",
-        "    obj=armature_object()",
-        "    bpy.ops.object.mode_set(mode='OBJECT') if bpy.context.object else None",
-        "    bpy.ops.object.select_all(action='DESELECT')",
-        "    obj.select_set(True)",
-        "    bpy.context.view_layer.objects.active=obj",
-        "    bpy.ops.object.mode_set(mode='EDIT')",
-        "    eb=obj.data.edit_bones",
-        "    for name in list(eb.keys()):",
-        "        if name.endswith('_end'):",
-        "            eb.remove(eb[name])",
-        "    children_by_parent={}",
-        "    for parent,child in CONNECTIONS:",
-        "        children_by_parent.setdefault(parent,[]).append(child)",
-        "    for root in ROOTS:",
-        "        if root in eb and root in HEADS:",
-        "            b=eb[root]",
-        "            b.head=Vector(HEADS[root])",
-        "            children=children_by_parent.get(root,[])",
-        "            if children:",
-        "                b.tail=Vector(HEADS[children[0]])",
-        "            else:",
-        "                h=HEADS[root];b.tail=Vector((h[0],h[1]+0.035,h[2]))",
-        "            b.use_connect=False",
-        "    for parent,child in CONNECTIONS:",
-        "        if child not in eb or parent not in HEADS or child not in HEADS:",
-        "            continue",
-        "        b=eb[child]",
-        "        b.head=Vector(HEADS[parent])",
-        "        b.tail=Vector(HEADS[child])",
-        "        if (b.tail-b.head).length<EPS:",
-        "            b.tail=b.head+Vector((0.0,0.035,0.0))",
-        "        if parent in eb:",
-        "            b.parent=eb[parent]",
-        "    for parent,child in CONNECTIONS:",
-        "        if child not in eb or parent not in eb:",
-        "            continue",
-        "        b=eb[child]",
-        "        p=eb[parent]",
-        "        if (b.head-p.tail).length<EPS:",
-        "            b.use_connect=True",
+def _find_blender_exe():
+    for key in ('PAKPY_BLENDER_EXE','BLENDER_EXE'):
+        value=os.environ.get(key,'').strip().strip('"')
+        if value and Path(value).is_file():
+            return value
+    found=shutil.which('blender')
+    if found:
+        return found
+    roots=[]
+    for key in ('ProgramFiles','ProgramFiles(x86)','LOCALAPPDATA'):
+        value=os.environ.get(key)
+        if value:
+            roots.append(Path(value))
+    candidates=[]
+    for root in roots:
+        candidates.extend(root.glob('Blender Foundation/Blender*/blender.exe'))
+        candidates.extend(root.glob('Programs/Blender Foundation/Blender*/blender.exe'))
+    existing=sorted((path for path in candidates if path.is_file()),key=lambda p:str(p),reverse=True)
+    return str(existing[0]) if existing else ''
+
+def _connected_blend_script(glb_path,blend_path):
+    return '\n'.join([
+        'import bpy',
+        'from pathlib import Path',
+        f'GLB_PATH={json.dumps(str(glb_path))}',
+        f'BLEND_PATH={json.dumps(str(blend_path))}',
+        'EPS=0.0001',
+        'try:',
         "    bpy.ops.object.mode_set(mode='OBJECT')",
-        "run()",
-        ""
+        'except Exception:',
+        '    pass',
+        "bpy.ops.object.select_all(action='SELECT')",
+        'bpy.ops.object.delete()',
+        'try:',
+        "    bpy.ops.preferences.addon_enable(module='io_scene_gltf2')",
+        'except Exception:',
+        '    pass',
+        'bpy.ops.import_scene.gltf(filepath=GLB_PATH)',
+        "armatures=[obj for obj in bpy.context.scene.objects if obj.type=='ARMATURE']",
+        "if not armatures:",
+        "    raise RuntimeError('No armature imported from GLB')",
+        'obj=max(armatures,key=lambda item: len(item.data.bones))',
+        "bpy.ops.object.select_all(action='DESELECT')",
+        'obj.select_set(True)',
+        'bpy.context.view_layer.objects.active=obj',
+        "bpy.ops.object.mode_set(mode='EDIT')",
+        'eb=obj.data.edit_bones',
+        'for bone in eb:',
+        '    bone.use_connect=False',
+        'connected=0',
+        'for bone in eb:',
+        '    parent=bone.parent',
+        '    if parent is None:',
+        '        continue',
+        '    tail=bone.tail.copy()',
+        '    bone.head=parent.tail.copy()',
+        '    if (tail-bone.head).length<EPS:',
+        '        tail=bone.head+Vector((0.0,0.035,0.0))',
+        '    bone.tail=tail',
+        '    bone.use_connect=True',
+        '    connected+=1',
+        "bpy.ops.object.mode_set(mode='OBJECT')",
+        'Path(BLEND_PATH).parent.mkdir(parents=True,exist_ok=True)',
+        'bpy.ops.wm.save_as_mainfile(filepath=BLEND_PATH)',
+        "print('PAKPY_CONNECTED_BONES=%d' % connected)",
+        ''
     ])
 
-def _write_connect_script(glb_path,bones):
-    path=Path(glb_path).with_suffix('.connect_blender.py')
-    path.write_text(_connect_script_text(Path(glb_path).stem,bones),encoding='utf-8',newline='\n')
-    return path
+def _write_connected_blend(glb_path,debug_dir=None):
+    glb_path=Path(glb_path)
+    blend_path=glb_path.with_suffix('.blend')
+    blender=_find_blender_exe()
+    if not blender:
+        return {'blend_path':'','error':'Blender nicht gefunden; setze PAKPY_BLENDER_EXE auf blender.exe, wenn automatisch eine .blend erzeugt werden soll.'}
+    script_dir=Path(debug_dir) if debug_dir else glb_path.parent
+    script_dir.mkdir(parents=True,exist_ok=True)
+    script_path=script_dir/(glb_path.stem+'.connected_blend_tmp.py')
+    script_path.write_text(_connected_blend_script(glb_path,blend_path),encoding='utf-8',newline='\n')
+    creationflags=0x08000000 if os.name=='nt' else 0
+    try:
+        completed=subprocess.run([blender,'--background','--factory-startup','--python',str(script_path)],capture_output=True,text=True,timeout=300,creationflags=creationflags)
+    except Exception as e:
+        return {'blend_path':'','error':str(e)}
+    finally:
+        try:
+            script_path.unlink()
+        except Exception:
+            pass
+    if completed.returncode!=0 or not blend_path.is_file():
+        output=((completed.stdout or '')+'\n'+(completed.stderr or '')).strip()
+        return {'blend_path':'','error':output[-2000:] or f'Blender returned {completed.returncode}'}
+    return {'blend_path':str(blend_path),'error':''}
 
-def _export_rigged_with_oriented_joints(original):
+def _export_rigged_with_connected_joints(original):
     def export_rigged_model_glb(parsed,entry,out_path,require_store=None,skeleton_refs=None,texture_map=None,texture_root=None):
         result=original(parsed,entry,out_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map=texture_map,texture_root=texture_root)
         bones=getattr(rigged_gltf,'_last_skeletal_export_bones',[])
         if bones:
             _patch_glb_bind_pose(result.get('glb_path') or out_path,bones)
-            result['connect_blender_script']=str(_write_connect_script(result.get('glb_path') or out_path,bones))
         return result
     return export_rigged_model_glb
 
@@ -308,31 +335,43 @@ def _export_package_with_glb(original):
         package_dir=Path(result['package_dir']);base=model_package.safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
         glb_path=package_dir/'model'/f'{base}.experimental_skeletal.glb'
         try:
-            glb_result=rigged_gltf.export_rigged_model_glb(parsed,entry,glb_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map={},texture_root=package_dir)
+            rigged_gltf.export_rigged_model_glb(parsed,entry,glb_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map={},texture_root=package_dir)
             result['experimental_skeletal_glb']=str(glb_path);result['experimental_skeletal_glb_error']=''
-            script_path=Path(glb_result.get('connect_blender_script','')) if glb_result.get('connect_blender_script') else Path('')
-            if script_path.is_file():
-                result['experimental_skeletal_connect_blender_script']=str(script_path)
+            blend_result=_write_connected_blend(glb_path,package_dir/'debug')
+            result['experimental_skeletal_blend']=blend_result.get('blend_path','')
+            result['experimental_skeletal_blend_error']=blend_result.get('error','')
+            old_script_path=glb_path.with_suffix('.connect_blender.py')
+            if old_script_path.is_file():
+                old_script_path.unlink()
             manifest_path=package_dir/'repack_manifest.json'
             if manifest_path.is_file():
                 manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
                 manifest['experimental_skeletal_glb']=str(glb_path.relative_to(package_dir)).replace('\\','/')
                 manifest['experimental_skeletal_glb_sha1']=model_package.sha1_bytes(glb_path.read_bytes())
                 manifest['experimental_skeletal_glb_error']=''
-                if script_path.is_file():
-                    manifest['experimental_skeletal_connect_blender_script']=str(script_path.relative_to(package_dir)).replace('\\','/')
-                    manifest['experimental_skeletal_connect_blender_script_sha1']=model_package.sha1_bytes(script_path.read_bytes())
+                if blend_result.get('blend_path') and Path(blend_result['blend_path']).is_file():
+                    blend_path=Path(blend_result['blend_path'])
+                    manifest['experimental_skeletal_blend']=str(blend_path.relative_to(package_dir)).replace('\\','/')
+                    manifest['experimental_skeletal_blend_sha1']=model_package.sha1_bytes(blend_path.read_bytes())
+                    manifest['experimental_skeletal_blend_error']=''
+                else:
+                    manifest['experimental_skeletal_blend']=''
+                    manifest['experimental_skeletal_blend_sha1']=''
+                    manifest['experimental_skeletal_blend_error']=blend_result.get('error','')
+                manifest.pop('experimental_skeletal_connect_blender_script',None)
+                manifest.pop('experimental_skeletal_connect_blender_script_sha1',None)
                 manifest_path.write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding='utf-8',newline='\n')
+                model_package._write_report(package_dir,manifest)
         except Exception as e:
             result['experimental_skeletal_glb']='';result['experimental_skeletal_glb_error']=str(e)
         return result
     return export_model_package
 
 def install():
-    if not getattr(rigged_gltf._normalise_bone_nodes,'_leaf_end_nodes_patch',False):
-        patched=_append_leaf_end_nodes(rigged_gltf._normalise_bone_nodes);patched._leaf_end_nodes_patch=True;rigged_gltf._normalise_bone_nodes=patched
-    if not getattr(rigged_gltf.export_rigged_model_glb,'_oriented_joint_patch',False):
-        patched_glb=_export_rigged_with_oriented_joints(rigged_gltf.export_rigged_model_glb);patched_glb._oriented_joint_patch=True;rigged_gltf.export_rigged_model_glb=patched_glb
+    if not getattr(rigged_gltf._normalise_bone_nodes,'_capture_export_bones_patch',False):
+        patched=_capture_export_bones(rigged_gltf._normalise_bone_nodes);patched._capture_export_bones_patch=True;rigged_gltf._normalise_bone_nodes=patched
+    if not getattr(rigged_gltf.export_rigged_model_glb,'_connected_joint_patch',False):
+        patched_glb=_export_rigged_with_connected_joints(rigged_gltf.export_rigged_model_glb);patched_glb._connected_joint_patch=True;rigged_gltf.export_rigged_model_glb=patched_glb
     if not getattr(model_package.export_model_package,'_glb_package_patch',False):
         patched_package=_export_package_with_glb(model_package.export_model_package);patched_package._glb_package_patch=True;model_package.export_model_package=patched_package
         try:

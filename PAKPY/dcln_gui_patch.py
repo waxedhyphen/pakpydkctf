@@ -45,7 +45,7 @@ def install(App):
         try:
             item = self.get_selected_item()
             if item['kind'] == 'entry' and self.is_dcln_entry(item['entry']):
-                out_dir = filedialog.askdirectory(title='Zielordner für DCLN-OBJ auswählen')
+                out_dir = self.ask_directory('dcln_obj_export_dir', title='Zielordner für DCLN-OBJ auswählen')
                 if not out_dir:
                     return
                 result = export_dcln_as_obj(self.parsed, item['entry'], out_dir)
@@ -79,7 +79,7 @@ def install(App):
         try:
             item = self.get_selected_item()
             if item['kind'] == 'entry' and self.is_dcln_entry(item['entry']):
-                out_dir = filedialog.askdirectory(title='Zielordner für Collisionpaket auswählen')
+                out_dir = self.ask_directory('collision_package_export_dir', title='Zielordner für Collisionpaket auswählen')
                 if not out_dir:
                     return
                 result = export_dcln_package(self.parsed, item['entry'], out_dir)

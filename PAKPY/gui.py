@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -26,6 +27,8 @@ class App:
         self.filter_mode_var = tk.StringVar(value='name')
         self.tree_items = {}
         self.last_clicked_iid = ''
+        self.dialog_dirs_path = Path.home() / '.pakpy_dialog_dirs.json'
+        self.dialog_dirs = self.load_dialog_dirs()
         self.require_store = RequireStore()
         self.filter_mode_var.set('name')
         outer = tk.Frame(root, padx=14, pady=14)
@@ -108,6 +111,58 @@ class App:
         tk.Button(bottom_row_2, text='Aus Ordner neu bauen', command=self.rebuild_from_folder_dialog, width=18).pack(side='left', padx=(8, 0))
         tk.Button(bottom_row_2, text='Neues PAK bauen', command=self.build_new_pak, width=18).pack(side='left', padx=(8, 0))
         tk.Button(bottom_row_2, text='Leeren', command=self.clear_all, width=12).pack(side='left', padx=(8, 0))
+    def load_dialog_dirs(self):
+        try:
+            data = json.loads(self.dialog_dirs_path.read_text(encoding='utf-8'))
+            if isinstance(data, dict):
+                return {str(k): str(v) for k, v in data.items() if isinstance(k, str) and isinstance(v, str) and Path(v).is_dir()}
+        except Exception:
+            pass
+        return {}
+
+    def save_dialog_dirs(self):
+        try:
+            self.dialog_dirs_path.write_text(json.dumps(self.dialog_dirs, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
+        except Exception:
+            pass
+
+    def remember_dialog_dir(self, key, path):
+        if not path:
+            return
+        folder = Path(path)
+        if not folder.is_dir():
+            folder = folder.parent
+        if folder.is_dir():
+            self.dialog_dirs[key] = str(folder)
+            self.save_dialog_dirs()
+
+    def dialog_options(self, key, options):
+        remembered = self.dialog_dirs.get(key)
+        if remembered and Path(remembered).is_dir():
+            options['initialdir'] = remembered
+        return options
+
+    def ask_open_file(self, key, **options):
+        path = filedialog.askopenfilename(**self.dialog_options(key, options))
+        self.remember_dialog_dir(key, path)
+        return path
+
+    def ask_open_files(self, key, **options):
+        paths = filedialog.askopenfilenames(**self.dialog_options(key, options))
+        if paths:
+            self.remember_dialog_dir(key, paths[0])
+        return paths
+
+    def ask_save_file(self, key, **options):
+        path = filedialog.asksaveasfilename(**self.dialog_options(key, options))
+        self.remember_dialog_dir(key, path)
+        return path
+
+    def ask_directory(self, key, **options):
+        path = filedialog.askdirectory(**self.dialog_options(key, options))
+        self.remember_dialog_dir(key, path)
+        return path
+
     def is_model_entry(self, entry):
         return entry['type'] in ('CMDL', 'SMDL', 'WMDL')
 
@@ -168,7 +223,7 @@ class App:
             item = self.get_selected_item()
             if item['kind'] != 'entry' or not self.is_model_entry(item['entry']):
                 raise PakError('OBJ-Umwandlung geht nur bei CMDL, SMDL oder WMDL')
-            out_dir = filedialog.askdirectory(title='Zielordner für OBJ auswählen')
+            out_dir = self.ask_directory('model_obj_export_dir', title='Zielordner für OBJ auswählen')
             if not out_dir:
                 return
             result = export_model_entry_as_obj(self.parsed, item['entry'], out_dir, write_mtl=True)
@@ -201,7 +256,7 @@ class App:
             if txtr_entry is None or txtr_asset is None:
                 raise PakError('PNG-Umwandlung geht hier nur bei echten TXTR-Einträgen oder verlinkten TXTRs')
             base = self.selected_base_name(txtr_entry) + '.png'
-            out_path = filedialog.asksaveasfilename(title='PNG speichern', initialfile=base, defaultextension='.png', filetypes=[('PNG', '*.png'), ('Alle Dateien', '*.*')])
+            out_path = self.ask_save_file('txtr_png_save', title='PNG speichern', initialfile=base, defaultextension='.png', filetypes=[('PNG', '*.png'), ('Alle Dateien', '*.*')])
             if not out_path:
                 return
             try:
@@ -239,7 +294,7 @@ class App:
             button_row.pack(fill='x', pady=(14, 0))
             def run_export():
                 try:
-                    out_dir = filedialog.askdirectory(title='Zielordner auswählen')
+                    out_dir = filedialog.askdirectory(title='Zielordner für Modellpaket auswählen')
                     if not out_dir:
                         return
                     if txtr_var.get():
@@ -293,7 +348,7 @@ class App:
             item = self.get_selected_item()
             if item['kind'] != 'entry' or not self.is_model_entry(item['entry']):
                 raise PakError('Modellpaket geht nur bei CMDL, SMDL oder WMDL')
-            out_dir = filedialog.askdirectory(title='Zielordner für Modellpaket auswählen')
+            out_dir = self.ask_directory('model_package_export_dir', title='Zielordner für Modellpaket auswählen')
             if not out_dir:
                 return
             result = export_model_package(self.parsed, item['entry'], out_dir, require_store=self.require_store)
@@ -320,11 +375,11 @@ class App:
         if self.parsed is None:
             messagebox.showerror('Fehler', 'Noch keine PAK-Datei eingelesen')
             return
-        folder = filedialog.askdirectory(title='Modellpaket-Ordner auswählen')
+        folder = self.ask_directory('model_package_rebuild_dir', title='Modellpaket-Ordner auswählen')
         if not folder:
             return
         try:
-            out_path = filedialog.asksaveasfilename(title='Neues PAK speichern', defaultextension='.pak', initialfile=Path(self.parsed['path']).stem + '_model_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
+            out_path = self.ask_save_file('model_package_rebuild_save', title='Neues PAK speichern', defaultextension='.pak', initialfile=Path(self.parsed['path']).stem + '_model_repacked.pak', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
             if not out_path:
                 return
             result = rebuild_model_package_from_folder(self.parsed, folder, out_path)
@@ -350,7 +405,7 @@ class App:
             messagebox.showerror('Fehler', str(e))
 
     def choose_pak(self):
-        path = filedialog.askopenfilename(title='PAK-Datei auswählen', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
+        path = self.ask_open_file('pak_file_open', title='PAK-Datei auswählen', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
         if path:
             if is_macos_metadata_path(path):
                 messagebox.showerror('Fehler', 'Das ist nur eine macOS-Metadaten-Datei, keine echte PAK-Datei.')
@@ -358,7 +413,7 @@ class App:
             self.pak_var.set(path)
 
     def choose_replacement(self):
-        path = filedialog.askopenfilename(title='Ersatzdatei auswählen', filetypes=[('Alle Dateien', '*.*')])
+        path = self.ask_open_file('replacement_file_open', title='Ersatzdatei auswählen', filetypes=[('Alle Dateien', '*.*')])
         if path:
             if is_macos_metadata_path(path):
                 messagebox.showerror('Fehler', 'Das ist nur eine macOS-Metadaten-Datei, keine echte Ersatzdatei.')
@@ -366,7 +421,7 @@ class App:
             self.repl_var.set(path)
 
     def import_required_paks(self):
-        paths = filedialog.askopenfilenames(title='PAK-Dateien zum Requiren auswählen', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
+        paths = self.ask_open_files('require_paks_open', title='PAK-Dateien zum Requiren auswählen', filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
         if not paths:
             return
         paths = [path for path in paths if not is_macos_metadata_path(path)]
@@ -921,14 +976,14 @@ class App:
         if child is not None:
             base = f'{base}_{child["segment_tag"]}'
         default_name = f'{source.stem}_{base}_{suffix}{source.suffix or ".pak"}'
-        return filedialog.asksaveasfilename(title='Neues PAK speichern', defaultextension=source.suffix or '.pak', initialfile=default_name, filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
+        return self.ask_save_file('rebuilt_pak_save', title='Neues PAK speichern', defaultextension=source.suffix or '.pak', initialfile=default_name, filetypes=[('PAK-Dateien', '*.pak'), ('Alle Dateien', '*.*')])
 
     def export_selected_payload(self):
         try:
             items = self.get_selected_items()
             if len(items) == 1:
                 default_name, payload = self.build_payload_export(items[0])
-                out_path = filedialog.asksaveasfilename(title='Inhalt exportieren', initialfile=default_name, filetypes=[('Alle Dateien', '*.*')])
+                out_path = self.ask_save_file('payload_export_save', title='Inhalt exportieren', initialfile=default_name, filetypes=[('Alle Dateien', '*.*')])
                 if not out_path:
                     return
                 Path(out_path).write_bytes(payload)
@@ -936,7 +991,7 @@ class App:
                 self.output.insert('1.0', f'Inhalt exportiert:\n{out_path}')
                 messagebox.showinfo('Fertig', f'Inhalt exportiert:\n{out_path}')
                 return
-            out_dir = filedialog.askdirectory(title='Export-Ordner auswählen')
+            out_dir = self.ask_directory('payload_multi_export_dir', title='Export-Ordner auswählen')
             if not out_dir:
                 return
             written_paths = []
@@ -962,7 +1017,7 @@ class App:
             items = self.get_selected_items()
             if len(items) == 1:
                 default_name, data = self.build_whole_export(items[0])
-                out_path = filedialog.asksaveasfilename(title='Ganz exportieren', initialfile=default_name, filetypes=[('Alle Dateien', '*.*')])
+                out_path = self.ask_save_file('whole_export_save', title='Ganz exportieren', initialfile=default_name, filetypes=[('Alle Dateien', '*.*')])
                 if not out_path:
                     return
                 Path(out_path).write_bytes(data)
@@ -970,7 +1025,7 @@ class App:
                 self.output.insert('1.0', f'Ganz exportiert:\n{out_path}')
                 messagebox.showinfo('Fertig', f'Ganz exportiert:\n{out_path}')
                 return
-            out_dir = filedialog.askdirectory(title='Export-Ordner auswählen')
+            out_dir = self.ask_directory('whole_multi_export_dir', title='Export-Ordner auswählen')
             if not out_dir:
                 return
             written_paths = []
@@ -995,7 +1050,7 @@ class App:
         if self.parsed is None:
             messagebox.showerror('Fehler', 'Noch keine PAK-Datei eingelesen')
             return
-        out_dir = filedialog.askdirectory(title='Export-Ordner auswählen')
+        out_dir = self.ask_directory('export_all_dir', title='Export-Ordner auswählen')
         if not out_dir:
             return
         try:
@@ -1278,7 +1333,7 @@ class App:
                     raise PakError('Verlinktes TXTR ist im aktuellen PAK nicht vorhanden')
                 filetypes = [('PNG oder TXTR', '*.png *.txtr *.bin'), ('PNG-Dateien', '*.png'), ('Alle Dateien', '*.*')]
                 title = f'Ersatzdatei für verlinktes TXTR {self.entry_display_name(txtr_entry)} auswählen'
-            replacement = filedialog.askopenfilename(title=title, filetypes=filetypes)
+            replacement = self.ask_open_file('direct_replacement_open', title=title, filetypes=filetypes)
             if not replacement:
                 return
             self.repl_var.set(replacement)
@@ -1292,7 +1347,7 @@ class App:
         if self.parsed is None:
             messagebox.showerror('Fehler', 'Noch keine PAK-Datei eingelesen')
             return
-        folder = filedialog.askdirectory(title='Ordner mit manifest.json auswählen')
+        folder = self.ask_directory('folder_rebuild_dir', title='Ordner mit manifest.json auswählen')
         if not folder:
             return
         try:
