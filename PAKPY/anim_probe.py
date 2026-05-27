@@ -125,21 +125,21 @@ def scan_full_transforms(d,start,node_count):
             q=vals[:4]; s=vals[4:7]; t=vals[7:10]; ql=math.sqrt(sum(x*x for x in q))
             score+=8 if 0.9<=ql<=1.1 else -12; score+=4 if all(0.001<=abs(x)<=100 for x in s) else -8; score+=3 if sum(abs(x) for x in t)<500 else -4
         if valid and score>node_count*6:
-            out.append({'offset':o,'score':score})
+            out.append({'offset':o,'file_offset':o+32,'score':score})
             if len(out)>=16: break
     return out
 def parse_anim(path,skel=None):
     d=path.read_bytes(); h=rfrm(d); p=d[32:]; out={'file':path.name,'uuid':path.stem,'size':len(d),'sha1':sha1(d),**h}
     if not h['ok'] or h['type']!='ANIM': return out
-    inner=be32(p,4); ctrl=be32(p,8); desc=p[16:32]
-    out.update({'inner_magic':p[:4].hex(),'inner_size':inner,'inner_size_ok':inner==len(d)-40,'control_u32':f'0x{ctrl:08X}','control_b0':p[8] if len(p)>8 else 0,'control_b1':p[9] if len(p)>9 else 0,'control_low16':be16(p,10),'group_hash':p[12:16].hex(),'descriptor_hex':desc.hex(),'descriptor_bytes':list(desc),'data_offset':64,'payload_entropy':round(entropy(p),4),'payload_nonzero_ratio':round(sum(1 for x in p if x)/max(1,len(p)),4)})
+    inner=be32(p,4); ctrl=be32(p,8); desc=p[16:32]; data_start=52
+    out.update({'inner_magic':p[:4].hex(),'inner_size':inner,'inner_size_ok':inner==len(d)-40,'control_u32':f'0x{ctrl:08X}','control_b0':p[8] if len(p)>8 else 0,'control_b1':p[9] if len(p)>9 else 0,'control_low16':be16(p,10),'group_hash':p[12:16].hex(),'descriptor_hex':desc.hex(),'descriptor_bytes':list(desc),'payload_data_offset':data_start,'file_data_offset':32+data_start,'data_header_hex':p[32:data_start].hex(),'data_prefix_hex':p[data_start:data_start+64].hex(),'payload_entropy':round(entropy(p),4),'data_entropy':round(entropy(p[data_start:]),4),'payload_nonzero_ratio':round(sum(1 for x in p if x)/max(1,len(p)),4),'data_nonzero_ratio':round(sum(1 for x in p[data_start:] if x)/max(1,len(p)-data_start),4)})
     out['f32_one_offsets_be']=[i for i in range(min(len(p)-3,256)) if p[i:i+4]==b'\x3f\x80\x00\x00'][:32]
     out['f32_one_offsets_le']=[i for i in range(min(len(p)-3,256)) if p[i:i+4]==b'\x00\x00\x80\x3f'][:32]
     out['leading_zero_runs']=[{'offset':o,'size':n} for o,n in zero_runs(p[:256])[:16]]
-    out['quat_probe']=scan_quats(p,32); out['vec3_probe']=scan_vec3(p,32)
+    out['quat_probe']=scan_quats(p,data_start); out['vec3_probe']=scan_vec3(p,data_start)
     node_count=int((skel or {}).get('node_count') or 0); skin_count=int((skel or {}).get('skin_bone_count') or 0)
-    out['skel_node_count']=node_count; out['skel_skin_bone_count']=skin_count; out['full_transform_candidates']=scan_full_transforms(p,32,node_count)
-    out['ratio_to_nodes']=round((len(p)-64)/node_count,3) if node_count else 0; out['ratio_to_skin_bones']=round((len(p)-64)/skin_count,3) if skin_count else 0; out['status']='probe_only'
+    out['skel_node_count']=node_count; out['skel_skin_bone_count']=skin_count; out['full_transform_candidates']=scan_full_transforms(p,data_start,node_count)
+    out['ratio_to_nodes']=round(max(0,len(p)-data_start)/node_count,3) if node_count else 0; out['ratio_to_skin_bones']=round(max(0,len(p)-data_start)/skin_count,3) if skin_count else 0; out['status']='probe_only'
     return out
 def collect(root):
     files=sorted(p for p in Path(root).rglob('*') if p.is_file()); uuid_map=build_uuid_map(files)
@@ -168,6 +168,15 @@ def counts(values,limit=50):
 def summarise(data):
     anims=data['anims']; links=data['links']; skels=data['skels']; chars=data['chars']; sizes=[x.get('size',0) for x in anims]
     return {'files':data['files'],'skel_count':len(skels),'char_count':len(chars),'anim_count':len(anims),'char_anim_links':len(links),'resolved_anim_links':sum(1 for x in links if x.get('anim_file')),'resolved_skel_links':sum(1 for x in chars if x.get('skeleton_file')),'anim_inner_size_ok':sum(1 for x in anims if x.get('inner_size_ok')),'anim_magic_groups':counts(x.get('inner_magic','') for x in anims),'anim_descriptor_groups':counts((x.get('descriptor_hex','') for x in anims),20),'anim_control_groups':counts((x.get('control_u32','') for x in anims),20),'anim_size_min':min(sizes,default=0),'anim_size_max':max(sizes,default=0),'anim_size_avg':round(statistics.mean(sizes),2) if sizes else 0}
+def build_candidates(data):
+    anim_by_file={x.get('file',''):x for x in data['anims']}; skel_by_file={x.get('file',''):x for x in data['skels']}; out=[]
+    for link in data['links']:
+        anim=anim_by_file.get(link.get('anim_file',''),{}); skel=skel_by_file.get(link.get('skel_file',''),{})
+        if not link.get('skel_file') or not link.get('anim_file'): continue
+        q=anim.get('quat_probe',{}).get('counts',{}); v=anim.get('vec3_probe',{}).get('counts',{})
+        out.append({'char_name':link.get('char_name',''),'char_file':link.get('char_file',''),'anim_index':link.get('anim_index',0),'anim_name':link.get('anim_name',''),'anim_file':link.get('anim_file',''),'anim_uuid':link.get('anim_uuid',''),'skel_file':link.get('skel_file',''),'size':anim.get('size',0),'control_u32':anim.get('control_u32',''),'descriptor_hex':anim.get('descriptor_hex',''),'node_count':skel.get('node_count',0),'skin_bone_count':skel.get('skin_bone_count',0),'ratio_to_nodes':anim.get('ratio_to_nodes',0),'ratio_to_skin_bones':anim.get('ratio_to_skin_bones',0),'vec3_be':v.get('be',0),'vec3_le':v.get('le',0),'quat_be':q.get('be',0),'quat_le':q.get('le',0),'full_transform_candidates':len(anim.get('full_transform_candidates',[]))})
+    out.sort(key=lambda x:(x['size'],x['char_name'],x['anim_index']))
+    return out
 def run_tests(data):
     s=summarise(data); failures=[]
     if s['anim_count']<=0: failures.append('Keine ANIM-Dateien gefunden')
@@ -180,10 +189,11 @@ def run_tests(data):
     return {'ok':not failures,'failures':failures,'summary':s}
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('root'); ap.add_argument('-o','--out',default='anim_probe_out'); ap.add_argument('--test',action='store_true'); args=ap.parse_args()
-    data=collect(args.root); out=Path(args.out); out.mkdir(parents=True,exist_ok=True); summary=summarise(data); tests=run_tests(data)
+    data=collect(args.root); out=Path(args.out).resolve(); out.mkdir(parents=True,exist_ok=True); summary=summarise(data); tests=run_tests(data); candidates=build_candidates(data)
+    summary['output_dir']=str(out); tests['output_dir']=str(out)
     (out/'summary.json').write_text(json.dumps(summary,indent=2,ensure_ascii=False),encoding='utf-8'); (out/'tests.json').write_text(json.dumps(tests,indent=2,ensure_ascii=False),encoding='utf-8')
-    (out/'anims.json').write_text(json.dumps(data['anims'],indent=2,ensure_ascii=False),encoding='utf-8'); (out/'chars.json').write_text(json.dumps(data['chars'],indent=2,ensure_ascii=False),encoding='utf-8'); (out/'skels.json').write_text(json.dumps(data['skels'],indent=2,ensure_ascii=False),encoding='utf-8')
-    write_csv(out/'char_anim_links.csv',data['links']); write_csv(out/'anim_summary.csv',[{k:v for k,v in a.items() if not isinstance(v,(dict,list))} for a in data['anims']])
+    (out/'anims.json').write_text(json.dumps(data['anims'],indent=2,ensure_ascii=False),encoding='utf-8'); (out/'chars.json').write_text(json.dumps(data['chars'],indent=2,ensure_ascii=False),encoding='utf-8'); (out/'skels.json').write_text(json.dumps(data['skels'],indent=2,ensure_ascii=False),encoding='utf-8'); (out/'anim_candidates.json').write_text(json.dumps(candidates[:80],indent=2,ensure_ascii=False),encoding='utf-8')
+    write_csv(out/'char_anim_links.csv',data['links']); write_csv(out/'anim_summary.csv',[{k:v for k,v in a.items() if not isinstance(v,(dict,list))} for a in data['anims']]); write_csv(out/'anim_candidates.csv',candidates)
     print(json.dumps(tests if args.test else summary,indent=2,ensure_ascii=False))
     if args.test and not tests['ok']: raise SystemExit(1)
 if __name__=='__main__': main()
