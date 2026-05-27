@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 import skeletal_tail_patch
 
 def _global_heads(bones):
@@ -57,9 +56,8 @@ def _connect_script_text(armature_hint,bones):
         '    obj.select_set(True)',
         '    bpy.context.view_layer.objects.active=obj',
         "    bpy.ops.object.mode_set(mode='EDIT')",
-        '    world_to_local=obj.matrix_world.inverted()',
         '    def P(name):',
-        '        return world_to_local @ Vector(HEADS[name])',
+        '        return Vector(HEADS[name])',
         '    eb=obj.data.edit_bones',
         '    for name in list(eb.keys()):',
         "        if name.endswith('_end'):",
@@ -75,7 +73,7 @@ def _connect_script_text(armature_hint,bones):
         '            if children:',
         '                b.tail=P(children[0])',
         '            else:',
-        '                h=HEADS[root];b.tail=world_to_local @ Vector((h[0],h[1]+0.035,h[2]))',
+        '                h=HEADS[root];b.tail=Vector((h[0],h[1]+0.035,h[2]))',
         '            b.use_connect=False',
         '    for parent,child in CONNECTIONS:',
         '        if child not in eb or parent not in HEADS or child not in HEADS:',
