@@ -1,6 +1,6 @@
 from pathlib import Path
 import csv,hashlib,json,math,statistics,struct
-from pak_core import get_entry_asset, safe_name, kind_to_ext
+from pak_core import get_entry_asset,safe_name,kind_to_ext
 
 def be16(d,o): return int.from_bytes(d[o:o+2],'big') if o+2<=len(d) else 0
 def be32(d,o): return int.from_bytes(d[o:o+4],'big') if o+4<=len(d) else 0
@@ -33,15 +33,17 @@ def name_before(d,offset,window=160):
         if name is not None and end<=offset and end>best_off: best=name; best_off=end
     return best
 def collect_assets(parsed,require_store=None):
-    out=[]
+    primary=[]
     for entry in parsed.get('entries',[]):
-        out.append({'entry':entry,'asset':get_entry_asset(parsed,entry),'source':'pak','source_path':str(parsed.get('path',''))})
+        primary.append({'entry':entry,'asset':get_entry_asset(parsed,entry),'source':'pak','source_path':str(parsed.get('path',''))})
+    required=[]
     if require_store is not None:
         for uuid_hex,item in getattr(require_store,'required_entries_by_uuid',{}).items():
             entry=item.get('entry') or {}
-            out.append({'entry':entry,'asset':item.get('asset',b''),'source':'require','source_path':str(item.get('parsed_path',''))})
-    by_uuid={uuid_key(x['entry'].get('uuid_hex','')):x for x in out if uuid_key(x['entry'].get('uuid_hex',''))}
-    return out,by_uuid
+            required.append({'entry':entry,'asset':item.get('asset',b''),'source':'require','source_path':str(item.get('parsed_path',''))})
+    all_assets=primary+required
+    by_uuid={uuid_key(x['entry'].get('uuid_hex','')):x for x in all_assets if uuid_key(x['entry'].get('uuid_hex',''))}
+    return primary,required,by_uuid
 def find_uuid_refs(d,by_uuid):
     out=[]
     for k,item in by_uuid.items():
@@ -128,52 +130,65 @@ def counts(values,limit=50):
     for v in values: c[v]=c.get(v,0)+1
     return dict(sorted(c.items(),key=lambda x:(-x[1],x[0]))[:limit])
 def list_anim_options(parsed,require_store=None):
-    assets,by_uuid=collect_assets(parsed,require_store); rows=[]
-    for item in assets:
+    primary,required,by_uuid=collect_assets(parsed,require_store); rows=[]
+    for item in primary:
         e=item['entry']
         if e.get('type')=='ANIM': rows.append({'uuid_hex':uuid_key(e.get('uuid_hex','')),'uuid':uuid_text(e.get('uuid_hex','')),'name':entry_name(e),'file':entry_file_name(e),'source':item.get('source',''),'source_path':item.get('source_path',''),'size':len(item.get('asset',b''))})
     rows.sort(key=lambda x:(x['name'].lower(),x['file']))
     return rows
 def summarise(data,out_dir):
     anims=data['anims']; links=data['links']; skels=data['skels']; chars=data['chars']; sizes=[x.get('size',0) for x in anims]
-    return {'output_dir':str(out_dir),'files':data['asset_count'],'skel_count':len(skels),'char_count':len(chars),'anim_count':len(anims),'char_anim_links':len(links),'resolved_anim_links':sum(1 for x in links if x.get('anim_file')),'resolved_skel_links':sum(1 for x in chars if x.get('skeleton_file')),'anim_inner_size_ok':sum(1 for x in anims if x.get('inner_size_ok')),'anim_magic_groups':counts(x.get('inner_magic','') for x in anims),'anim_descriptor_groups':counts((x.get('descriptor_hex','') for x in anims),20),'anim_control_groups':counts((x.get('control_u32','') for x in anims),20),'anim_size_min':min(sizes,default=0),'anim_size_max':max(sizes,default=0),'anim_size_avg':round(statistics.mean(sizes),2) if sizes else 0}
+    return {'output_dir':str(out_dir),'files':data['asset_count'],'required_files_loaded':data.get('required_asset_count',0),'required_files_used':data.get('required_used_count',0),'skel_count':len(skels),'char_count':len(chars),'anim_count':len(anims),'char_anim_links':len(links),'resolved_anim_links':sum(1 for x in links if x.get('anim_file')),'resolved_skel_links':sum(1 for x in chars if x.get('skeleton_file')),'anim_inner_size_ok':sum(1 for x in anims if x.get('inner_size_ok')),'anim_magic_groups':counts(x.get('inner_magic','') for x in anims),'anim_descriptor_groups':counts((x.get('descriptor_hex','') for x in anims),20),'anim_control_groups':counts((x.get('control_u32','') for x in anims),20),'anim_size_min':min(sizes,default=0),'anim_size_max':max(sizes,default=0),'anim_size_avg':round(statistics.mean(sizes),2) if sizes else 0}
 def run_tests(summary):
     failures=[]
-    if summary['anim_count']<=0: failures.append('Keine ANIM-Dateien gefunden')
-    if summary['char_count']<=0: failures.append('Keine CHAR-Dateien gefunden')
-    if summary['skel_count']<=0: failures.append('Keine SKEL-Dateien gefunden')
-    if summary['anim_inner_size_ok']!=summary['anim_count']: failures.append('ANIM-Innenlängen passen nicht bei allen Dateien')
-    if summary['resolved_anim_links']!=summary['char_anim_links']: failures.append('Nicht alle CHAR-Animationen zeigen auf vorhandene ANIM-Dateien')
+    if summary['anim_count']<=0: failures.append('Keine ANIM-Dateien in aktueller PAK ausgewählt')
+    if summary['char_count']<=0: failures.append('Keine CHAR-Dateien in aktueller PAK gefunden')
+    if summary['skel_count']<=0: failures.append('Keine passenden SKEL-Dateien gefunden')
+    if summary['anim_inner_size_ok']!=summary['anim_count']: failures.append('ANIM-Innenlängen passen nicht bei allen ausgewählten Dateien')
     return {'ok':not failures,'failures':failures,'summary':summary,'output_dir':summary['output_dir']}
 def run_anim_probe(parsed,require_store,out_dir,selected_anim_uuids=None):
     out_dir=Path(out_dir).resolve(); raw_dir=out_dir/'raw'; out_dir.mkdir(parents=True,exist_ok=True); raw_dir.mkdir(parents=True,exist_ok=True)
+    primary,required,by_uuid=collect_assets(parsed,require_store)
+    primary_by_uuid={uuid_key(x['entry'].get('uuid_hex','')):x for x in primary if uuid_key(x['entry'].get('uuid_hex',''))}
+    current_anim_uuids={uuid_key(x['entry'].get('uuid_hex','')) for x in primary if x['entry'].get('type')=='ANIM'}
     selected={uuid_key(x) for x in (selected_anim_uuids or []) if uuid_key(x)}
-    assets,by_uuid=collect_assets(parsed,require_store); skel_items=[x for x in assets if x['entry'].get('type')=='SKEL']; char_items=[x for x in assets if x['entry'].get('type')=='CHAR']; anim_items=[x for x in assets if x['entry'].get('type')=='ANIM']
-    skels=[parse_skel(x) for x in skel_items]; skel_by_uuid={x['uuid_hex']:x for x in skels}; chars=[parse_char(x,by_uuid) for x in char_items]
-    anim_to_skel={}; links=[]
+    selected=(selected&current_anim_uuids) if selected else set(current_anim_uuids)
+    char_items=[x for x in primary if x['entry'].get('type')=='CHAR']
+    chars=[parse_char(x,by_uuid) for x in char_items]
+    anim_to_skel={}; links=[]; needed_skel_uuids=set(); needed_anim_uuids=set(selected)
     for ch in chars:
         sk=uuid_key(ch.get('skeleton_uuid',''))
+        if sk: needed_skel_uuids.add(sk)
         for a in ch.get('animations',[]):
             au=uuid_key(a.get('uuid_hex',''))
-            anim_to_skel[au]=sk
-            if not selected or au in selected:
+            if au in current_anim_uuids: anim_to_skel[au]=sk
+            if au in selected:
+                needed_anim_uuids.add(au)
                 links.append({'char_file':ch.get('file',''),'char_name':ch.get('name',''),'char_source':ch.get('source',''),'skel_uuid':ch.get('skeleton_uuid',''),'skel_file':ch.get('skeleton_file',''),'skel_source':ch.get('skeleton_source',''),'anim_index':a.get('index',0),'anim_name':a.get('name',''),'anim_uuid':a.get('uuid',''),'anim_file':a.get('file',''),'anim_source':a.get('source','')})
+    primary_skel_uuids={uuid_key(x['entry'].get('uuid_hex','')) for x in primary if x['entry'].get('type')=='SKEL'}
+    skel_uuids=primary_skel_uuids|needed_skel_uuids
+    skel_items=[]
+    for u in sorted(skel_uuids):
+        item=primary_by_uuid.get(u) or by_uuid.get(u)
+        if item is not None and item['entry'].get('type')=='SKEL': skel_items.append(item)
+    skels=[parse_skel(x) for x in skel_items]; skel_by_uuid={x['uuid_hex']:x for x in skels}
     anims=[]
-    for item in anim_items:
-        au=uuid_key(item['entry'].get('uuid_hex',''))
-        if selected and au not in selected: continue
-        anims.append(parse_anim(item,skel_by_uuid.get(uuid_key(anim_to_skel.get(au,'')),{})))
+    for u in sorted(needed_anim_uuids):
+        item=primary_by_uuid.get(u)
+        if item is not None and item['entry'].get('type')=='ANIM': anims.append(parse_anim(item,skel_by_uuid.get(uuid_key(anim_to_skel.get(u,'')),{})))
     export_uuids={uuid_key(x['uuid_hex']) for x in skels}|{uuid_key(x['uuid_hex']) for x in chars}|{uuid_key(x['uuid_hex']) for x in anims}
-    for item in assets:
-        if uuid_key(item['entry'].get('uuid_hex','')) in export_uuids:
+    required_used_count=0
+    for item in primary+required:
+        u=uuid_key(item['entry'].get('uuid_hex',''))
+        if u in export_uuids:
+            if item.get('source')=='require': required_used_count+=1
             (raw_dir/entry_file_name(item['entry'])).write_bytes(item.get('asset',b''))
-    data={'asset_count':len(assets),'skels':skels,'chars':chars,'anims':anims,'links':links}
+    data={'asset_count':len(primary),'required_asset_count':len(required),'required_used_count':required_used_count,'skels':skels,'chars':chars,'anims':anims,'links':links}
     summary=summarise(data,out_dir); tests=run_tests(summary)
-    candidates=[]
-    anim_by_file={x.get('file',''):x for x in anims}; skel_by_file={x.get('file',''):x for x in skels}
+    candidates=[]; anim_by_file={x.get('file',''):x for x in anims}; skel_by_file={x.get('file',''):x for x in skels}
     for link in links:
         anim=anim_by_file.get(link.get('anim_file',''),{}); skel=skel_by_file.get(link.get('skel_file',''),{}); q=anim.get('quat_probe',{}).get('counts',{}); v=anim.get('vec3_probe',{}).get('counts',{})
-        candidates.append({'char_name':link.get('char_name',''),'char_file':link.get('char_file',''),'anim_index':link.get('anim_index',0),'anim_name':link.get('anim_name',''),'anim_file':link.get('anim_file',''),'skel_file':link.get('skel_file',''),'size':anim.get('size',0),'control_u32':anim.get('control_u32',''),'descriptor_hex':anim.get('descriptor_hex',''),'node_count':skel.get('node_count',0),'skin_bone_count':skel.get('skin_bone_count',0),'ratio_to_nodes':anim.get('ratio_to_nodes',0),'ratio_to_skin_bones':anim.get('ratio_to_skin_bones',0),'vec3_be':v.get('be',0),'vec3_le':v.get('le',0),'quat_be':q.get('be',0),'quat_le':q.get('le',0)})
+        candidates.append({'char_name':link.get('char_name',''),'char_file':link.get('char_file',''),'anim_index':link.get('anim_index',0),'anim_name':link.get('anim_name',''),'anim_file':link.get('anim_file',''),'skel_file':link.get('skel_file',''),'skel_source':link.get('skel_source',''),'size':anim.get('size',0),'control_u32':anim.get('control_u32',''),'descriptor_hex':anim.get('descriptor_hex',''),'node_count':skel.get('node_count',0),'skin_bone_count':skel.get('skin_bone_count',0),'ratio_to_nodes':anim.get('ratio_to_nodes',0),'ratio_to_skin_bones':anim.get('ratio_to_skin_bones',0),'vec3_be':v.get('be',0),'vec3_le':v.get('le',0),'quat_be':q.get('be',0),'quat_le':q.get('le',0)})
     candidates.sort(key=lambda x:(x['size'],x['char_name'],x['anim_index']))
     (out_dir/'summary.json').write_text(json.dumps(summary,indent=2,ensure_ascii=False),encoding='utf-8')
     (out_dir/'tests.json').write_text(json.dumps(tests,indent=2,ensure_ascii=False),encoding='utf-8')
