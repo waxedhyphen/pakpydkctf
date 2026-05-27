@@ -204,12 +204,99 @@ def _patch_glb_bind_pose(path,bones):
     _write_glb(path,chunks,gltf)
     return True
 
+def _connect_script_text(armature_hint,bones):
+    real=[bone for bone in bones if not bone.get('_end_node')]
+    heads=_global_heads(real)
+    names=[str(bone.get('name') or f'bone_{i:03d}') for i,bone in enumerate(real)]
+    head_map={names[i]:heads[i] for i in range(len(names))}
+    roots=[];connections=[]
+    for index,bone in enumerate(real):
+        parent=bone.get('parent_index',-1)
+        try:
+            parent=int(parent)
+        except Exception:
+            parent=-1
+        if 0<=parent<len(real):
+            connections.append([names[parent],names[index]])
+        else:
+            roots.append(names[index])
+    return "\n".join([
+        "import bpy",
+        "from mathutils import Vector",
+        f"ARMATURE_HINT={json.dumps(armature_hint)}",
+        f"HEADS={json.dumps(head_map,separators=(',',':'))}",
+        f"CONNECTIONS={json.dumps(connections,separators=(',',':'))}",
+        f"ROOTS={json.dumps(roots,separators=(',',':'))}",
+        "EPS=0.0001",
+        "def armature_object():",
+        "    obj=bpy.context.object",
+        "    if obj is not None and obj.type=='ARMATURE':",
+        "        return obj",
+        "    for obj in bpy.context.scene.objects:",
+        "        if obj.type=='ARMATURE' and (ARMATURE_HINT in obj.name or not ARMATURE_HINT):",
+        "            return obj",
+        "    for obj in bpy.context.scene.objects:",
+        "        if obj.type=='ARMATURE':",
+        "            return obj",
+        "    raise RuntimeError('No armature found')",
+        "def run():",
+        "    obj=armature_object()",
+        "    bpy.ops.object.mode_set(mode='OBJECT') if bpy.context.object else None",
+        "    bpy.ops.object.select_all(action='DESELECT')",
+        "    obj.select_set(True)",
+        "    bpy.context.view_layer.objects.active=obj",
+        "    bpy.ops.object.mode_set(mode='EDIT')",
+        "    eb=obj.data.edit_bones",
+        "    for name in list(eb.keys()):",
+        "        if name.endswith('_end'):",
+        "            eb.remove(eb[name])",
+        "    children_by_parent={}",
+        "    for parent,child in CONNECTIONS:",
+        "        children_by_parent.setdefault(parent,[]).append(child)",
+        "    for root in ROOTS:",
+        "        if root in eb and root in HEADS:",
+        "            b=eb[root]",
+        "            b.head=Vector(HEADS[root])",
+        "            children=children_by_parent.get(root,[])",
+        "            if children:",
+        "                b.tail=Vector(HEADS[children[0]])",
+        "            else:",
+        "                h=HEADS[root];b.tail=Vector((h[0],h[1]+0.035,h[2]))",
+        "            b.use_connect=False",
+        "    for parent,child in CONNECTIONS:",
+        "        if child not in eb or parent not in HEADS or child not in HEADS:",
+        "            continue",
+        "        b=eb[child]",
+        "        b.head=Vector(HEADS[parent])",
+        "        b.tail=Vector(HEADS[child])",
+        "        if (b.tail-b.head).length<EPS:",
+        "            b.tail=b.head+Vector((0.0,0.035,0.0))",
+        "        if parent in eb:",
+        "            b.parent=eb[parent]",
+        "    for parent,child in CONNECTIONS:",
+        "        if child not in eb or parent not in eb:",
+        "            continue",
+        "        b=eb[child]",
+        "        p=eb[parent]",
+        "        if (b.head-p.tail).length<EPS:",
+        "            b.use_connect=True",
+        "    bpy.ops.object.mode_set(mode='OBJECT')",
+        "run()",
+        ""
+    ])
+
+def _write_connect_script(glb_path,bones):
+    path=Path(glb_path).with_suffix('.connect_blender.py')
+    path.write_text(_connect_script_text(Path(glb_path).stem,bones),encoding='utf-8',newline='\n')
+    return path
+
 def _export_rigged_with_oriented_joints(original):
     def export_rigged_model_glb(parsed,entry,out_path,require_store=None,skeleton_refs=None,texture_map=None,texture_root=None):
         result=original(parsed,entry,out_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map=texture_map,texture_root=texture_root)
         bones=getattr(rigged_gltf,'_last_skeletal_export_bones',[])
         if bones:
             _patch_glb_bind_pose(result.get('glb_path') or out_path,bones)
+            result['connect_blender_script']=str(_write_connect_script(result.get('glb_path') or out_path,bones))
         return result
     return export_rigged_model_glb
 
@@ -221,14 +308,20 @@ def _export_package_with_glb(original):
         package_dir=Path(result['package_dir']);base=model_package.safe_name(entry.get('display_name') or entry.get('name') or entry['uuid_hex'])
         glb_path=package_dir/'model'/f'{base}.experimental_skeletal.glb'
         try:
-            rigged_gltf.export_rigged_model_glb(parsed,entry,glb_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map={},texture_root=package_dir)
+            glb_result=rigged_gltf.export_rigged_model_glb(parsed,entry,glb_path,require_store=require_store,skeleton_refs=skeleton_refs,texture_map={},texture_root=package_dir)
             result['experimental_skeletal_glb']=str(glb_path);result['experimental_skeletal_glb_error']=''
+            script_path=Path(glb_result.get('connect_blender_script','')) if glb_result.get('connect_blender_script') else Path('')
+            if script_path.is_file():
+                result['experimental_skeletal_connect_blender_script']=str(script_path)
             manifest_path=package_dir/'repack_manifest.json'
             if manifest_path.is_file():
                 manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
                 manifest['experimental_skeletal_glb']=str(glb_path.relative_to(package_dir)).replace('\\','/')
                 manifest['experimental_skeletal_glb_sha1']=model_package.sha1_bytes(glb_path.read_bytes())
                 manifest['experimental_skeletal_glb_error']=''
+                if script_path.is_file():
+                    manifest['experimental_skeletal_connect_blender_script']=str(script_path.relative_to(package_dir)).replace('\\','/')
+                    manifest['experimental_skeletal_connect_blender_script_sha1']=model_package.sha1_bytes(script_path.read_bytes())
                 manifest_path.write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding='utf-8',newline='\n')
         except Exception as e:
             result['experimental_skeletal_glb']='';result['experimental_skeletal_glb_error']=str(e)
