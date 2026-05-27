@@ -80,3 +80,8 @@ def install(App):
     App.ctrl_drag_select_press = ctrl_drag_select_press
     App.ctrl_drag_select_motion = ctrl_drag_select_motion
     App.ctrl_drag_select_release = ctrl_drag_select_release
+    try:
+        from probe_gui_patch import install as install_probe_gui_patch
+        install_probe_gui_patch(App)
+    except Exception:
+        pass
