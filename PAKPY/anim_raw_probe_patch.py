@@ -191,7 +191,7 @@ def _frame_marker_probe(body):
     for run in runs:
         if run.get('marker_count',0)>=3:
             strong.append(run)
-    return {'marker_hex':FRAME_MARKER.hex(),'marker_count':len(offsets),'marker_offsets':offsets[:240],'runs':runs,'strong_runs':strong}
+    return {'marker_hex':FRAME_MARKER.hex(),'parse_source':'body_full','marker_count':len(offsets),'marker_offsets':offsets[:240],'runs':runs,'strong_runs':strong}
 
 def _enhance(asset,probe):
     payload=asset[32:]
@@ -207,7 +207,7 @@ def _enhance(asset,probe):
             node_count_guess=desc[0]
         if desc[0]>64 and len(desc)>1 and desc[1] in range(1,128):
             node_count_guess=desc[1]
-    frame_probe=_frame_marker_probe(body_used)
+    frame_probe=_frame_marker_probe(body)
     probe['raw_family']=_raw_family(control,body_used)
     probe['descriptor_bytes']=list(desc)
     probe['descriptor_node_count_guess']=node_count_guess
@@ -237,7 +237,7 @@ def install(App):
             probe=parse_anim_probe21(asset)
             lines.append(f'Raw-Familie: {probe.get("raw_family","")}')
             lines.append(f'Node-Count-Guess: {probe.get("descriptor_node_count_guess",0)}')
-            lines.append(f'Body/Frame: {probe.get("body_used_bytes_per_frame",0)} Bytes')
+            lines.append(f'Body/Frame: {probe.get("body_size_bytes_per_frame",0)} Bytes')
             if probe.get('pre_data_le_floats'):
                 lines.append(f'Pre-LE-Floats: {probe["pre_data_le_floats"]}')
             marker_probe=probe.get('frame_marker_probe') or {}
