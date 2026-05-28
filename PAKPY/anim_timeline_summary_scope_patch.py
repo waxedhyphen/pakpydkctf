@@ -27,14 +27,14 @@ def _scope_skipped(root,summary_path,items):
     want_model=rel.startswith('models/')
     return [item for item in items if (item.get('probe','').startswith('models/'))==want_model]
 
-def _rewrite_summaries(root,named,skipped,skel_file,node_count,skin_bone_count):
+def _rewrite_summaries(root,named,skipped,skel_file,node_count,skin_bone_count,structure_report):
     paths=list(root.glob('debug/anim_probe21_summary.json'))
     paths.extend(root.glob('models/*/debug/anim_probe21_summary.json'))
     for path in paths:
         data=_read(path)
         if not isinstance(data,dict):
             continue
-        data['track_skeleton_map']={'version':5,'status':'ok','skeleton_file':skel_file,'node_count':node_count,'skin_bone_count':skin_bone_count,'named_timeline_files':_scope_named(root,path,named),'skipped_timeline_files':_scope_skipped(root,path,skipped)}
+        data['track_skeleton_map']={'version':6,'status':'ok','skeleton_file':skel_file,'node_count':node_count,'skin_bone_count':skin_bone_count,'named_timeline_files':_scope_named(root,path,named),'skipped_timeline_files':_scope_skipped(root,path,skipped),'structure_report':structure_report}
         _write(path,data)
 
 def install(App):
@@ -48,7 +48,8 @@ def install(App):
                 return result
             named=result.get('named_timeline_files') or []
             skipped=result.get('skipped_timeline_files') or []
-            _rewrite_summaries(root,named,skipped,skel_file,len(skel.get('nodes') or []),len(skel.get('bones') or []))
+            structure_report=result.get('structure_report','')
+            _rewrite_summaries(root,named,skipped,skel_file,len(skel.get('nodes') or []),len(skel.get('bones') or []),structure_report)
         except Exception as e:
             result['summary_scope_error']=str(e)
         return result
