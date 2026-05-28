@@ -5,17 +5,38 @@ PREVIEW_SCRIPT=r'''
 import sys
 from pathlib import Path
 
-try:
-    here=Path(__file__).resolve().parent
-except Exception:
-    import bpy
-    here=Path(bpy.data.filepath).resolve().parent if bpy.data.filepath else Path.cwd()
+def base_from_blender():
+    try:
+        p=Path(__file__).resolve()
+    except Exception:
+        import bpy
+        p=Path(bpy.data.filepath).resolve() if bpy.data.filepath else Path.cwd()
+    parts=list(p.parts)
+    for i,part in enumerate(parts):
+        if str(part).lower().endswith('.blend'):
+            return Path(*parts[:i])
+    return p.parent if p.suffix else p
 
-script=here/'blender_import_named_timelines.py'
+def find_package_root(start):
+    for base in [start]+list(start.parents):
+        if (base/'blender_import_named_timelines.py').exists():
+            return base
+        if (base/'debug'/'anim_named_timeline').exists():
+            return base
+        if list(base.glob('models/*/debug/anim_named_timeline')):
+            return base
+    return None
+
+start=base_from_blender()
+root=find_package_root(start)
+if root is None:
+    raise RuntimeError('starFish01_character_package nicht gefunden')
+
+script=root/'blender_import_named_timelines.py'
 if not script.exists():
-    raise RuntimeError('blender_import_named_timelines.py nicht gefunden')
+    raise RuntimeError('blender_import_named_timelines.py nicht gefunden: '+str(script))
 
-sys.argv=[str(script),'--','--mode','rotation_euler','--scale','0.25']
+sys.argv=[str(script),'--','--package',str(root),'--mode','rotation_euler','--scale','0.25']
 code=script.read_text(encoding='utf-8')
 exec(compile(code,str(script),'exec'),{'__name__':'__main__','__file__':str(script)})
 '''
@@ -25,11 +46,11 @@ PREVIEW_README='''Blender sichtbare Vorschau
 Diese Datei bewegt das Modell testweise sichtbar:
 blender_preview_named_timelines.py
 
+Sie nutzt automatisch den gefundenen Package-Ordner.
+
 Sie ist nur eine Vorschau.
 Die Werte sind noch nicht endgültig als echte Rotation geknackt.
-
-Wenn die Bewegung falsch aussieht, ist das erwartbar.
-Die sichere Datei bleibt:
+Die sichere Analyse-Datei bleibt:
 blender_import_named_timelines.py
 '''
 
