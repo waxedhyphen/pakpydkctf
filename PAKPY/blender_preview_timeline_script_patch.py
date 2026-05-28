@@ -30,7 +30,7 @@ def find_package_root(start):
 start=base_from_blender()
 root=find_package_root(start)
 if root is None:
-    raise RuntimeError('starFish01_character_package nicht gefunden')
+    raise RuntimeError('character_package nicht gefunden')
 
 script=root/'blender_import_named_timelines.py'
 if not script.exists():
@@ -48,7 +48,9 @@ blender_preview_named_timelines.py
 
 Sie nutzt automatisch den gefundenen Package-Ordner.
 
-Sie ist nur eine Vorschau.
+Sie funktioniert nur, wenn debug/anim_named_timeline/*.named_timeline.json existiert.
+Wenn keine named_timeline-Datei existiert, ist dieses ANIM-Format noch nicht sichtbar dekodiert.
+
 Die Werte sind noch nicht endgültig als echte Rotation geknackt.
 Die sichere Analyse-Datei bleibt:
 blender_import_named_timelines.py
