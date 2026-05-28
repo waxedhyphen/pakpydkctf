@@ -193,6 +193,31 @@ def _frame_marker_probe(body):
             strong.append(run)
     return {'marker_hex':FRAME_MARKER.hex(),'parse_source':'body_full','marker_count':len(offsets),'marker_offsets':offsets[:240],'runs':runs,'strong_runs':strong}
 
+def _track_from_lane(group_index,lane):
+    initial=lane.get('initial')
+    frames=lane.get('frames') or []
+    initial_value=initial.get('centered') if initial else None
+    timeline=[]
+    if initial_value is not None:
+        timeline.append(initial_value)
+    timeline.extend(frames)
+    return {'group_index':group_index,'lane_index':lane.get('lane_index',0),'value_kind':'vec3_centered_u16be','initial':initial_value,'frame_values':frames,'timeline_values':timeline,'timeline_frame_count':len(timeline),'summary':lane.get('summary',{})}
+
+def _build_track_decode(probe):
+    marker_probe=probe.get('frame_marker_probe') or {}
+    groups=[]
+    for group_index,run in enumerate(marker_probe.get('strong_runs') or []):
+        lanes=run.get('decoded_lanes') or []
+        if not lanes:
+            continue
+        timeline_count=max([lane.get('frame_count',0) for lane in lanes]+[0])+1
+        groups.append({'group_index':group_index,'start_offset':run.get('start_offset',0),'end_offset':run.get('end_offset',0),'marker_count':run.get('marker_count',0),'stride':run.get('stride'),'vector_count':run.get('vector_count_guess'),'timeline_frame_count':timeline_count,'track_value_kind':'vec3_centered_u16be','tracks':[_track_from_lane(group_index,lane) for lane in lanes]})
+    best=None
+    for group in groups:
+        if best is None or group.get('timeline_frame_count',0)>best.get('timeline_frame_count',0):
+            best=group
+    return {'version':1,'status':'ok' if groups else 'no_regular_track_groups','frame_count_guess':probe.get('frame_count_guess',0),'group_count':len(groups),'groups':groups,'primary_group_index':best.get('group_index') if best else None,'primary_timeline_frame_count':best.get('timeline_frame_count') if best else 0}
+
 def _enhance(asset,probe):
     payload=asset[32:]
     desc=payload[16:32] if len(payload)>=32 else b''
@@ -222,6 +247,7 @@ def _enhance(asset,probe):
     probe['body_size_bytes_per_frame']=round(len(body)/frame_count,6) if frame_count else 0
     probe['body_header_guess']={'hex':body_used[:40].hex(),'u16be':_u16be(body_used[:40],40),'u16le':_u16le(body_used[:40],40)}
     probe['frame_marker_probe']=frame_probe
+    probe['track_decode']=_build_track_decode(probe)
     return probe
 
 def install(App):
@@ -250,11 +276,14 @@ def install(App):
                 run_lines.append(f'0x{run["start_offset"]:X}/{run.get("marker_count",0)}x/{stride}B/{vec or "?"}v/{decoded}')
             if run_lines:
                 lines.append('Frame-Runs: '+', '.join(run_lines))
+            track_decode=probe.get('track_decode') or {}
+            if track_decode.get('group_count'):
+                lines.append(f'Track-Gruppen: {track_decode.get("group_count")} | Primary-Frames: {track_decode.get("primary_timeline_frame_count",0)}')
             starts=probe.get('body_start_candidates') or []
             if starts:
                 lines.append('Body-Start-Kandidaten: '+', '.join(f'0x{x["offset"]:X}' for x in starts[:4]))
         except Exception as e:
             lines.append(f'Raw-Probe Fehler: {e}')
         return lines
-    anim_patch.parse_anim_probe21=parse_anim_probe21
+    anim_patch.parse_anim_probe21=parse_anim21 if False else parse_anim_probe21
     anim_patch._anim_summary_lines=anim_summary_lines
