@@ -9,7 +9,6 @@ from room_gui_patch import install as install_room_gui
 from char_gui_patch import install as install_char_gui
 from char_skeletal_package_patch import install as install_char_skeletal_package
 from uuid_gui_patch import install as install_uuid_gui
-from missing_txtr_export_error_patch import install as install_uuid_gui
 from missing_txtr_export_error_patch import install as install_missing_txtr_export_error
 from skeletal_tail_patch import install as install_skeletal_tail_patch
 from tree_ctrl_select_patch import install as install_tree_ctrl_select_patch
