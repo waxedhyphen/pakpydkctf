@@ -4,33 +4,31 @@ import anim_track_skel_map_patch as timeline_patch
 BLENDER_SCRIPT=r'''
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
-
 try:
     import bpy
 except Exception:
     bpy=None
-
 MODE='raw_props'
 SCALE=0.25
 FPS=30
-SAVE_BLEND=True
-EXPORT_GLB=False
-GLB_NAME='character_with_anims.glb'
 REPORT_NAME='blender_named_timeline_import_report.json'
-
+GLB_NAME='character_with_anims.glb'
 
 def load_json(path):
     return json.loads(Path(path).read_text(encoding='utf-8'))
-
 
 def write_json(path,data):
     path=Path(path)
     path.parent.mkdir(parents=True,exist_ok=True)
     path.write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8',newline='\n')
 
+def rel(root,path):
+    try:
+        return str(Path(path).relative_to(root)).replace('\\','/')
+    except Exception:
+        return str(path).replace('\\','/')
 
 def strip_blend_virtual_path(path):
     path=Path(path)
@@ -42,20 +40,15 @@ def strip_blend_virtual_path(path):
         return path.parent
     return path.parent if path.suffix else path
 
-
 def looks_like_package_dir(path):
     path=Path(path)
-    return (path/'debug'/'anim_named_timeline').exists() or bool(list(path.glob('models/*/debug/anim_named_timeline')))
-
+    return (path/'debug'/'anim_named_timeline').exists() or bool(list(path.glob('models/*/debug/anim_named_timeline'))) or (path/'source'/'anim').exists()
 
 def candidates_from(path):
     if not path:
         return []
     base=strip_blend_virtual_path(path)
-    out=[base]
-    out.extend(base.parents)
-    return out
-
+    return [base]+list(base.parents)
 
 def find_package_dir():
     starts=[]
@@ -79,12 +72,10 @@ def find_package_dir():
         return Path(bpy.data.filepath).resolve().parent
     return Path.cwd()
 
-
 def timeline_identity(path,data):
     uuid_hex=data.get('uuid_hex') or ''
     name=data.get('char_animation_name') or data.get('entry_name') or Path(path).stem.replace('.named_timeline','')
     return uuid_hex or name
-
 
 def collect_timelines(package_dir):
     root=Path(package_dir)
@@ -103,14 +94,17 @@ def collect_timelines(package_dir):
         if data.get('type')!='ANIM_NAMED_TIMELINE' or not data.get('groups'):
             continue
         key=timeline_identity(path,data)
-        prefer_new='models/' in str(path).replace('\\','/')
+        prefer_model='models/' in str(path).replace('\\','/')
         if key not in by_key:
-            order.append(key)
             by_key[key]=(path,data)
-        elif prefer_new:
+            order.append(key)
+        elif prefer_model:
             by_key[key]=(path,data)
     return [by_key[key] for key in order]
 
+def source_files_report(package_dir):
+    root=Path(package_dir)
+    return {'source_anim_files':[rel(root,path) for path in sorted(root.glob('source/anim/*.anim'))]+[rel(root,path) for path in sorted(root.glob('models/*/source/anim/*.anim'))],'probe_files':[rel(root,path) for path in sorted(root.glob('debug/anim_probe21/*.probe21.json'))]+[rel(root,path) for path in sorted(root.glob('models/*/debug/anim_probe21/*.probe21.json'))],'named_timeline_files':[rel(root,path) for path in sorted(root.glob('debug/anim_named_timeline/*.named_timeline.json'))]+[rel(root,path) for path in sorted(root.glob('models/*/debug/anim_named_timeline/*.named_timeline.json'))]}
 
 def find_armature(name=None):
     if bpy is None:
@@ -133,7 +127,6 @@ def find_armature(name=None):
             return obj
     raise RuntimeError('Keine Armature gefunden')
 
-
 def norm_name(name):
     value=str(name).lower().replace(' ','').replace('_','').replace('-','').replace('.','')
     for suffix in ('jntskin','skin','joint','jnt'):
@@ -141,14 +134,12 @@ def norm_name(name):
             value=value[:-len(suffix)]
     return value
 
-
 def bone_lookup(armature):
     lookup={}
     for bone in armature.pose.bones:
         lookup[bone.name]=bone
         lookup[norm_name(bone.name)]=bone
     return lookup
-
 
 def ensure_pose_bone(lookup,name):
     if name in lookup:
@@ -165,32 +156,20 @@ def ensure_pose_bone(lookup,name):
                 return lookup[fkey]
     return None
 
-
-def set_action_frame_range(action,end_frame):
-    for attr,value in (('frame_start',1),('frame_end',max(1,end_frame))):
-        try:
-            setattr(action,attr,value)
-        except Exception:
-            pass
-
-
 def set_rotation_euler(pose_bone,value):
     pose_bone.rotation_mode='XYZ'
     x,y,z=value
     pose_bone.rotation_euler=(x*SCALE,y*SCALE,z*SCALE)
 
-
 def set_location(pose_bone,value):
     x,y,z=value
     pose_bone.location=(x*SCALE,y*SCALE,z*SCALE)
-
 
 def set_raw_props(pose_bone,value):
     x,y,z=value
     pose_bone['pak_anim_raw_x']=float(x)
     pose_bone['pak_anim_raw_y']=float(y)
     pose_bone['pak_anim_raw_z']=float(z)
-
 
 def set_value(pose_bone,value):
     if value is None:
@@ -202,7 +181,6 @@ def set_value(pose_bone,value):
     else:
         set_raw_props(pose_bone,value)
     return True
-
 
 def insert_value_key(pose_bone,frame):
     if MODE=='location':
@@ -216,12 +194,10 @@ def insert_value_key(pose_bone,frame):
     pose_bone.keyframe_insert(data_path='["pak_anim_raw_z"]',frame=frame)
     return 3
 
-
 def animation_name(data,path):
     name=data.get('char_animation_name') or data.get('entry_name') or Path(path).stem.replace('.named_timeline','')
     clean=''.join(c if c.isalnum() or c in '._-' else '_' for c in name)
     return clean if MODE=='raw_props' else clean+'__'+MODE
-
 
 def activate_armature(armature):
     if bpy.context.mode!='OBJECT':
@@ -235,7 +211,6 @@ def activate_armature(armature):
     bpy.context.view_layer.objects.active=armature
     bpy.ops.object.mode_set(mode='POSE')
 
-
 def frame_number(group,frame):
     if 'absolute_frame_index' in frame:
         return int(frame.get('absolute_frame_index') or 0)+1
@@ -244,12 +219,10 @@ def frame_number(group,frame):
         start=group.get('timeline_start_frame_index',0)
     return int(start or 0)+int(frame.get('frame_index',0) or 0)+1
 
-
 def group_report(group):
     frames=group.get('frames') or []
     absolute=[frame_number(group,frame) for frame in frames]
     return {'group_index':group.get('group_index',0),'mapping_mode':group.get('mapping_mode',''),'vector_count':group.get('vector_count',0),'timeline_frame_count':group.get('timeline_frame_count',len(frames)),'frame_start':min(absolute) if absolute else 0,'frame_end':max(absolute) if absolute else 0,'target_names':group.get('target_names') or [track.get('target_guess',{}).get('target_name','') for track in group.get('mapped_tracks',[])]}
-
 
 def apply_timeline(armature,path,data,report):
     action_name=animation_name(data,path)
@@ -283,18 +256,15 @@ def apply_timeline(armature,path,data,report):
                 matched.add(bone.name)
                 if set_value(bone,value):
                     action_report['inserted_key_channels']+=insert_value_key(bone,frame_index)
-    set_action_frame_range(action,action_report['frames'])
+    for attr,value in (('frame_start',1),('frame_end',max(1,action_report['frames']))):
+        try:
+            setattr(action,attr,value)
+        except Exception:
+            pass
     action_report['matched_bones']=sorted(matched)
     action_report['missing_targets']=sorted(missing)
     report['actions'].append(action_report)
     return action,action_report
-
-
-def export_glb(package_dir):
-    out=Path(package_dir)/GLB_NAME
-    bpy.ops.export_scene.gltf(filepath=str(out),export_format='GLB',export_animations=True,export_skins=True)
-    return out
-
 
 def parse_args(argv):
     parser=argparse.ArgumentParser()
@@ -307,26 +277,30 @@ def parse_args(argv):
     parser.add_argument('--glb',action='store_true')
     return parser.parse_args(argv)
 
-
 def main(argv=None):
-    global MODE,SCALE,FPS,SAVE_BLEND,EXPORT_GLB
+    global MODE,SCALE,FPS
     if bpy is None:
         raise RuntimeError('Dieses Script muss in Blender laufen')
     args=parse_args(argv or [])
     MODE=args.mode
     SCALE=float(args.scale)
     FPS=int(args.fps)
-    SAVE_BLEND=not args.no_save
-    EXPORT_GLB=args.glb
     package_dir=Path(args.package).resolve() if args.package else find_package_dir()
     bpy.context.scene.render.fps=FPS
-    armature=find_armature(args.armature or None)
     timelines=collect_timelines(package_dir)
-    report={'package_dir':str(package_dir),'mode':MODE,'scale':SCALE,'armature':armature.name,'armature_bones':[bone.name for bone in armature.pose.bones],'timeline_count':len(timelines),'actions':[],'errors':[]}
+    source_report=source_files_report(package_dir)
+    report={'package_dir':str(package_dir),'mode':MODE,'scale':SCALE,'timeline_count':len(timelines),'actions':[],'errors':[]}
+    report.update(source_report)
     if not timelines:
-        report['errors'].append('Keine *.named_timeline.json gefunden')
+        report['errors'].append('no_named_timeline')
+        report['message']='ANIM-Dateien sind exportiert, aber für dieses Format wurde noch keine sichtbare Blender-Timeline dekodiert.'
         write_json(package_dir/REPORT_NAME,report)
-        raise RuntimeError('Keine *.named_timeline.json gefunden. --package auf den Export-Ordner setzen.')
+        print(report['message'])
+        print('Report:',package_dir/REPORT_NAME)
+        return
+    armature=find_armature(args.armature or None)
+    report['armature']=armature.name
+    report['armature_bones']=[bone.name for bone in armature.pose.bones]
     actions=[]
     total_channels=0
     max_frame=1
@@ -348,11 +322,13 @@ def main(argv=None):
     report['scene_frame_end']=bpy.context.scene.frame_end
     write_json(package_dir/REPORT_NAME,report)
     if total_channels==0:
-        raise RuntimeError('0 Keyframes erzeugt. Report prüfen: '+str(package_dir/REPORT_NAME))
-    if SAVE_BLEND and bpy.data.filepath:
+        print('0 Keyframes erzeugt. Report:',package_dir/REPORT_NAME)
+        return
+    if not args.no_save and bpy.data.filepath:
         bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath)
-    if EXPORT_GLB:
-        export_glb(package_dir)
+    if args.glb:
+        out=Path(package_dir)/GLB_NAME
+        bpy.ops.export_scene.gltf(filepath=str(out),export_format='GLB',export_animations=True,export_skins=True)
     print('Imported actions:',len(actions))
     print('Inserted key channels:',total_channels)
     print('Mode:',MODE)
@@ -360,35 +336,22 @@ def main(argv=None):
     for action in actions:
         print(action.name)
 
-
 if __name__=='__main__':
     main(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
 '''
 
 README='''Blender-Animation Import
 
-1. Charakter-.blend in Blender öffnen.
-2. Armature auswählen.
-3. Text Editor > Open > blender_import_named_timelines.py.
-4. Run Script.
-5. In Dope Sheet > Action Editor die Action auswählen.
+Analyse:
+blender_import_named_timelines.py
 
-Standard ist raw_props. Das speichert die rohen ANIM-Werte als Bone-Custom-Properties und verformt das Modell nicht.
+Sichtbarer Test:
+blender_preview_named_timelines.py
 
-Reports:
-blender_named_timeline_import_report.json
-debug/anim_structure_report.json
-
-Sichtbarer Testmodus:
-blender character.blend --python blender_import_named_timelines.py -- --package . --mode rotation_euler --scale 0.25
-
-Alternativer Testmodus:
-blender character.blend --python blender_import_named_timelines.py -- --package . --mode location --scale 0.1
-
-GLB-Export zusätzlich:
-blender character.blend --python blender_import_named_timelines.py -- --package . --mode rotation_euler --scale 0.25 --glb
+raw_props bewegt nichts sichtbar.
+rotation_euler ist nur Vorschau.
+Wenn timeline_count 0 ist, wurden ANIM-Dateien exportiert, aber noch keine sichtbare Blender-Timeline dekodiert.
 '''
-
 
 def _write_blender_files(package_dir):
     root=Path(package_dir)
@@ -397,7 +360,6 @@ def _write_blender_files(package_dir):
     script.write_text(BLENDER_SCRIPT.strip()+"\n",encoding='utf-8',newline='\n')
     readme.write_text(README,encoding='utf-8',newline='\n')
     return {'script':script.name,'readme':readme.name}
-
 
 def install(App):
     original=timeline_patch._enrich_package
