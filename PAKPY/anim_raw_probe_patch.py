@@ -43,13 +43,18 @@ def _f32be(data,off):
 def _q16(value):
     return round((value-32768)/32768,6)
 
-def _vec3_list(data,limit=8):
+def _vec3(data,index):
+    raw=data[index*6:index*6+6]
+    vals=[int.from_bytes(raw[i:i+2],'big') for i in (0,2,4)]
+    return {'index':index,'raw_hex':raw.hex(),'u16be':vals,'s16be':[_s16be(v) for v in vals],'centered':[_q16(v) for v in vals]}
+
+def _vec3_list(data,limit=None):
     out=[]
-    count=min(limit,len(data)//6)
+    count=len(data)//6
+    if limit is not None:
+        count=min(limit,count)
     for index in range(count):
-        raw=data[index*6:index*6+6]
-        vals=[int.from_bytes(raw[i:i+2],'big') for i in (0,2,4)]
-        out.append({'index':index,'raw_hex':raw.hex(),'u16be':vals,'s16be':[_s16be(v) for v in vals],'centered':[_q16(v) for v in vals]})
+        out.append(_vec3(data,index))
     return out
 
 def _find_all(data,needle):
@@ -117,12 +122,24 @@ def _group_marker_runs(offsets):
     runs.append({'start_offset':start,'last_marker_offset':prev,'marker_count':count,'stride':stride})
     return runs
 
-def _run_detail(body,run):
+def _run_end(body,run,members):
     stride=run.get('stride')
-    if stride is None:
-        end=min(len(body),run['start_offset']+96)
-    else:
-        end=min(len(body),run['last_marker_offset']+stride)
+    if stride is not None:
+        return min(len(body),run['last_marker_offset']+stride)
+    if members:
+        return min(len(body),members[-1]+96)
+    return min(len(body),run['start_offset']+96)
+
+def _lane_summary(vectors):
+    if not vectors:
+        return {}
+    cols=list(zip(*[v['centered'] for v in vectors]))
+    return {'min':[round(min(col),6) for col in cols],'max':[round(max(col),6) for col in cols],'first':vectors[0]['centered'],'last':vectors[-1]['centered']}
+
+def _run_detail(body,run,all_offsets):
+    members=[off for off in all_offsets if off>=run['start_offset'] and off<=run['last_marker_offset']]
+    stride=run.get('stride')
+    end=_run_end(body,run,members)
     run['end_offset']=end
     run['byte_size']=max(0,end-run['start_offset'])
     run['coverage_ratio']=round(run['byte_size']/len(body),6) if body else 0
@@ -140,25 +157,41 @@ def _run_detail(body,run):
             run['initial_vectors']=_vec3_list(initial,vector_count)
             run['initial_vectors_hex']=initial.hex()
     samples=[]
-    offsets=_find_all(body,FRAME_MARKER)
-    members=[off for off in offsets if off>=run['start_offset'] and off<=run['last_marker_offset']]
-    for index,off in enumerate(members[:4]):
+    full_frames=[]
+    lane_frames=[[] for _ in range(vector_count or 0)]
+    for index,off in enumerate(members):
         rec_end=members[index+1] if index+1<len(members) else min(len(body),off+(stride or 96))
         payload=body[off+marker_size:rec_end]
-        samples.append({'frame_marker_index':index,'offset':off,'record_size':rec_end-off,'payload_hex':payload[:72].hex(),'vectors':_vec3_list(payload,8)})
+        vectors=_vec3_list(payload,vector_count if vector_count else 8)
+        rec={'frame_delta_index':index+1,'marker_offset':off,'record_size':rec_end-off,'payload_hex':payload.hex(),'vectors':vectors}
+        full_frames.append(rec)
+        if vector_count:
+            for lane_index,vec in enumerate(vectors[:vector_count]):
+                lane_frames[lane_index].append(vec)
+        if index<4:
+            samples.append({'frame_marker_index':index,'offset':off,'record_size':rec_end-off,'payload_hex':payload[:72].hex(),'vectors':vectors[:8]})
     run['sample_records']=samples
+    if vector_count and len(full_frames)<=240:
+        run['decoded_frames']=full_frames
+        lanes=[]
+        initials=run.get('initial_vectors') or []
+        for lane_index,frames in enumerate(lane_frames):
+            lanes.append({'lane_index':lane_index,'initial':initials[lane_index] if lane_index<len(initials) else None,'frame_count':len(frames),'frames':[v['centered'] for v in frames],'summary':_lane_summary(frames)})
+        run['decoded_lanes']=lanes
+    else:
+        run['decoded_frames_omitted']=len(full_frames)
     return run
 
 def _frame_marker_probe(body):
     offsets=_find_all(body,FRAME_MARKER)
     runs=[]
     for run in _group_marker_runs(offsets):
-        runs.append(_run_detail(body,dict(run)))
+        runs.append(_run_detail(body,dict(run),offsets))
     strong=[]
     for run in runs:
         if run.get('marker_count',0)>=3:
             strong.append(run)
-    return {'marker_hex':FRAME_MARKER.hex(),'marker_count':len(offsets),'marker_offsets':offsets[:120],'runs':runs,'strong_runs':strong}
+    return {'marker_hex':FRAME_MARKER.hex(),'marker_count':len(offsets),'marker_offsets':offsets[:240],'runs':runs,'strong_runs':strong}
 
 def _enhance(asset,probe):
     payload=asset[32:]
@@ -213,7 +246,8 @@ def install(App):
             for run in marker_probe.get('strong_runs',[])[:4]:
                 stride=run.get('stride')
                 vec=run.get('vector_count_guess')
-                run_lines.append(f'0x{run["start_offset"]:X}/{run.get("marker_count",0)}x/{stride}B/{vec or "?"}v')
+                decoded='decoded' if run.get('decoded_lanes') else 'sample'
+                run_lines.append(f'0x{run["start_offset"]:X}/{run.get("marker_count",0)}x/{stride}B/{vec or "?"}v/{decoded}')
             if run_lines:
                 lines.append('Frame-Runs: '+', '.join(run_lines))
             starts=probe.get('body_start_candidates') or []
