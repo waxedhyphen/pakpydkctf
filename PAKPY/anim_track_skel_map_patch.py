@@ -14,6 +14,9 @@ def _write_json(path,data):
     path.parent.mkdir(parents=True,exist_ok=True)
     path.write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8',newline='\n')
 
+def _rel(root,path):
+    return str(Path(path).relative_to(root)).replace('\\','/')
+
 def _find_skeleton(package_dir):
     root=Path(package_dir)
     candidates=[]
@@ -26,7 +29,7 @@ def _find_skeleton(package_dir):
         if not isinstance(data,dict):
             continue
         if data.get('nodes') and data.get('bones'):
-            return data,str(path.relative_to(root)).replace('\\','/')
+            return data,_rel(root,path)
     return None,''
 
 def _node_targets(skel):
@@ -49,7 +52,22 @@ def _targets_for_group(skel,vector_count):
         return [{'target_kind':'root_or_body','target_index':-1,'target_node_index':-1,'target_name':'root/body','confidence':'medium'}]+bones,'root_plus_skin_bone_order'
     return [],'unmapped_count_mismatch'
 
-def _named_frame_timeline(group):
+def _timeline_frame_count(group):
+    count=group.get('timeline_frame_count') or 0
+    if count:
+        return count
+    tracks=group.get('tracks') or []
+    return max([track.get('timeline_frame_count',0) for track in tracks]+[0])
+
+def _group_target_names(group):
+    names=[]
+    for track in group.get('mapped_tracks') or []:
+        target=track.get('target_guess') or {}
+        name=target.get('target_name') or f'lane_{track.get("lane_index",0)}'
+        names.append(name)
+    return names
+
+def _named_frame_timeline(group,start_frame_index):
     tracks=group.get('tracks') or []
     frame_count=max([track.get('timeline_frame_count',0) for track in tracks]+[0])
     frames=[]
@@ -64,7 +82,7 @@ def _named_frame_timeline(group):
             item={'lane_index':track.get('lane_index',0),'target_kind':target.get('target_kind','unknown'),'target_name':name,'value':value}
             values.append(item)
             by_name[name]=value
-        frames.append({'frame_index':frame_index,'values':values,'by_name':by_name})
+        frames.append({'frame_index':frame_index,'absolute_frame_index':start_frame_index+frame_index,'values':values,'by_name':by_name})
     return frames
 
 def _valid_groups(probe,groups):
@@ -75,36 +93,51 @@ def _valid_groups(probe,groups):
         return [],'missing_frame_count'
     usable=[]
     for group in groups:
-        mode=group.get('mapping_mode','')
-        if mode=='unmapped_count_mismatch':
+        if group.get('mapping_mode','')=='unmapped_count_mismatch':
             continue
-        frames=group.get('timeline_frame_count') or 0
+        frames=_timeline_frame_count(group)
         if frames>0:
+            group['timeline_frame_count']=frames
             usable.append(group)
     if not usable:
         return [],'no_usable_groups'
     total=sum(group.get('timeline_frame_count') or 0 for group in usable)
-    single=any((group.get('timeline_frame_count') or 0)==frame_count for group in usable)
-    if total==frame_count or single:
-        return usable,'ok'
+    if total==frame_count:
+        return usable,'ok:sequential_groups'
+    exact=[group for group in usable if (group.get('timeline_frame_count') or 0)==frame_count]
+    if exact:
+        return exact,'ok:single_full_group'
     return [],f'frame_coverage_mismatch:{total}!={frame_count}'
+
+def _apply_frame_layout(groups):
+    cursor=0
+    for group in groups:
+        frames=group.get('timeline_frame_count') or 0
+        group['timeline_frame_start']=cursor
+        group['timeline_frame_end']=cursor+max(0,frames-1) if frames else cursor
+        group['named_frame_timeline']=_named_frame_timeline(group,cursor)
+        cursor+=frames
+    return cursor
+
+def _group_doc(group):
+    return {'group_index':group.get('group_index',0),'mapping_mode':group.get('mapping_mode',''),'vector_count':group.get('vector_count',0),'timeline_frame_count':group.get('timeline_frame_count',0),'timeline_frame_start':group.get('timeline_frame_start',0),'timeline_frame_end':group.get('timeline_frame_end',0),'target_names':_group_target_names(group),'mapped_tracks':group.get('mapped_tracks',[]),'frames':group.get('named_frame_timeline',[])}
 
 def _timeline_doc(probe,probe_rel):
     mapping=probe.get('track_skeleton_map') or {}
     groups=mapping.get('groups') or []
-    return {'version':2,'type':'ANIM_NAMED_TIMELINE','source_probe':probe_rel,'entry_name':probe.get('entry_name',''),'char_animation_name':probe.get('char_animation_name',''),'uuid_hex':probe.get('uuid_hex',''),'frame_count_guess':probe.get('frame_count_guess',0),'raw_family':probe.get('raw_family',''),'mapping_status':mapping.get('status',''),'mapping_note':mapping.get('note',''),'skeleton_file':mapping.get('skeleton_file',''),'node_names':mapping.get('node_names',[]),'skin_bone_names':mapping.get('skin_bone_names',[]),'groups':[{'group_index':group.get('group_index',0),'mapping_mode':group.get('mapping_mode',''),'vector_count':group.get('vector_count',0),'timeline_frame_count':group.get('timeline_frame_count',0),'mapped_tracks':group.get('mapped_tracks',[]),'frames':group.get('named_frame_timeline',[])} for group in groups]}
+    return {'version':3,'type':'ANIM_NAMED_TIMELINE','source_probe':probe_rel,'entry_name':probe.get('entry_name',''),'char_animation_name':probe.get('char_animation_name',''),'uuid_hex':probe.get('uuid_hex',''),'frame_count_guess':probe.get('frame_count_guess',0),'absolute_frame_count':mapping.get('absolute_frame_count',0),'raw_family':probe.get('raw_family',''),'mapping_status':mapping.get('status',''),'mapping_note':mapping.get('note',''),'skeleton_file':mapping.get('skeleton_file',''),'node_names':mapping.get('node_names',[]),'skin_bone_names':mapping.get('skin_bone_names',[]),'groups':[_group_doc(group) for group in groups]}
 
 def _write_named_timeline(root,probe_path,probe):
     root=Path(root)
     probe_path=Path(probe_path)
-    rel=str(probe_path.relative_to(root)).replace('\\','/')
+    rel=_rel(root,probe_path)
     name=probe.get('char_animation_name') or probe.get('entry_name') or probe_path.stem.replace('.probe21','')
     uuid_hex=probe.get('uuid_hex','')
     base=safe_name(f'{name}__{uuid_hex}' if uuid_hex else name)
     out_dir=probe_path.parent.parent/'anim_named_timeline'
     out_path=out_dir/(base+'.named_timeline.json')
     _write_json(out_path,_timeline_doc(probe,rel))
-    return str(out_path.relative_to(root)).replace('\\','/')
+    return _rel(root,out_path)
 
 def _apply_mapping(probe,skel,skel_file):
     track_decode=probe.get('track_decode') or {}
@@ -123,13 +156,40 @@ def _apply_mapping(probe,skel,skel_file):
             mapped_tracks.append({'lane_index':lane_index,'target_guess':target,'timeline_frame_count':track.get('timeline_frame_count',0),'summary':track.get('summary',{})})
         group['mapping_mode']=mode
         group['mapped_tracks']=mapped_tracks
-        group['named_frame_timeline']=_named_frame_timeline(group)
-        mapped_groups.append({'group_index':group.get('group_index',0),'mapping_mode':mode,'vector_count':vector_count,'timeline_frame_count':group.get('timeline_frame_count',0),'mapped_tracks':mapped_tracks,'named_frame_timeline':group['named_frame_timeline']})
+        group['timeline_frame_count']=_timeline_frame_count(group)
+        mapped_groups.append({'group_index':group.get('group_index',0),'mapping_mode':mode,'vector_count':vector_count,'timeline_frame_count':group.get('timeline_frame_count',0),'mapped_tracks':mapped_tracks,'tracks':group.get('tracks') or []})
     valid,note=_valid_groups(probe,mapped_groups)
+    absolute_frame_count=_apply_frame_layout(valid) if valid else 0
     status='ok' if valid else note
-    probe['track_skeleton_map']={'version':4,'status':status,'note':note,'skeleton_file':skel_file,'node_count':len(node_names),'skin_bone_count':len(bone_names),'node_names':node_names,'skin_bone_names':bone_names,'groups':valid}
+    probe['track_skeleton_map']={'version':6,'status':status,'note':note,'skeleton_file':skel_file,'node_count':len(node_names),'skin_bone_count':len(bone_names),'node_names':node_names,'skin_bone_names':bone_names,'absolute_frame_count':absolute_frame_count,'groups':valid}
     probe['track_decode']=track_decode
     return probe
+
+def _probe_structure(root,path,probe):
+    mapping=probe.get('track_skeleton_map') or {}
+    groups=[]
+    for group in mapping.get('groups') or []:
+        groups.append({'group_index':group.get('group_index',0),'mapping_mode':group.get('mapping_mode',''),'vector_count':group.get('vector_count',0),'timeline_frame_count':group.get('timeline_frame_count',0),'timeline_frame_start':group.get('timeline_frame_start',0),'timeline_frame_end':group.get('timeline_frame_end',0),'target_names':_group_target_names(group)})
+    return {'probe':_rel(root,path),'named_timeline_file':probe.get('named_timeline_file',''),'char_animation_name':probe.get('char_animation_name',''),'entry_name':probe.get('entry_name',''),'uuid_hex':probe.get('uuid_hex',''),'raw_family':probe.get('raw_family',''),'frame_count_guess':probe.get('frame_count_guess',0),'mapping_status':mapping.get('status',''),'mapping_note':mapping.get('note',''),'absolute_frame_count':mapping.get('absolute_frame_count',0),'groups':groups}
+
+def _write_structure_report(root,skel,skel_file,named,skipped):
+    root=Path(root)
+    probes=[]
+    paths=list(root.glob('debug/anim_probe21/*.probe21.json'))
+    paths.extend(root.glob('models/*/debug/anim_probe21/*.probe21.json'))
+    seen=set()
+    for path in paths:
+        key=str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        probe=_read_json(path)
+        if isinstance(probe,dict):
+            probes.append(_probe_structure(root,path,probe))
+    report={'version':1,'type':'ANIM_STRUCTURE_REPORT','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'node_names':[node.get('name','') for node in skel.get('nodes') or []],'skin_bone_names':[bone.get('name','') for bone in skel.get('bones') or []],'named_timeline_files':named,'skipped_timeline_files':skipped,'animation_count':len(probes),'animations':probes}
+    out=root/'debug'/'anim_structure_report.json'
+    _write_json(out,report)
+    return _rel(root,out)
 
 def _enrich_package(package_dir):
     skel,skel_file=_find_skeleton(package_dir)
@@ -159,18 +219,19 @@ def _enrich_package(package_dir):
             probe['named_timeline_file']=rel_named
             named.append(rel_named)
         else:
-            skipped.append({'probe':str(path.relative_to(root)).replace('\\','/'),'status':status})
+            skipped.append({'probe':_rel(root,path),'status':status})
         _write_json(path,probe)
         changed+=1
+    structure_report=_write_structure_report(root,skel,skel_file,named,skipped)
     summary_paths=list(root.glob('debug/anim_probe21_summary.json'))
     summary_paths.extend(root.glob('models/*/debug/anim_probe21_summary.json'))
     for path in summary_paths:
         data=_read_json(path)
         if not isinstance(data,dict):
             continue
-        data['track_skeleton_map']={'version':4,'status':'ok','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'named_timeline_files':named,'skipped_timeline_files':skipped}
+        data['track_skeleton_map']={'version':6,'status':'ok','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'named_timeline_files':named,'skipped_timeline_files':skipped,'structure_report':structure_report}
         _write_json(path,data)
-    return {'status':'ok','changed_probe_count':changed,'skeleton_file':skel_file,'named_timeline_count':len(named),'named_timeline_files':named,'skipped_timeline_files':skipped}
+    return {'status':'ok','changed_probe_count':changed,'skeleton_file':skel_file,'named_timeline_count':len(named),'named_timeline_files':named,'skipped_timeline_files':skipped,'structure_report':structure_report}
 
 def install(App):
     original=anim_patch._write_animation_probe_set
