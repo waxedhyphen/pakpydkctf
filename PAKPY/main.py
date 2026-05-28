@@ -17,6 +17,7 @@ from char_anim_selector_patch import install as install_char_anim_selector_patch
 from anim_raw_probe_patch import install as install_anim_raw_probe_patch
 from anim_track_skel_map_patch import install as install_anim_track_skel_map_patch
 from anim_timeline_summary_scope_patch import install as install_anim_timeline_summary_scope_patch
+from blender_named_timeline_patch import install as install_blender_named_timeline_patch
 from windows_compat import configure_root, setup_windows_process
 
 install_skeletal_tail_patch()
@@ -32,6 +33,7 @@ install_char_anim_selector_patch(App)
 install_anim_raw_probe_patch(App)
 install_anim_track_skel_map_patch(App)
 install_anim_timeline_summary_scope_patch(App)
+install_blender_named_timeline_patch(App)
 
 def main():
     setup_windows_process()
