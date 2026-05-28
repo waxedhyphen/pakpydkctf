@@ -80,22 +80,36 @@ def find_package_dir():
     return Path.cwd()
 
 
+def timeline_identity(path,data):
+    uuid_hex=data.get('uuid_hex') or ''
+    name=data.get('char_animation_name') or data.get('entry_name') or Path(path).stem.replace('.named_timeline','')
+    return uuid_hex or name
+
+
 def collect_timelines(package_dir):
     root=Path(package_dir)
     paths=[]
     paths.extend(root.glob('debug/anim_named_timeline/*.named_timeline.json'))
     paths.extend(root.glob('models/*/debug/anim_named_timeline/*.named_timeline.json'))
-    out=[]
-    seen=set()
+    by_key={}
+    order=[]
+    seen_paths=set()
     for path in paths:
-        key=str(path.resolve())
-        if key in seen:
+        key_path=str(path.resolve())
+        if key_path in seen_paths:
             continue
-        seen.add(key)
+        seen_paths.add(key_path)
         data=load_json(path)
-        if data.get('type')=='ANIM_NAMED_TIMELINE' and data.get('groups'):
-            out.append((path,data))
-    return out
+        if data.get('type')!='ANIM_NAMED_TIMELINE' or not data.get('groups'):
+            continue
+        key=timeline_identity(path,data)
+        prefer_new='models/' in str(path).replace('\\','/')
+        if key not in by_key:
+            order.append(key)
+            by_key[key]=(path,data)
+        elif prefer_new:
+            by_key[key]=(path,data)
+    return [by_key[key] for key in order]
 
 
 def find_armature(name=None):
@@ -222,6 +236,21 @@ def activate_armature(armature):
     bpy.ops.object.mode_set(mode='POSE')
 
 
+def frame_number(group,frame):
+    if 'absolute_frame_index' in frame:
+        return int(frame.get('absolute_frame_index') or 0)+1
+    start=group.get('timeline_frame_start')
+    if start is None:
+        start=group.get('timeline_start_frame_index',0)
+    return int(start or 0)+int(frame.get('frame_index',0) or 0)+1
+
+
+def group_report(group):
+    frames=group.get('frames') or []
+    absolute=[frame_number(group,frame) for frame in frames]
+    return {'group_index':group.get('group_index',0),'mapping_mode':group.get('mapping_mode',''),'vector_count':group.get('vector_count',0),'timeline_frame_count':group.get('timeline_frame_count',len(frames)),'frame_start':min(absolute) if absolute else 0,'frame_end':max(absolute) if absolute else 0,'target_names':group.get('target_names') or [track.get('target_guess',{}).get('target_name','') for track in group.get('mapped_tracks',[])]}
+
+
 def apply_timeline(armature,path,data,report):
     action_name=animation_name(data,path)
     existing=bpy.data.actions.get(action_name)
@@ -236,12 +265,13 @@ def apply_timeline(armature,path,data,report):
     armature['pak_anim_mode']=MODE
     activate_armature(armature)
     lookup=bone_lookup(armature)
-    action_report={'action':action_name,'source':str(path),'frames':0,'inserted_key_channels':0,'matched_bones':[],'missing_targets':[]}
+    action_report={'action':action_name,'source':str(path),'frames':0,'inserted_key_channels':0,'matched_bones':[],'missing_targets':[],'groups':[]}
     matched=set()
     missing=set()
     for group in data.get('groups',[]):
+        action_report['groups'].append(group_report(group))
         for frame in group.get('frames',[]):
-            frame_index=frame.get('frame_index',0)+1
+            frame_index=frame_number(group,frame)
             action_report['frames']=max(action_report['frames'],frame_index)
             for item in frame.get('values',[]):
                 name=item.get('target_name','')
@@ -345,8 +375,9 @@ README='''Blender-Animation Import
 
 Standard ist raw_props. Das speichert die rohen ANIM-Werte als Bone-Custom-Properties und verformt das Modell nicht.
 
-Report:
+Reports:
 blender_named_timeline_import_report.json
+debug/anim_structure_report.json
 
 Sichtbarer Testmodus:
 blender character.blend --python blender_import_named_timelines.py -- --package . --mode rotation_euler --scale 0.25
