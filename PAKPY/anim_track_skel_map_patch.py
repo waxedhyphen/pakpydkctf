@@ -67,10 +67,32 @@ def _named_frame_timeline(group):
         frames.append({'frame_index':frame_index,'values':values,'by_name':by_name})
     return frames
 
+def _valid_groups(probe,groups):
+    if probe.get('raw_family')!='normal_clip':
+        return [],'not_normal_clip'
+    frame_count=probe.get('frame_count_guess') or 0
+    if not frame_count:
+        return [],'missing_frame_count'
+    usable=[]
+    for group in groups:
+        mode=group.get('mapping_mode','')
+        if mode=='unmapped_count_mismatch':
+            continue
+        frames=group.get('timeline_frame_count') or 0
+        if frames>0:
+            usable.append(group)
+    if not usable:
+        return [],'no_usable_groups'
+    total=sum(group.get('timeline_frame_count') or 0 for group in usable)
+    single=any((group.get('timeline_frame_count') or 0)==frame_count for group in usable)
+    if total==frame_count or single:
+        return usable,'ok'
+    return [],f'frame_coverage_mismatch:{total}!={frame_count}'
+
 def _timeline_doc(probe,probe_rel):
     mapping=probe.get('track_skeleton_map') or {}
     groups=mapping.get('groups') or []
-    return {'version':1,'type':'ANIM_NAMED_TIMELINE','source_probe':probe_rel,'entry_name':probe.get('entry_name',''),'char_animation_name':probe.get('char_animation_name',''),'uuid_hex':probe.get('uuid_hex',''),'frame_count_guess':probe.get('frame_count_guess',0),'raw_family':probe.get('raw_family',''),'mapping_status':mapping.get('status',''),'skeleton_file':mapping.get('skeleton_file',''),'node_names':mapping.get('node_names',[]),'skin_bone_names':mapping.get('skin_bone_names',[]),'groups':[{'group_index':group.get('group_index',0),'mapping_mode':group.get('mapping_mode',''),'vector_count':group.get('vector_count',0),'timeline_frame_count':group.get('timeline_frame_count',0),'mapped_tracks':group.get('mapped_tracks',[]),'frames':group.get('named_frame_timeline',[])} for group in groups]}
+    return {'version':2,'type':'ANIM_NAMED_TIMELINE','source_probe':probe_rel,'entry_name':probe.get('entry_name',''),'char_animation_name':probe.get('char_animation_name',''),'uuid_hex':probe.get('uuid_hex',''),'frame_count_guess':probe.get('frame_count_guess',0),'raw_family':probe.get('raw_family',''),'mapping_status':mapping.get('status',''),'mapping_note':mapping.get('note',''),'skeleton_file':mapping.get('skeleton_file',''),'node_names':mapping.get('node_names',[]),'skin_bone_names':mapping.get('skin_bone_names',[]),'groups':[{'group_index':group.get('group_index',0),'mapping_mode':group.get('mapping_mode',''),'vector_count':group.get('vector_count',0),'timeline_frame_count':group.get('timeline_frame_count',0),'mapped_tracks':group.get('mapped_tracks',[]),'frames':group.get('named_frame_timeline',[])} for group in groups]}
 
 def _write_named_timeline(root,probe_path,probe):
     root=Path(root)
@@ -103,7 +125,9 @@ def _apply_mapping(probe,skel,skel_file):
         group['mapped_tracks']=mapped_tracks
         group['named_frame_timeline']=_named_frame_timeline(group)
         mapped_groups.append({'group_index':group.get('group_index',0),'mapping_mode':mode,'vector_count':vector_count,'timeline_frame_count':group.get('timeline_frame_count',0),'mapped_tracks':mapped_tracks,'named_frame_timeline':group['named_frame_timeline']})
-    probe['track_skeleton_map']={'version':3,'status':'ok' if mapped_groups else 'no_track_groups','skeleton_file':skel_file,'node_count':len(node_names),'skin_bone_count':len(bone_names),'node_names':node_names,'skin_bone_names':bone_names,'groups':mapped_groups}
+    valid,note=_valid_groups(probe,mapped_groups)
+    status='ok' if valid else note
+    probe['track_skeleton_map']={'version':4,'status':status,'note':note,'skeleton_file':skel_file,'node_count':len(node_names),'skin_bone_count':len(bone_names),'node_names':node_names,'skin_bone_names':bone_names,'groups':valid}
     probe['track_decode']=track_decode
     return probe
 
@@ -114,6 +138,7 @@ def _enrich_package(package_dir):
     root=Path(package_dir)
     changed=0
     named=[]
+    skipped=[]
     probe_paths=list(root.glob('debug/anim_probe21/*.probe21.json'))
     probe_paths.extend(root.glob('models/*/debug/anim_probe21/*.probe21.json'))
     seen=set()
@@ -128,10 +153,14 @@ def _enrich_package(package_dir):
         if not probe.get('track_decode'):
             continue
         probe=_apply_mapping(probe,skel,skel_file)
-        rel_named=_write_named_timeline(root,path,probe)
-        probe['named_timeline_file']=rel_named
+        status=(probe.get('track_skeleton_map') or {}).get('status','')
+        if status=='ok':
+            rel_named=_write_named_timeline(root,path,probe)
+            probe['named_timeline_file']=rel_named
+            named.append(rel_named)
+        else:
+            skipped.append({'probe':str(path.relative_to(root)).replace('\\','/'),'status':status})
         _write_json(path,probe)
-        named.append(rel_named)
         changed+=1
     summary_paths=list(root.glob('debug/anim_probe21_summary.json'))
     summary_paths.extend(root.glob('models/*/debug/anim_probe21_summary.json'))
@@ -139,9 +168,9 @@ def _enrich_package(package_dir):
         data=_read_json(path)
         if not isinstance(data,dict):
             continue
-        data['track_skeleton_map']={'version':3,'status':'ok','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'named_timeline_files':named}
+        data['track_skeleton_map']={'version':4,'status':'ok','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'named_timeline_files':named,'skipped_timeline_files':skipped}
         _write_json(path,data)
-    return {'status':'ok','changed_probe_count':changed,'skeleton_file':skel_file,'named_timeline_count':len(named),'named_timeline_files':named}
+    return {'status':'ok','changed_probe_count':changed,'skeleton_file':skel_file,'named_timeline_count':len(named),'named_timeline_files':named,'skipped_timeline_files':skipped}
 
 def install(App):
     original=anim_patch._write_animation_probe_set
