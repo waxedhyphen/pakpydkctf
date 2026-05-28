@@ -46,6 +46,24 @@ def _targets_for_group(skel,vector_count):
         return [{'target_kind':'root_or_body','target_index':-1,'target_node_index':-1,'target_name':'root/body','confidence':'medium'}]+bones,'root_plus_skin_bone_order'
     return [],'unmapped_count_mismatch'
 
+def _named_frame_timeline(group):
+    tracks=group.get('tracks') or []
+    frame_count=max([track.get('timeline_frame_count',0) for track in tracks]+[0])
+    frames=[]
+    for frame_index in range(frame_count):
+        values=[]
+        by_name={}
+        for track in tracks:
+            target=track.get('target_guess') or {}
+            name=target.get('target_name') or f'lane_{track.get("lane_index",0)}'
+            timeline=track.get('timeline_values') or []
+            value=timeline[frame_index] if frame_index<len(timeline) else None
+            item={'lane_index':track.get('lane_index',0),'target_kind':target.get('target_kind','unknown'),'target_name':name,'value':value}
+            values.append(item)
+            by_name[name]=value
+        frames.append({'frame_index':frame_index,'values':values,'by_name':by_name})
+    return frames
+
 def _apply_mapping(probe,skel,skel_file):
     track_decode=probe.get('track_decode') or {}
     groups=track_decode.get('groups') or []
@@ -63,8 +81,9 @@ def _apply_mapping(probe,skel,skel_file):
             mapped_tracks.append({'lane_index':lane_index,'target_guess':target,'timeline_frame_count':track.get('timeline_frame_count',0),'summary':track.get('summary',{})})
         group['mapping_mode']=mode
         group['mapped_tracks']=mapped_tracks
-        mapped_groups.append({'group_index':group.get('group_index',0),'mapping_mode':mode,'vector_count':vector_count,'timeline_frame_count':group.get('timeline_frame_count',0),'mapped_tracks':mapped_tracks})
-    probe['track_skeleton_map']={'version':1,'status':'ok' if mapped_groups else 'no_track_groups','skeleton_file':skel_file,'node_count':len(node_names),'skin_bone_count':len(bone_names),'node_names':node_names,'skin_bone_names':bone_names,'groups':mapped_groups}
+        group['named_frame_timeline']=_named_frame_timeline(group)
+        mapped_groups.append({'group_index':group.get('group_index',0),'mapping_mode':mode,'vector_count':vector_count,'timeline_frame_count':group.get('timeline_frame_count',0),'mapped_tracks':mapped_tracks,'named_frame_timeline':group['named_frame_timeline']})
+    probe['track_skeleton_map']={'version':2,'status':'ok' if mapped_groups else 'no_track_groups','skeleton_file':skel_file,'node_count':len(node_names),'skin_bone_count':len(bone_names),'node_names':node_names,'skin_bone_names':bone_names,'groups':mapped_groups}
     probe['track_decode']=track_decode
     return probe
 
@@ -95,14 +114,14 @@ def _enrich_package(package_dir):
         data=_read_json(path)
         if not isinstance(data,dict):
             continue
-        data['track_skeleton_map']={'version':1,'status':'ok','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or [])}
+        data['track_skeleton_map']={'version':2,'status':'ok','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or [])}
         _write_json(path,data)
     return {'status':'ok','changed_probe_count':changed,'skeleton_file':skel_file}
 
 def install(App):
     original=anim_patch._write_animation_probe_set
     def write_animation_probe_set(parsed,entry,package_dir,refs,require_store=None,root_name='char'):
-        result=original(parsed,entry,package_dir,refs,require_store= require_store,root_name=root_name)
+        result=original(parsed,entry,package_dir,refs,require_store=require_store,root_name=root_name)
         try:
             result['track_skeleton_map']=_enrich_package(package_dir)
         except Exception as e:
