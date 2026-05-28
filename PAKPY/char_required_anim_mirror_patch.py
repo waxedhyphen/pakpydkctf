@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import anim_track_skel_map_patch as timeline_patch
+import blender_named_timeline_patch as blender_patch
 
 def _copy_file(src,dst):
     if not src.exists() or not src.is_file():
@@ -29,11 +30,27 @@ def _rel(root,path):
     except Exception:
         return str(path).replace('\\','/')
 
+def _write_blender_helpers(root,model_dirs):
+    written=[]
+    try:
+        result=blender_patch._write_blender_files(root)
+        if result.get('script'):
+            written.append(result.get('script'))
+    except Exception:
+        pass
+    for model_dir in model_dirs:
+        try:
+            result=blender_patch._write_blender_files(model_dir)
+            if result.get('script'):
+                written.append(_rel(root,model_dir/result.get('script')))
+        except Exception:
+            pass
+    return written
+
 def _mirror_required_anim_files(package_dir):
     root=Path(package_dir)
     model_dirs=[path for path in sorted(root.glob('models/*_smdl_package')) if path.is_dir()]
-    if not model_dirs:
-        return []
+    blender_files=_write_blender_helpers(root,model_dirs)
     mirrored=[]
     for model_dir in model_dirs:
         copied=[]
@@ -45,15 +62,16 @@ def _mirror_required_anim_files(package_dir):
                 copied.append(str(model_dir/'debug'/name))
         if copied:
             mirrored.append({'model_package':_rel(root,model_dir),'copied_files':[_rel(root,path) for path in copied]})
-    return mirrored
+    return {'mirrored':mirrored,'blender_files':blender_files}
 
 def install(App):
     original=timeline_patch._enrich_package
     def enrich_package(package_dir):
         result=original(package_dir)
         try:
-            mirrored=_mirror_required_anim_files(package_dir)
-            result['mirrored_required_animation_files']=mirrored
+            mirror_result=_mirror_required_anim_files(package_dir)
+            result['mirrored_required_animation_files']=mirror_result['mirrored']
+            result['blender_helper_files']=mirror_result['blender_files']
         except Exception as e:
             result['mirror_required_animation_files_error']=str(e)
         return result
