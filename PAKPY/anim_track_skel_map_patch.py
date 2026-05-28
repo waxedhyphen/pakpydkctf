@@ -161,7 +161,7 @@ def _apply_mapping(probe,skel,skel_file):
     valid,note=_valid_groups(probe,mapped_groups)
     absolute_frame_count=_apply_frame_layout(valid) if valid else 0
     status='ok' if valid else note
-    probe['track_skeleton_map']={'version':6,'status':status,'note':note,'skeleton_file':skel_file,'node_count':len(node_names),'skin_bone_count':len(bone_names),'node_names':node_names,'skin_bone_names':bone_names,'absolute_frame_count':absolute_frame_count,'groups':valid}
+    probe['track_skeleton_map']={'version':7,'status':status,'note':note,'skeleton_file':skel_file,'node_count':len(node_names),'skin_bone_count':len(bone_names),'node_names':node_names,'skin_bone_names':bone_names,'absolute_frame_count':absolute_frame_count,'groups':valid}
     probe['track_decode']=track_decode
     return probe
 
@@ -171,6 +171,21 @@ def _probe_structure(root,path,probe):
     for group in mapping.get('groups') or []:
         groups.append({'group_index':group.get('group_index',0),'mapping_mode':group.get('mapping_mode',''),'vector_count':group.get('vector_count',0),'timeline_frame_count':group.get('timeline_frame_count',0),'timeline_frame_start':group.get('timeline_frame_start',0),'timeline_frame_end':group.get('timeline_frame_end',0),'target_names':_group_target_names(group)})
     return {'probe':_rel(root,path),'named_timeline_file':probe.get('named_timeline_file',''),'char_animation_name':probe.get('char_animation_name',''),'entry_name':probe.get('entry_name',''),'uuid_hex':probe.get('uuid_hex',''),'raw_family':probe.get('raw_family',''),'frame_count_guess':probe.get('frame_count_guess',0),'mapping_status':mapping.get('status',''),'mapping_note':mapping.get('note',''),'absolute_frame_count':mapping.get('absolute_frame_count',0),'groups':groups}
+
+def _summary_report_paths(root):
+    paths=[]
+    for path in list(root.glob('debug/anim_probe21_summary.json'))+list(root.glob('models/*/debug/anim_probe21_summary.json')):
+        paths.append(path.parent/'anim_structure_report.json')
+    paths.append(root/'debug'/'anim_structure_report.json')
+    out=[]
+    seen=set()
+    for path in paths:
+        key=str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(path)
+    return out
 
 def _write_structure_report(root,skel,skel_file,named,skipped):
     root=Path(root)
@@ -186,10 +201,11 @@ def _write_structure_report(root,skel,skel_file,named,skipped):
         probe=_read_json(path)
         if isinstance(probe,dict):
             probes.append(_probe_structure(root,path,probe))
-    report={'version':1,'type':'ANIM_STRUCTURE_REPORT','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'node_names':[node.get('name','') for node in skel.get('nodes') or []],'skin_bone_names':[bone.get('name','') for bone in skel.get('bones') or []],'named_timeline_files':named,'skipped_timeline_files':skipped,'animation_count':len(probes),'animations':probes}
-    out=root/'debug'/'anim_structure_report.json'
-    _write_json(out,report)
-    return _rel(root,out)
+    report={'version':2,'type':'ANIM_STRUCTURE_REPORT','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'node_names':[node.get('name','') for node in skel.get('nodes') or []],'skin_bone_names':[bone.get('name','') for bone in skel.get('bones') or []],'named_timeline_files':named,'skipped_timeline_files':skipped,'animation_count':len(probes),'animations':probes}
+    report_paths=_summary_report_paths(root)
+    for out in report_paths:
+        _write_json(out,report)
+    return [_rel(root,path) for path in report_paths]
 
 def _enrich_package(package_dir):
     skel,skel_file=_find_skeleton(package_dir)
@@ -222,16 +238,17 @@ def _enrich_package(package_dir):
             skipped.append({'probe':_rel(root,path),'status':status})
         _write_json(path,probe)
         changed+=1
-    structure_report=_write_structure_report(root,skel,skel_file,named,skipped)
+    structure_reports=_write_structure_report(root,skel,skel_file,named,skipped)
     summary_paths=list(root.glob('debug/anim_probe21_summary.json'))
     summary_paths.extend(root.glob('models/*/debug/anim_probe21_summary.json'))
     for path in summary_paths:
         data=_read_json(path)
         if not isinstance(data,dict):
             continue
-        data['track_skeleton_map']={'version':6,'status':'ok','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'named_timeline_files':named,'skipped_timeline_files':skipped,'structure_report':structure_report}
+        local_report=_rel(root,path.parent/'anim_structure_report.json')
+        data['track_skeleton_map']={'version':7,'status':'ok','skeleton_file':skel_file,'node_count':len(skel.get('nodes') or []),'skin_bone_count':len(skel.get('bones') or []),'named_timeline_files':named,'skipped_timeline_files':skipped,'structure_report':local_report,'structure_reports':structure_reports}
         _write_json(path,data)
-    return {'status':'ok','changed_probe_count':changed,'skeleton_file':skel_file,'named_timeline_count':len(named),'named_timeline_files':named,'skipped_timeline_files':skipped,'structure_report':structure_report}
+    return {'status':'ok','changed_probe_count':changed,'skeleton_file':skel_file,'named_timeline_count':len(named),'named_timeline_files':named,'skipped_timeline_files':skipped,'structure_report':structure_reports[0] if structure_reports else '','structure_reports':structure_reports}
 
 def install(App):
     original=anim_patch._write_animation_probe_set
