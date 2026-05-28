@@ -2,17 +2,16 @@ import struct
 import model_animation_refs_patch as anim_patch
 
 NEUTRAL_U16={0,32767,32768,65535}
-
-def _tag4(data,off):
-    if off+4>len(data):
-        return ''
-    return data[off:off+4].decode('ascii','replace')
+FRAME_MARKER=bytes.fromhex('1c0000000000')
 
 def _u16be(data,limit):
     return [int.from_bytes(data[i:i+2],'big') for i in range(0,min(limit,len(data)//2*2),2)]
 
 def _u16le(data,limit):
     return [int.from_bytes(data[i:i+2],'little') for i in range(0,min(limit,len(data)//2*2),2)]
+
+def _s16be(value):
+    return value-65536 if value>=32768 else value
 
 def _u32be(data,off):
     if off+4>len(data):
@@ -40,6 +39,26 @@ def _f32be(data,off):
     if abs(value)<0.00000001:
         value=0.0
     return round(value,6)
+
+def _q16(value):
+    return round((value-32768)/32768,6)
+
+def _vec3_list(data,limit=8):
+    out=[]
+    count=min(limit,len(data)//6)
+    for index in range(count):
+        raw=data[index*6:index*6+6]
+        vals=[int.from_bytes(raw[i:i+2],'big') for i in (0,2,4)]
+        out.append({'index':index,'raw_hex':raw.hex(),'u16be':vals,'s16be':[_s16be(v) for v in vals],'centered':[_q16(v) for v in vals]})
+    return out
+
+def _find_all(data,needle):
+    out=[]
+    pos=data.find(needle)
+    while pos!=-1:
+        out.append(pos)
+        pos=data.find(needle,pos+1)
+    return out
 
 def _start_candidates(body):
     out=[]
@@ -71,6 +90,76 @@ def _raw_family(control,body_used):
         return 'compact21'
     return 'unknown_raw'
 
+def _group_marker_runs(offsets):
+    runs=[]
+    if not offsets:
+        return runs
+    start=offsets[0]
+    prev=offsets[0]
+    stride=None
+    count=1
+    for off in offsets[1:]:
+        diff=off-prev
+        if stride is None:
+            stride=diff
+            count=2
+            prev=off
+            continue
+        if diff==stride:
+            count+=1
+            prev=off
+            continue
+        runs.append({'start_offset':start,'last_marker_offset':prev,'marker_count':count,'stride':stride})
+        start=off
+        prev=off
+        stride=None
+        count=1
+    runs.append({'start_offset':start,'last_marker_offset':prev,'marker_count':count,'stride':stride})
+    return runs
+
+def _run_detail(body,run):
+    stride=run.get('stride')
+    if stride is None:
+        end=min(len(body),run['start_offset']+96)
+    else:
+        end=min(len(body),run['last_marker_offset']+stride)
+    run['end_offset']=end
+    run['byte_size']=max(0,end-run['start_offset'])
+    run['coverage_ratio']=round(run['byte_size']/len(body),6) if body else 0
+    marker_size=len(FRAME_MARKER)
+    run['marker_size']=marker_size
+    vector_count=None
+    if stride and stride>marker_size and (stride-marker_size)%6==0:
+        vector_count=(stride-marker_size)//6
+    run['vector_count_guess']=vector_count
+    if vector_count:
+        initial_offset=run['start_offset']-vector_count*6
+        if initial_offset>=0:
+            initial=body[initial_offset:run['start_offset']]
+            run['initial_vectors_offset']=initial_offset
+            run['initial_vectors']=_vec3_list(initial,vector_count)
+            run['initial_vectors_hex']=initial.hex()
+    samples=[]
+    offsets=_find_all(body,FRAME_MARKER)
+    members=[off for off in offsets if off>=run['start_offset'] and off<=run['last_marker_offset']]
+    for index,off in enumerate(members[:4]):
+        rec_end=members[index+1] if index+1<len(members) else min(len(body),off+(stride or 96))
+        payload=body[off+marker_size:rec_end]
+        samples.append({'frame_marker_index':index,'offset':off,'record_size':rec_end-off,'payload_hex':payload[:72].hex(),'vectors':_vec3_list(payload,8)})
+    run['sample_records']=samples
+    return run
+
+def _frame_marker_probe(body):
+    offsets=_find_all(body,FRAME_MARKER)
+    runs=[]
+    for run in _group_marker_runs(offsets):
+        runs.append(_run_detail(body,dict(run)))
+    strong=[]
+    for run in runs:
+        if run.get('marker_count',0)>=3:
+            strong.append(run)
+    return {'marker_hex':FRAME_MARKER.hex(),'marker_count':len(offsets),'marker_offsets':offsets[:120],'runs':runs,'strong_runs':strong}
+
 def _enhance(asset,probe):
     payload=asset[32:]
     desc=payload[16:32] if len(payload)>=32 else b''
@@ -85,6 +174,7 @@ def _enhance(asset,probe):
             node_count_guess=desc[0]
         if desc[0]>64 and len(desc)>1 and desc[1] in range(1,128):
             node_count_guess=desc[1]
+    frame_probe=_frame_marker_probe(body_used)
     probe['raw_family']=_raw_family(control,body_used)
     probe['descriptor_bytes']=list(desc)
     probe['descriptor_node_count_guess']=node_count_guess
@@ -98,6 +188,7 @@ def _enhance(asset,probe):
     probe['body_used_bytes_per_frame']=round(len(body_used)/frame_count,6) if frame_count else 0
     probe['body_size_bytes_per_frame']=round(len(body)/frame_count,6) if frame_count else 0
     probe['body_header_guess']={'hex':body_used[:40].hex(),'u16be':_u16be(body_used[:40],40),'u16le':_u16le(body_used[:40],40)}
+    probe['frame_marker_probe']=frame_probe
     return probe
 
 def install(App):
@@ -116,6 +207,15 @@ def install(App):
             lines.append(f'Body/Frame: {probe.get("body_used_bytes_per_frame",0)} Bytes')
             if probe.get('pre_data_le_floats'):
                 lines.append(f'Pre-LE-Floats: {probe["pre_data_le_floats"]}')
+            marker_probe=probe.get('frame_marker_probe') or {}
+            lines.append(f'Frame-Marker: {marker_probe.get("marker_count",0)}')
+            run_lines=[]
+            for run in marker_probe.get('strong_runs',[])[:4]:
+                stride=run.get('stride')
+                vec=run.get('vector_count_guess')
+                run_lines.append(f'0x{run["start_offset"]:X}/{run.get("marker_count",0)}x/{stride}B/{vec or "?"}v')
+            if run_lines:
+                lines.append('Frame-Runs: '+', '.join(run_lines))
             starts=probe.get('body_start_candidates') or []
             if starts:
                 lines.append('Body-Start-Kandidaten: '+', '.join(f'0x{x["offset"]:X}' for x in starts[:4]))
