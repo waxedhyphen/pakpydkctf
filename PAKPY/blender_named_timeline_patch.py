@@ -13,8 +13,8 @@ try:
 except Exception:
     bpy=None
 
-MODE='rotation_euler'
-SCALE=math.pi
+MODE='raw_props'
+SCALE=0.25
 FPS=30
 SAVE_BLEND=True
 EXPORT_GLB=False
@@ -152,14 +152,12 @@ def ensure_pose_bone(lookup,name):
     return None
 
 
-def clear_action_frame_range(action):
-    xs=[]
-    for curve in action.fcurves:
-        for key in curve.keyframe_points:
-            xs.append(key.co.x)
-    if xs:
-        action.frame_start=min(xs)
-        action.frame_end=max(xs)
+def set_action_frame_range(action,end_frame):
+    for attr,value in (('frame_start',1),('frame_end',max(1,end_frame))):
+        try:
+            setattr(action,attr,value)
+        except Exception:
+            pass
 
 
 def set_rotation_euler(pose_bone,value):
@@ -170,7 +168,14 @@ def set_rotation_euler(pose_bone,value):
 
 def set_location(pose_bone,value):
     x,y,z=value
-    pose_bone.location=(x,y,z)
+    pose_bone.location=(x*SCALE,y*SCALE,z*SCALE)
+
+
+def set_raw_props(pose_bone,value):
+    x,y,z=value
+    pose_bone['pak_anim_raw_x']=float(x)
+    pose_bone['pak_anim_raw_y']=float(y)
+    pose_bone['pak_anim_raw_z']=float(z)
 
 
 def set_value(pose_bone,value):
@@ -178,8 +183,10 @@ def set_value(pose_bone,value):
         return False
     if MODE=='location':
         set_location(pose_bone,value)
-    else:
+    elif MODE=='rotation_euler':
         set_rotation_euler(pose_bone,value)
+    else:
+        set_raw_props(pose_bone,value)
     return True
 
 
@@ -187,13 +194,19 @@ def insert_value_key(pose_bone,frame):
     if MODE=='location':
         pose_bone.keyframe_insert(data_path='location',frame=frame)
         return 3
-    pose_bone.keyframe_insert(data_path='rotation_euler',frame=frame)
+    if MODE=='rotation_euler':
+        pose_bone.keyframe_insert(data_path='rotation_euler',frame=frame)
+        return 3
+    pose_bone.keyframe_insert(data_path='["pak_anim_raw_x"]',frame=frame)
+    pose_bone.keyframe_insert(data_path='["pak_anim_raw_y"]',frame=frame)
+    pose_bone.keyframe_insert(data_path='["pak_anim_raw_z"]',frame=frame)
     return 3
 
 
 def animation_name(data,path):
     name=data.get('char_animation_name') or data.get('entry_name') or Path(path).stem.replace('.named_timeline','')
-    return ''.join(c if c.isalnum() or c in '._-' else '_' for c in name)
+    clean=''.join(c if c.isalnum() or c in '._-' else '_' for c in name)
+    return clean if MODE=='raw_props' else clean+'__'+MODE
 
 
 def activate_armature(armature):
@@ -240,7 +253,7 @@ def apply_timeline(armature,path,data,report):
                 matched.add(bone.name)
                 if set_value(bone,value):
                     action_report['inserted_key_channels']+=insert_value_key(bone,frame_index)
-    clear_action_frame_range(action)
+    set_action_frame_range(action,action_report['frames'])
     action_report['matched_bones']=sorted(matched)
     action_report['missing_targets']=sorted(missing)
     report['actions'].append(action_report)
@@ -257,7 +270,7 @@ def parse_args(argv):
     parser=argparse.ArgumentParser()
     parser.add_argument('--package',default='')
     parser.add_argument('--armature',default='')
-    parser.add_argument('--mode',default=MODE,choices=['rotation_euler','location'])
+    parser.add_argument('--mode',default=MODE,choices=['raw_props','rotation_euler','location'])
     parser.add_argument('--scale',default=str(SCALE))
     parser.add_argument('--fps',default=str(FPS))
     parser.add_argument('--no-save',action='store_true')
@@ -279,26 +292,30 @@ def main(argv=None):
     bpy.context.scene.render.fps=FPS
     armature=find_armature(args.armature or None)
     timelines=collect_timelines(package_dir)
-    report={'package_dir':str(package_dir),'armature':armature.name,'armature_bones':[bone.name for bone in armature.pose.bones],'timeline_count':len(timelines),'actions':[],'errors':[]}
+    report={'package_dir':str(package_dir),'mode':MODE,'scale':SCALE,'armature':armature.name,'armature_bones':[bone.name for bone in armature.pose.bones],'timeline_count':len(timelines),'actions':[],'errors':[]}
     if not timelines:
         report['errors'].append('Keine *.named_timeline.json gefunden')
         write_json(package_dir/REPORT_NAME,report)
         raise RuntimeError('Keine *.named_timeline.json gefunden. --package auf den Export-Ordner setzen.')
     actions=[]
     total_channels=0
+    max_frame=1
     for path,data in timelines:
         action,action_report=apply_timeline(armature,path,data,report)
         actions.append(action)
         total_channels+=action_report['inserted_key_channels']
+        max_frame=max(max_frame,action_report['frames'])
     armature['pak_named_timeline_actions']=';'.join(action.name for action in actions)
     if actions:
         armature.animation_data.action=actions[0]
         bpy.context.scene.frame_start=1
-        bpy.context.scene.frame_end=max(1,int(actions[0].frame_end or 1))
+        bpy.context.scene.frame_end=max_frame
         bpy.context.scene.frame_set(1)
     activate_armature(armature)
     report['total_inserted_key_channels']=total_channels
     report['active_action']=actions[0].name if actions else ''
+    report['scene_frame_start']=bpy.context.scene.frame_start
+    report['scene_frame_end']=bpy.context.scene.frame_end
     write_json(package_dir/REPORT_NAME,report)
     if total_channels==0:
         raise RuntimeError('0 Keyframes erzeugt. Report prüfen: '+str(package_dir/REPORT_NAME))
@@ -308,6 +325,7 @@ def main(argv=None):
         export_glb(package_dir)
     print('Imported actions:',len(actions))
     print('Inserted key channels:',total_channels)
+    print('Mode:',MODE)
     print('Report:',package_dir/REPORT_NAME)
     for action in actions:
         print(action.name)
@@ -325,26 +343,19 @@ README='''Blender-Animation Import
 4. Run Script.
 5. In Dope Sheet > Action Editor die Action auswählen.
 
-Nach dem Lauf entsteht blender_named_timeline_import_report.json im Export-Ordner.
+Standard ist raw_props. Das speichert die rohen ANIM-Werte als Bone-Custom-Properties und verformt das Modell nicht.
 
-Standardmodus: rotation_euler.
+Report:
+blender_named_timeline_import_report.json
 
-Wenn keine Keys sichtbar sind, zuerst den Report prüfen:
-- timeline_count muss größer als 0 sein
-- total_inserted_key_channels muss größer als 0 sein
-- missing_targets zeigt nicht gefundene Bone-Namen
+Sichtbarer Testmodus:
+blender character.blend --python blender_import_named_timelines.py -- --package . --mode rotation_euler --scale 0.25
 
-Optional über Blender CLI:
-blender character.blend --python blender_import_named_timelines.py -- --package . --mode rotation_euler
-
-Mit Armature-Name:
-blender character.blend --python blender_import_named_timelines.py -- --package . --armature Armature --mode rotation_euler
+Alternativer Testmodus:
+blender character.blend --python blender_import_named_timelines.py -- --package . --mode location --scale 0.1
 
 GLB-Export zusätzlich:
-blender character.blend --python blender_import_named_timelines.py -- --package . --mode rotation_euler --glb
-
-Wenn die Animation falsch aussieht:
-blender character.blend --python blender_import_named_timelines.py -- --package . --mode location
+blender character.blend --python blender_import_named_timelines.py -- --package . --mode rotation_euler --scale 0.25 --glb
 '''
 
 
