@@ -27,21 +27,57 @@ def load_json(path):
 
 
 def write_json(path,data):
-    Path(path).write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8',newline='\n')
+    path=Path(path)
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8',newline='\n')
+
+
+def strip_blend_virtual_path(path):
+    path=Path(path)
+    parts=list(path.parts)
+    for index,part in enumerate(parts):
+        if str(part).lower().endswith('.blend'):
+            return Path(*parts[:index+1]).parent
+    if str(path).lower().endswith('.blend'):
+        return path.parent
+    return path.parent if path.suffix else path
+
+
+def looks_like_package_dir(path):
+    path=Path(path)
+    return (path/'debug'/'anim_named_timeline').exists() or bool(list(path.glob('models/*/debug/anim_named_timeline')))
+
+
+def candidates_from(path):
+    if not path:
+        return []
+    base=strip_blend_virtual_path(path)
+    out=[base]
+    out.extend(base.parents)
+    return out
 
 
 def find_package_dir():
+    starts=[]
     try:
-        here=Path(__file__).resolve().parent
+        starts.append(Path(__file__).resolve())
     except Exception:
-        here=Path(bpy.data.filepath).resolve().parent if bpy and bpy.data.filepath else Path.cwd()
-    checks=[here,here.parent]
+        pass
     if bpy and bpy.data.filepath:
-        checks.append(Path(bpy.data.filepath).resolve().parent)
-    for base in checks:
-        if (base/'debug'/'anim_named_timeline').exists() or list(base.glob('models/*/debug/anim_named_timeline')):
-            return base
-    return here
+        starts.append(Path(bpy.data.filepath).resolve())
+    starts.append(Path.cwd())
+    seen=set()
+    for start in starts:
+        for base in candidates_from(start):
+            key=str(base).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            if looks_like_package_dir(base):
+                return base
+    if bpy and bpy.data.filepath:
+        return Path(bpy.data.filepath).resolve().parent
+    return Path.cwd()
 
 
 def collect_timelines(package_dir):
