@@ -285,5 +285,5 @@ def install(App):
         except Exception as e:
             lines.append(f'Raw-Probe Fehler: {e}')
         return lines
-    anim_patch.parse_anim_probe21=parse_anim21 if False else parse_anim_probe21
+    anim_patch.parse_anim_probe21=parse_anim_probe21
     anim_patch._anim_summary_lines=anim_summary_lines
