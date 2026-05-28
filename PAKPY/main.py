@@ -9,6 +9,7 @@ from room_gui_patch import install as install_room_gui
 from char_gui_patch import install as install_char_gui
 from char_skeletal_package_patch import install as install_char_skeletal_package
 from uuid_gui_patch import install as install_uuid_gui
+from missing_txtr_export_error_patch import install as install_uuid_gui
 from missing_txtr_export_error_patch import install as install_missing_txtr_export_error
 from skeletal_tail_patch import install as install_skeletal_tail_patch
 from tree_ctrl_select_patch import install as install_tree_ctrl_select_patch
@@ -18,6 +19,7 @@ from anim_raw_probe_patch import install as install_anim_raw_probe_patch
 from anim_track_skel_map_patch import install as install_anim_track_skel_map_patch
 from anim_timeline_summary_scope_patch import install as install_anim_timeline_summary_scope_patch
 from blender_named_timeline_patch import install as install_blender_named_timeline_patch
+from blender_preview_timeline_script_patch import install as install_blender_preview_timeline_script_patch
 from windows_compat import configure_root, setup_windows_process
 
 install_skeletal_tail_patch()
@@ -34,6 +36,7 @@ install_anim_raw_probe_patch(App)
 install_anim_track_skel_map_patch(App)
 install_anim_timeline_summary_scope_patch(App)
 install_blender_named_timeline_patch(App)
+install_blender_preview_timeline_script_patch(App)
 
 def main():
     setup_windows_process()
