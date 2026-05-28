@@ -1,7 +1,3 @@
-#========================
-#FILE main.py
-#========================
-
 import tkinter as tk
 from gui import App
 from dcln_gui_patch import install as install_dcln_gui
@@ -19,14 +15,14 @@ from anim_track_skel_map_patch import install as install_anim_track_skel_map_pat
 from anim_timeline_summary_scope_patch import install as install_anim_timeline_summary_scope_patch
 from blender_named_timeline_patch import install as install_blender_named_timeline_patch
 from blender_preview_timeline_script_patch import install as install_blender_preview_timeline_script_patch
+from char_required_anim_mirror_patch import install as install_char_required_anim_mirror_patch
 from windows_compat import configure_root, setup_windows_process
-
 install_skeletal_tail_patch()
 install_dcln_gui(App)
 install_room_gui(App)
 install_char_gui(App)
 install_char_skeletal_package(App)
-install_uuid_gui(App)
+install_uuid_gui_patch(App)
 install_missing_txtr_export_error(App)
 install_tree_ctrl_select_patch(App)
 install_model_animation_refs_patch(App)
@@ -36,13 +32,12 @@ install_anim_track_skel_map_patch(App)
 install_anim_timeline_summary_scope_patch(App)
 install_blender_named_timeline_patch(App)
 install_blender_preview_timeline_script_patch(App)
-
+install_char_required_anim_mirror_patch(App)
 def main():
     setup_windows_process()
     root = tk.Tk()
     configure_root(root, min_size=(980, 700))
     App(root)
     root.mainloop()
-
 if __name__ == '__main__':
     main()
