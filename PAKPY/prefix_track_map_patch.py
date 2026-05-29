@@ -1,4 +1,4 @@
-import anim_track_skel_map_patch as m
+import anim_packed_sample_decode as p
 
 def install(App):
-    return None
+    p.install_into()
