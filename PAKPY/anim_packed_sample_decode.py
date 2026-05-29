@@ -94,3 +94,64 @@ def decode(probe,body):
             values.append(value(chunk,component_count))
         tracks.append(track(0,lane_index,values,kind))
     return [{'group_index':0,'start_offset':start,'end_offset':min(len(body),start+needed),'marker_count':0,'stride':vector_count*value_size,'vector_count':vector_count,'timeline_frame_count':frame_count,'track_value_kind':kind,'target_order_hint':'skin_bone_prefix','tracks':tracks}]
+
+def install_into():
+    m=__import__('anim_track_skel_map_patch')
+    raw=__import__('anim_raw_probe_patch')
+    old_targets=m._targets_for_group
+    def targets_for_group(skel,count):
+        targets,mode=old_targets(skel,count)
+        if targets:
+            return targets,mode
+        bones=m._bone_targets(skel)
+        nodes=m._node_targets(skel)
+        if count and bones and count<=len(bones):
+            return bones[:count],'skin_bone_prefix_order'
+        if count and nodes and count<=len(nodes):
+            return nodes[:count],'node_prefix_order'
+        return targets,mode
+    def build_track_decode(probe,body=None):
+        family=probe.get('raw_family','')
+        if family in PACKED_FAMILIES:
+            groups=decode(probe,body)
+            status='ok:packed_sample_decode' if groups else f'pending:{family}'
+        else:
+            marker_probe=probe.get('frame_marker_probe') or {}
+            groups=list(marker_probe.get('decoded_groups') or [])
+            status='ok:marker_decode' if groups else f'pending:{family}'
+        best=None
+        for group in groups:
+            if best is None or group.get('timeline_frame_count',0)>best.get('timeline_frame_count',0):
+                best=group
+        return {'version':3,'status':status,'frame_count_guess':probe.get('frame_count_guess',0),'group_count':len(groups),'groups':groups,'primary_group_index':best.get('group_index') if best else None,'primary_timeline_frame_count':best.get('timeline_frame_count') if best else 0}
+    def valid_groups(probe,groups):
+        if probe.get('raw_family') not in {'normal_clip','packed_clip_82','packed_state_c1','packed_state_c2'}:
+            return [],'raw_family_pending'
+        status=(probe.get('track_decode') or {}).get('status','')
+        if not status.startswith('ok'):
+            return [],status or 'missing_track_decode'
+        frame_count=probe.get('frame_count_guess') or 0
+        if not frame_count:
+            return [],'missing_frame_count'
+        usable=[]
+        for group in groups:
+            if group.get('mapping_mode','')=='unmapped_count_mismatch':
+                continue
+            frames=m._timeline_frame_count(group)
+            if frames>0:
+                group['timeline_frame_count']=frames
+                usable.append(group)
+        if not usable:
+            return [],'no_usable_groups'
+        total=sum(group.get('timeline_frame_count') or 0 for group in usable)
+        if total==frame_count:
+            return usable,'ok:sequential_groups'
+        exact=[group for group in usable if (group.get('timeline_frame_count') or 0)==frame_count]
+        if exact:
+            return exact,'ok:single_full_group'
+        if status.startswith('ok:packed'):
+            return usable,'ok:packed_groups'
+        return [],f'frame_coverage_mismatch:{total}!={frame_count}'
+    m._targets_for_group=targets_for_group
+    m._valid_groups=valid_groups
+    raw._build_track_decode=build_track_decode
