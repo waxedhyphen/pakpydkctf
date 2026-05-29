@@ -81,12 +81,14 @@ def _start_candidates(body):
 
 def _raw_family(control,body_used):
     top=(control>>24)&255
-    if top==0xC1:
-        return 'single_frame_large_or_state'
-    if top==0xC2:
-        return 'single_frame_large_state_c2'
     if top==0x81:
         return 'normal_clip'
+    if top==0x82:
+        return 'packed_clip_82'
+    if top==0xC1:
+        return 'packed_state_c1'
+    if top==0xC2:
+        return 'packed_state_c2'
     if len(body_used)==21:
         return 'compact21'
     return 'unknown_raw'
@@ -155,28 +157,6 @@ def _marker_decode(body):
         groups.append({'group_index':run_index,'start_offset':run['start_offset'],'end_offset':min(len(body),members[-1]+stride),'marker_count':len(members),'stride':stride,'vector_count':vec_count,'timeline_frame_count':max([len(v) for v in lane_values]+[0]),'track_value_kind':'vec3_centered_u16be','tracks':tracks})
     return offsets,runs,groups
 
-def _fallback_decode(body,probe):
-    frame_count=probe.get('frame_count_guess') or 1
-    if frame_count<1:
-        frame_count=1
-    vector_count=probe.get('descriptor_node_count_guess') or 21
-    vector_count=max(1,min(int(vector_count),64))
-    data_start=96 if len(body)>160 else 0
-    usable=body[data_start:]
-    if len(usable)<6:
-        return None
-    frame_span=max(vector_count*6,len(usable)//frame_count)
-    tracks=[]
-    for lane_index in range(vector_count):
-        values=[]
-        for frame_index in range(frame_count):
-            off=frame_index*frame_span+lane_index*6
-            if off+6>len(usable):
-                off=((frame_index*vector_count+lane_index)*6)%max(6,len(usable)-5)
-            values.append(_vec3_raw(usable[off:off+6],lane_index)['centered'])
-        tracks.append(_track_from_values(0,lane_index,values,'ck_raw_block_u16be'))
-    return {'group_index':0,'start_offset':data_start,'end_offset':len(body),'marker_count':0,'stride':frame_span,'vector_count':vector_count,'timeline_frame_count':frame_count,'track_value_kind':'ck_raw_block_u16be','tracks':tracks}
-
 def _build_track_decode(probe,body=None):
     marker_probe=probe.get('frame_marker_probe') or {}
     groups=[]
@@ -194,13 +174,10 @@ def _build_track_decode(probe,body=None):
             values.extend(lane.get('frames') or [])
             tracks.append(_track_from_values(group_index,lane.get('lane_index',0),values,'vec3_centered_u16be'))
         groups.append({'group_index':group_index,'start_offset':run.get('start_offset',0),'end_offset':run.get('end_offset',0),'marker_count':run.get('marker_count',0),'stride':run.get('stride'),'vector_count':run.get('vector_count_guess'),'timeline_frame_count':timeline_count,'track_value_kind':'vec3_centered_u16be','tracks':tracks})
-    status='ok' if groups else 'no_regular_track_groups'
-    if not groups and body is not None and probe.get('raw_family') in ('unknown_raw','single_frame_large_state_c2','single_frame_large_or_state'):
-        fallback=_fallback_decode(body,probe)
-        if fallback:
-            groups=[fallback]
-            status='ok:fallback_raw_blocks'
-            probe['ck_fallback_decode']=True
+    status='ok' if groups else f'unsupported:{probe.get("raw_family","unknown_raw")}'
+    if not groups and body is not None and probe.get('raw_family') in ('unknown_raw','packed_clip_82','packed_state_c1','packed_state_c2'):
+        probe['ck_fallback_decode']=False
+        probe['ck_fallback_blocked']=True
     best=None
     for group in groups:
         if best is None or group.get('timeline_frame_count',0)>best.get('timeline_frame_count',0):
