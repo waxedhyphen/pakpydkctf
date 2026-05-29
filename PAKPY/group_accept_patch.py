@@ -1,1 +1,3 @@
-x=1
+def install(App):
+    value=0
+    return value
