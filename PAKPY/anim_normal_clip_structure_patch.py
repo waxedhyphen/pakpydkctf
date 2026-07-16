@@ -1,105 +1,115 @@
-def _skeleton_names(skel):
-    source=skel.get('names') or skel.get('nodes') or []
-    out=[]
-    for index,item in enumerate(source):
-        if isinstance(item,dict):
-            out.append(str(item.get('name','') or f'name_{index}'))
+def _named_items(source, fallback_prefix):
+    out = []
+    for index, item in enumerate(source or []):
+        if isinstance(item, dict):
+            out.append(str(item.get('name', '') or f'{fallback_prefix}_{index}'))
         else:
-            out.append(str(item or f'name_{index}'))
+            out.append(str(item or f'{fallback_prefix}_{index}'))
     return out
 
 
 def _prefix_bytes(probe):
-    body=probe.get('body') or {}
-    value=body.get('prefix_hex','') if isinstance(body,dict) else ''
+    body = probe.get('body') or {}
+    value = body.get('prefix_hex', '') if isinstance(body, dict) else ''
     if not value:
-        value=probe.get('body_used_hex_prefix_160','') or ''
+        value = probe.get('body_used_hex_prefix_160', '') or ''
     try:
         return bytes.fromhex(value)
     except Exception:
         return b''
 
 
-def _mask_candidate(mask,names,lsb_first):
-    indices=[]
-    padding=[]
-    total_bits=len(mask)*8
-    for index in range(total_bits):
-        bit=(1<<(index&7)) if lsb_first else (0x80>>(index&7))
-        if not mask[index>>3]&bit:
+def _bit_candidate(chunk, names, lsb_first):
+    indices = []
+    padding = []
+    for index in range(len(chunk) * 8):
+        bit = (1 << (index & 7)) if lsb_first else (0x80 >> (index & 7))
+        if not chunk[index >> 3] & bit:
             continue
-        if index<len(names):
+        if index < len(names):
             indices.append(index)
         else:
             padding.append(index)
     return {
-        'set_count':len(indices),
-        'set_name_indices':indices,
-        'set_names':[names[index] for index in indices],
-        'padding_set_bits':padding,
+        'set_count': len(indices),
+        'set_indices': indices,
+        'set_names': [names[index] for index in indices],
+        'padding_set_bits': padding,
     }
 
 
-def _normal_clip_layout(probe,skel):
-    names=_skeleton_names(skel)
-    name_count=len(names)
-    mask_byte_count=(name_count+7)//8 if name_count else 0
-    total=mask_byte_count*2
-    prefix=_prefix_bytes(probe)
-    body_size=int(probe.get('body_used_size') or probe.get('body_size') or 0)
-    if not mask_byte_count:
-        return {'version':1,'status':'pending:missing_skeleton_names','name_count':0}
-    if len(prefix)<total:
-        return {
-            'version':1,
-            'status':'pending:short_body_prefix',
-            'name_count':name_count,
-            'mask_byte_count':mask_byte_count,
-            'required_prefix_bytes':total,
-            'available_prefix_bytes':len(prefix),
-        }
-    masks=[prefix[index*mask_byte_count:(index+1)*mask_byte_count] for index in range(2)]
+def _basis_candidate(label, names, prefix):
+    count = len(names)
+    byte_width = (count + 7) // 8 if count else 0
+    required = byte_width * 2
+    first = prefix[:byte_width]
+    second = prefix[byte_width:required]
     return {
-        'version':1,
-        'status':'ok:two_channel_masks',
-        'semantics_status':'pending:mask_roles_and_bit_order',
-        'name_count':name_count,
-        'names':names,
-        'mask_count':2,
-        'mask_byte_count':mask_byte_count,
-        'mask_total_bytes':total,
-        'mask_hex':[mask.hex() for mask in masks],
-        'bit_order_candidates':{
-            'msb_first':[_mask_candidate(mask,names,False) for mask in masks],
-            'lsb_first':[_mask_candidate(mask,names,True) for mask in masks],
+        'basis': label,
+        'count': count,
+        'byte_width': byte_width,
+        'two_chunk_prefix_size': required,
+        'available': bool(byte_width and len(prefix) >= required),
+        'first_chunk_hex': first.hex(),
+        'second_chunk_hex': second.hex(),
+        'bytes_after_two_chunks_hex': prefix[required:required + 64].hex(),
+        'bit_order_candidates': {
+            'msb_first': [
+                _bit_candidate(first, names, False),
+                _bit_candidate(second, names, False),
+            ] if byte_width else [],
+            'lsb_first': [
+                _bit_candidate(first, names, True),
+                _bit_candidate(second, names, True),
+            ] if byte_width else [],
         },
-        'compressed_payload_offset':total,
-        'compressed_payload_size':max(0,body_size-total),
-        'compressed_payload_prefix_hex':prefix[total:total+64].hex(),
+    }
+
+
+def _normal_clip_layout(probe, skel):
+    prefix = _prefix_bytes(probe)
+    bases = [
+        ('names', _named_items(skel.get('names') or [], 'name')),
+        ('nodes', _named_items(skel.get('nodes') or [], 'node')),
+        ('skin_bones', _named_items(skel.get('bones') or [], 'bone')),
+    ]
+    candidates = [_basis_candidate(label, names, prefix) for label, names in bases if names]
+    stream_probe = probe.get('frame_marker_probe') or {}
+    return {
+        'version': 2,
+        'status': 'pending:normal_clip_prefix_layout',
+        'semantics_status': 'pending:channel_tables_quantization_and_bit_order',
+        'available_prefix_bytes': len(prefix),
+        'basis_candidates': candidates,
+        'stream_probe': stream_probe,
+        'note': 'Candidate partitions are reported for comparison only; no mask count or transform role is asserted.',
     }
 
 
 def install_into():
-    m=__import__('anim_track_skel_map_patch')
-    if getattr(m,'_normal_clip_structure_installed',False):
+    mapping_module = __import__('anim_track_skel_map_patch')
+    if getattr(mapping_module, '_normal_clip_structure_installed', False):
         return
-    old_apply=m._apply_mapping
-    def apply_mapping(probe,skel,skel_file):
-        is_normal=probe.get('raw_family')=='normal_clip'
-        layout=_normal_clip_layout(probe,skel) if is_normal else None
+    old_apply = mapping_module._apply_mapping
+
+    def apply_mapping(probe, skel, skel_file):
+        is_normal = probe.get('raw_family') == 'normal_clip'
+        layout = _normal_clip_layout(probe, skel) if is_normal else None
         if layout is not None:
-            probe['normal_clip_layout']=layout
-            track_decode=probe.get('track_decode') or {}
-            track_decode['normal_clip_layout']=layout
-            probe['track_decode']=track_decode
-        result=old_apply(probe,skel,skel_file)
+            probe['normal_clip_layout'] = layout
+            track_decode = probe.get('track_decode') or {}
+            track_decode['normal_clip_layout'] = layout
+            probe['track_decode'] = track_decode
+        result = old_apply(probe, skel, skel_file)
         if layout is not None:
-            mapping=result.get('track_skeleton_map') or {}
-            mapping['normal_clip_layout']=layout
-            if layout.get('status','').startswith('ok') and mapping.get('status')!='ok':
-                mapping['status']='pending:normal_clip_quantized_stream'
-                mapping['note']='two_channel_masks_parsed; mask_roles_and_quantized_stream_pending'
-            result['track_skeleton_map']=mapping
+            mapping = result.get('track_skeleton_map') or {}
+            mapping['normal_clip_layout'] = layout
+            mapping['status'] = 'pending:normal_clip_quantized_stream'
+            mapping['note'] = 'prefix_candidates_and_aligned_sentinel_records_reported; transform_decode_pending'
+            mapping['groups'] = []
+            mapping['absolute_frame_count'] = 0
+            result['track_skeleton_map'] = mapping
         return result
-    m._apply_mapping=apply_mapping
-    m._normal_clip_structure_installed=True
+
+    mapping_module._apply_mapping = apply_mapping
+    mapping_module._normal_clip_structure_installed = True
