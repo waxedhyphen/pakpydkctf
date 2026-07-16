@@ -44,7 +44,7 @@ def _normal_clip_layout(probe,skel):
     names=_skeleton_names(skel)
     name_count=len(names)
     mask_byte_count=(name_count+7)//8 if name_count else 0
-    total=mask_byte_count*4
+    total=mask_byte_count*2
     prefix=_prefix_bytes(probe)
     body_size=int(probe.get('body_used_size') or probe.get('body_size') or 0)
     if not mask_byte_count:
@@ -58,14 +58,14 @@ def _normal_clip_layout(probe,skel):
             'required_prefix_bytes':total,
             'available_prefix_bytes':len(prefix),
         }
-    masks=[prefix[index*mask_byte_count:(index+1)*mask_byte_count] for index in range(4)]
+    masks=[prefix[index*mask_byte_count:(index+1)*mask_byte_count] for index in range(2)]
     return {
         'version':1,
-        'status':'ok:four_channel_masks',
+        'status':'ok:two_channel_masks',
         'semantics_status':'pending:mask_roles_and_bit_order',
         'name_count':name_count,
         'names':names,
-        'mask_count':4,
+        'mask_count':2,
         'mask_byte_count':mask_byte_count,
         'mask_total_bytes':total,
         'mask_hex':[mask.hex() for mask in masks],
@@ -98,7 +98,7 @@ def install_into():
             mapping['normal_clip_layout']=layout
             if layout.get('status','').startswith('ok') and mapping.get('status')!='ok':
                 mapping['status']='pending:normal_clip_quantized_stream'
-                mapping['note']='four_channel_masks_parsed; mask_roles_and_quantized_stream_pending'
+                mapping['note']='two_channel_masks_parsed; mask_roles_and_quantized_stream_pending'
             result['track_skeleton_map']=mapping
         return result
     m._apply_mapping=apply_mapping
