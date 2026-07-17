@@ -32,9 +32,9 @@ def _normal_stream_probe(body):
             'payload_prefix_hex': body[offset + len(SENTINEL):offset + len(SENTINEL) + 32].hex(),
         })
     return {
-        'version': 1,
-        'status': 'ok:sentinel_scan',
-        'sentinel_hex': SENTINEL.hex(),
+        'version': 2,
+        'status': 'ok:aligned_control_word_scan',
+        'control_word_hex': SENTINEL.hex(),
         'body_size': len(body),
         'aligned_marker_count': len(aligned),
         'aligned_marker_offsets': aligned[:1024],
@@ -48,8 +48,8 @@ def _normal_stream_probe(body):
             for span, count in sorted(Counter(spans).items())
         ],
         'records': records[:512],
-        'interpretation': 'structural_sentinel_only',
-        'interpretation_note': 'No transform values are produced until channel descriptors and bit widths are validated.',
+        'interpretation': 'aligned_control_word_candidate',
+        'interpretation_note': '1c000000 behaves as an aligned frame/control word in compact and multi-frame clips. Other control words may exist, so this is not a complete record decoder.',
     }
 
 
@@ -68,8 +68,8 @@ def install_into():
             return old_build_track_decode(probe, body)
         stream_probe = probe.get('frame_marker_probe') or _normal_stream_probe(body or b'')
         return {
-            'version': 4,
-            'status': 'pending:normal_clip_quantized_stream',
+            'version': 5,
+            'status': 'pending:normal_clip_packed_transform_codec',
             'frame_count_guess': probe.get('frame_count_guess', 0),
             'group_count': 0,
             'groups': [],
