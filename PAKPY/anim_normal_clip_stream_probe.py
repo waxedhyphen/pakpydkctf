@@ -1,6 +1,4 @@
-from collections import Counter
-
-SENTINEL = bytes.fromhex('1c000000')
+CONTROL_WORD_CANDIDATE = bytes.fromhex('1c000000')
 
 
 def _find_offsets(data, needle):
@@ -16,40 +14,31 @@ def _find_offsets(data, needle):
 
 def _normal_stream_probe(body):
     body = body or b''
-    all_offsets = _find_offsets(body, SENTINEL)
-    aligned = [offset for offset in all_offsets if offset % 4 == 0]
-    unaligned = [offset for offset in all_offsets if offset % 4 != 0]
-    spans = [aligned[index + 1] - aligned[index] for index in range(len(aligned) - 1)]
-    records = []
-    for index, offset in enumerate(aligned):
-        next_offset = aligned[index + 1] if index + 1 < len(aligned) else len(body)
-        records.append({
-            'index': index,
-            'marker_offset': offset,
-            'next_marker_offset': next_offset,
-            'record_span': next_offset - offset,
-            'payload_size_after_marker': max(0, next_offset - offset - len(SENTINEL)),
-            'payload_prefix_hex': body[offset + len(SENTINEL):offset + len(SENTINEL) + 32].hex(),
+    offsets = _find_offsets(body, CONTROL_WORD_CANDIDATE)
+    aligned = [offset for offset in offsets if offset % 4 == 0]
+    unaligned = [offset for offset in offsets if offset % 4 != 0]
+    occurrences = []
+    for offset in offsets[:1024]:
+        occurrences.append({
+            'offset': offset,
+            'aligned_u32': offset % 4 == 0,
+            'bytes_before_hex': body[max(0, offset - 16):offset].hex(),
+            'bytes_after_hex': body[offset + 4:offset + 20].hex(),
         })
     return {
-        'version': 2,
-        'status': 'ok:aligned_control_word_scan',
-        'control_word_hex': SENTINEL.hex(),
+        'version': 3,
+        'status': 'ok:control_word_occurrence_scan',
+        'control_word_candidate_hex': CONTROL_WORD_CANDIDATE.hex(),
         'body_size': len(body),
-        'aligned_marker_count': len(aligned),
-        'aligned_marker_offsets': aligned[:1024],
-        'unaligned_marker_count': len(unaligned),
-        'unaligned_marker_offsets': unaligned[:256],
-        'prefix_size_before_first_marker': aligned[0] if aligned else len(body),
-        'tail_size_after_last_marker': len(body) - aligned[-1] if aligned else len(body),
-        'record_spans': spans[:1024],
-        'record_span_histogram': [
-            {'span': span, 'count': count}
-            for span, count in sorted(Counter(spans).items())
-        ],
-        'records': records[:512],
-        'interpretation': 'aligned_control_word_candidate',
-        'interpretation_note': '1c000000 behaves as an aligned frame/control word in compact and multi-frame clips. Other control words may exist, so this is not a complete record decoder.',
+        'occurrence_count': len(offsets),
+        'occurrence_offsets': offsets[:1024],
+        'aligned_control_word_count': len(aligned),
+        'aligned_control_word_offsets': aligned[:1024],
+        'unaligned_control_word_count': len(unaligned),
+        'unaligned_control_word_offsets': unaligned[:256],
+        'occurrences': occurrences,
+        'interpretation': 'opaque_control_word_candidate',
+        'interpretation_note': 'Occurrences are reported only. 1c000000 is not a universal frame delimiter: longer clips can contain nonzero data after it and other control words also occur.',
     }
 
 
@@ -68,7 +57,7 @@ def install_into():
             return old_build_track_decode(probe, body)
         stream_probe = probe.get('frame_marker_probe') or _normal_stream_probe(body or b'')
         return {
-            'version': 5,
+            'version': 6,
             'status': 'pending:normal_clip_packed_transform_codec',
             'frame_count_guess': probe.get('frame_count_guess', 0),
             'group_count': 0,
@@ -78,7 +67,7 @@ def install_into():
             'normal_clip_stream_probe': stream_probe,
         }
 
-    raw.FRAME_MARKER = SENTINEL
+    raw.FRAME_MARKER = CONTROL_WORD_CANDIDATE
     raw._frame_marker_probe = frame_marker_probe
     raw._build_track_decode = build_track_decode
     raw._normal_clip_stream_probe_installed = True
