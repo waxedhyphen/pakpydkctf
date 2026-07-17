@@ -22,25 +22,29 @@ def _prefix_bytes(probe):
         return b''
 
 
-def _track_field(chunk, names):
+def _track_field(chunk, names, field_index):
     count = len(names)
+    bit_capacity = len(chunk) * 8
+    top_control_index = bit_capacity - 1
     raw_value = int.from_bytes(chunk, 'big')
-    bone_mask = (1 << count) - 1 if count else 0
-    bone_bits = raw_value & bone_mask
-    high_metadata = raw_value >> count if count else raw_value
-    active_indices = [index for index in range(count) if bone_bits & (1 << index)]
+    named_indices = [index for index in range(count) if raw_value & (1 << index)]
+    auxiliary_indices = [
+        index for index in range(count, top_control_index)
+        if raw_value & (1 << index)
+    ]
+    top_control_set = bool(raw_value & (1 << top_control_index)) if top_control_index >= 0 else False
     return {
+        'field_index': field_index,
         'raw_hex': chunk.hex(),
         'raw_value': raw_value,
-        'bone_count': count,
-        'bone_bits_value': bone_bits,
-        'bone_bits_hex': f'{bone_bits:0{len(chunk) * 2}x}',
-        'high_metadata_value': high_metadata,
-        'high_metadata_bit_count': max(0, len(chunk) * 8 - count),
-        'active_count': len(active_indices),
-        'active_indices': active_indices,
-        'active_names': [names[index] for index in active_indices],
-        'bit_mapping': 'big_endian_integer_lsb_is_bone_index_0',
+        'bit_capacity': bit_capacity,
+        'named_indices': named_indices,
+        'named_names': [names[index] for index in named_indices],
+        'auxiliary_indices': auxiliary_indices,
+        'top_control_index': top_control_index,
+        'top_control_set': top_control_set,
+        'descriptor_slot_count_candidate': len(named_indices) + len(auxiliary_indices),
+        'bit_mapping': 'big_endian_integer_lsb_is_skeleton_name_index_0',
     }
 
 
@@ -48,8 +52,8 @@ def _track_states(fields, names):
     states = []
     counts = Counter()
     active = []
-    first = fields[0]['bone_bits_value']
-    second = fields[1]['bone_bits_value']
+    first = fields[0]['raw_value']
+    second = fields[1]['raw_value']
     for index, name in enumerate(names):
         state = ((first >> index) & 1) | (((second >> index) & 1) << 1)
         counts[state] += 1
@@ -68,41 +72,69 @@ def _track_states(fields, names):
     }
 
 
-def _compact_descriptor_candidate(probe, prefix, field_bytes, track_states):
-    frame_count = int(probe.get('frame_count_guess') or 0)
-    stream = probe.get('frame_marker_probe') or {}
-    offsets = stream.get('aligned_control_word_offsets') or stream.get('aligned_marker_offsets') or []
-    active = track_states.get('active_channels') or []
-    if frame_count != 2 or len(offsets) != 1 or not active:
-        return None
-    control_offset = int(offsets[0])
-    descriptor_size = control_offset - field_bytes
-    expected_size = len(active) * 8
-    exact = bool(control_offset >= field_bytes and descriptor_size == expected_size)
-    descriptor_bytes = prefix[field_bytes:control_offset]
-    descriptors = []
-    if exact and len(descriptor_bytes) >= expected_size:
-        for channel_index, channel in enumerate(active):
-            raw = descriptor_bytes[channel_index * 8:(channel_index + 1) * 8]
-            descriptors.append({
-                'channel_index': channel_index,
-                'bone_index': channel['index'],
-                'bone_name': channel['name'],
-                'track_state': channel['state'],
-                'raw_hex': raw.hex(),
-                'word0_u32be': int.from_bytes(raw[:4], 'big'),
-                'word1_u32be': int.from_bytes(raw[4:], 'big'),
-            })
+def _descriptor_slot_order(fields, names):
+    if not fields:
+        return []
+    top_control_index = fields[0]['top_control_index']
+    slots = []
+    for bit_index in range(top_control_index):
+        for field in fields:
+            if not field['raw_value'] & (1 << bit_index):
+                continue
+            item = {
+                'slot_index': len(slots),
+                'bit_index': bit_index,
+                'field_index': field['field_index'],
+                'slot_kind': 'named' if bit_index < len(names) else 'auxiliary',
+            }
+            if bit_index < len(names):
+                item['name'] = names[bit_index]
+            slots.append(item)
+    return slots
+
+
+def _packed_record_candidate(raw, slot):
+    initial_u16 = [int.from_bytes(raw[offset:offset + 2], 'big') for offset in (2, 4, 6)]
+    initial_s16 = [value - 0x10000 if value & 0x8000 else value for value in initial_u16]
     return {
-        'status': 'ok:two_frame_static_descriptor_shape' if exact else 'pending:two_frame_descriptor_shape_mismatch',
-        'control_word_offset': control_offset,
-        'field_bytes': field_bytes,
-        'descriptor_size': max(0, descriptor_size),
-        'expected_descriptor_size': expected_size,
-        'descriptor_stride': 8,
-        'descriptors': descriptors,
-        'descriptor_semantics': 'pending:packed_transform_descriptor',
-        'note': 'This recognizes only the exact compact two-frame shape. The 1c000000 occurrence is not treated as a universal frame boundary.',
+        **slot,
+        'raw_hex': raw.hex(),
+        'byte0': raw[0],
+        'byte1': raw[1],
+        'delta_width_candidate_xyz': [raw[0], raw[1] >> 4, raw[1] & 0x0F],
+        'initial_u16be_candidate_xyz': initial_u16,
+        'initial_s16be_candidate_xyz': initial_s16,
+        'record_semantics': 'candidate_only',
+    }
+
+
+def _short_packed_block_candidate(probe, prefix, field_bytes, slots):
+    body_size = int(probe.get('body_size') or 0)
+    if not body_size or not slots:
+        return None
+    table_size = len(slots) * 8
+    table_end = field_bytes + table_size
+    tail_size = body_size - table_end
+    short_shape = 0 <= tail_size <= 16
+    available = len(prefix) >= table_end
+    records = []
+    if short_shape and available:
+        table = prefix[field_bytes:table_end]
+        for index, slot in enumerate(slots):
+            raw = table[index * 8:(index + 1) * 8]
+            records.append(_packed_record_candidate(raw, slot))
+    return {
+        'status': 'ok:short_fixed8_packed_block_candidate' if short_shape and available else 'pending:not_short_fixed8_shape',
+        'descriptor_stride_candidate': 8,
+        'descriptor_slot_count_candidate': len(slots),
+        'descriptor_table_offset_candidate': field_bytes,
+        'descriptor_table_size_candidate': table_size,
+        'descriptor_table_end_candidate': table_end,
+        'tail_size_after_candidate': tail_size,
+        'prefix_has_candidate_table': available,
+        'slot_order_candidate': slots,
+        'records': records,
+        'note': 'Only short clips whose complete candidate table fits before at most 16 tail bytes are materialized. The 8-byte record and delta-width interpretation remain candidates, not decoded transforms.',
     }
 
 
@@ -112,14 +144,10 @@ def _normal_clip_layout(probe, skel):
     width = (len(names) + 7) // 8 if names else 0
     field_bytes = width * 2
     if not width:
-        return {
-            'version': 4,
-            'status': 'pending:missing_skeleton_names',
-            'name_count': 0,
-        }
+        return {'version': 5, 'status': 'pending:missing_skeleton_names', 'name_count': 0}
     if len(prefix) < field_bytes:
         return {
-            'version': 4,
+            'version': 5,
             'status': 'pending:short_normal_clip_prefix',
             'name_count': len(names),
             'field_width': width,
@@ -127,23 +155,26 @@ def _normal_clip_layout(probe, skel):
             'available_prefix_bytes': len(prefix),
         }
     chunks = [prefix[0:width], prefix[width:field_bytes]]
-    fields = [_track_field(chunk, names) for chunk in chunks]
+    fields = [_track_field(chunk, names, index) for index, chunk in enumerate(chunks)]
     states = _track_states(fields, names)
-    compact = _compact_descriptor_candidate(probe, prefix, field_bytes, states)
+    slots = _descriptor_slot_order(fields, names)
+    short_block = _short_packed_block_candidate(probe, prefix, field_bytes, slots)
     return {
-        'version': 4,
+        'version': 5,
         'status': 'ok:two_track_state_bitplanes',
-        'semantics_status': 'pending:track_state_meaning_and_packed_transform_codec',
+        'semantics_status': 'pending:track_roles_and_packed_transform_codec',
         'name_count': len(names),
         'field_count': 2,
         'field_width': width,
         'field_bytes': field_bytes,
         'fields': fields,
         'track_states': states,
-        'payload_prefix_hex': prefix[field_bytes:field_bytes + 96].hex(),
+        'descriptor_slots_candidate': slots,
+        'payload_prefix_hex': prefix[field_bytes:field_bytes + 128].hex(),
+        'normal_clip_header': probe.get('normal_clip_header') or {},
         'stream_probe': probe.get('frame_marker_probe') or {},
-        'compact_two_frame_descriptor_candidate': compact,
-        'note': 'The low name_count bits of each big-endian field map to skeleton names with integer bit 0 as bone index 0. High unused bits are preserved as metadata, not discarded as padding. State roles and packed transforms remain unresolved.',
+        'short_packed_block_candidate': short_block,
+        'note': 'Name bits, auxiliary bits below the top control bit, and the top control bit are reported separately. No transform values are emitted until the packed codec is validated.',
     }
 
 
@@ -166,7 +197,7 @@ def install_into():
             mapping = result.get('track_skeleton_map') or {}
             mapping['normal_clip_layout'] = layout
             mapping['status'] = 'pending:normal_clip_packed_transform_codec'
-            mapping['note'] = 'track_state_bitplanes_parsed; high_metadata_preserved; packed_transform_decode_pending'
+            mapping['note'] = 'root_transform_header_and_track_bitplanes_parsed; packed_transform_decode_pending'
             mapping['groups'] = []
             mapping['absolute_frame_count'] = 0
             result['track_skeleton_map'] = mapping
