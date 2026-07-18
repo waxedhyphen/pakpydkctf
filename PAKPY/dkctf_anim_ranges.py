@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import struct
 
 _VEC_SCALE = struct.unpack('<f', struct.pack('<I', 0x3F810204))[0]
+_ROT_SCALE = struct.unpack('<f', struct.pack('<I', 0x34000000))[0]
 
 
 def _u32(v: int) -> int:
@@ -22,6 +23,12 @@ def _rev32(v: int) -> int:
 class VecRange:
     minimum: tuple[float, float, float]
     extent: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class RotRange:
+    minimum: float
+    extent: float
 
 
 def decode_vec_range_word(word: int) -> VecRange:
@@ -88,4 +95,35 @@ def load_vec_ranges(data: bytes, count: int, offset: int = 0) -> tuple[tuple[Vec
     out = []
     for pos in range(offset, end, 8):
         out.append(decode_vec_range_word(int.from_bytes(data[pos:pos + 8], 'little')))
+    return tuple(out), end
+
+
+def _decode_rot_nibble(nibble: int) -> RotRange:
+    """Port of the float construction and final normalization in LoadRotRange."""
+    if not 0 <= nibble <= 0xF:
+        raise ValueError('rotation nibble must be in range 0..15')
+    value = _f32_bits(_u32(0x3F800000 - (nibble << 22)))
+    return RotRange(-value, value * _ROT_SCALE)
+
+
+def load_rot_ranges(data: bytes, count: int, offset: int = 0) -> tuple[tuple[RotRange, ...], int]:
+    """Literal packed-nibble decoder from CAnimStreamData::LoadRotRange.
+
+    Two rotation range descriptors are stored per byte.  The low nibble is
+    decoded first, followed by the high nibble.  An odd final descriptor uses
+    only the low nibble.  Each descriptor is normalized exactly as the Switch
+    routine: minimum=-value and extent=value*2^-23.
+    """
+    if count < 0 or offset < 0:
+        raise ValueError('count and offset must be non-negative')
+    byte_count = (count + 1) // 2
+    end = offset + byte_count
+    if end > len(data):
+        raise ValueError('rotation-range records exceed input')
+
+    out: list[RotRange] = []
+    for value in data[offset:end]:
+        out.append(_decode_rot_nibble(value & 0xF))
+        if len(out) < count:
+            out.append(_decode_rot_nibble(value >> 4))
     return tuple(out), end
