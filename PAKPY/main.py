@@ -15,6 +15,7 @@ from anim_track_skel_map_patch import install as install_anim_track_skel_map_pat
 from anim_timeline_summary_scope_patch import install as install_anim_timeline_summary_scope_patch
 from blender_named_timeline_patch import install as install_blender_named_timeline_patch
 from blender_preview_timeline_script_patch import install as install_blender_preview_timeline_script_patch
+from blender_decoded_timeline_patch import install as install_blender_decoded_timeline_patch
 from char_required_anim_mirror_patch import install as install_char_required_anim_mirror_patch
 from prefix_track_map_patch import install as install_prefix_track_map_patch
 from group_accept_patch import install as install_group_accept_patch
@@ -36,6 +37,7 @@ install_group_accept_patch(App)
 install_anim_timeline_summary_scope_patch(App)
 install_blender_named_timeline_patch(App)
 install_blender_preview_timeline_script_patch(App)
+install_blender_decoded_timeline_patch(App)
 install_char_required_anim_mirror_patch(App)
 def main():
     setup_windows_process()
