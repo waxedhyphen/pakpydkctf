@@ -30,6 +30,19 @@ def _find_anim(root: Path, uuid_hex: str) -> Path | None:
     return None
 
 
+def _clear_generated_timelines(root: Path) -> int:
+    removed = 0
+    paths = list(root.glob("debug/anim_named_timeline/*.named_timeline.json"))
+    paths.extend(root.glob("models/*/debug/anim_named_timeline/*.named_timeline.json"))
+    for path in paths:
+        try:
+            path.unlink()
+            removed += 1
+        except FileNotFoundError:
+            pass
+    return removed
+
+
 def _install_named_frame_channels() -> None:
     def named_frame_timeline(group, start_frame_index):
         tracks = group.get("tracks") or []
@@ -65,6 +78,7 @@ def _install_named_frame_channels() -> None:
 
 
 def _install_blender_quaternion_support() -> None:
+    """Teach the generated Blender script to key typed quaternion channels."""
     script = blender_patch.BLENDER_SCRIPT
     old_set = """def set_value(pose_bone,value):
     if value is None:
@@ -141,6 +155,7 @@ def install_into() -> None:
         root = Path(package_dir)
         skeleton, _ = timeline_patch._find_skeleton(root)
         decoded = []
+        removed_timelines = _clear_generated_timelines(root)
         if isinstance(skeleton, dict):
             probe_paths = list(root.glob("debug/anim_probe21/*.probe21.json"))
             probe_paths.extend(root.glob("models/*/debug/anim_probe21/*.probe21.json"))
@@ -158,17 +173,25 @@ def install_into() -> None:
                     continue
                 try:
                     tf_result = codec.decode_asset(anim_path.read_bytes(), skeleton)
+                    legacy = probe.get("track_decode")
+                    if legacy and legacy != tf_result:
+                        probe["legacy_track_decode"] = legacy
                     probe["tf_decode"] = tf_result
-                    if str(tf_result.get("status", "")).startswith("ok:"):
-                        probe["track_decode"] = tf_result
+                    probe["track_decode"] = tf_result
                     probe_path.write_text(json.dumps(probe, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
                     decoded.append({"probe": str(probe_path), "status": tf_result.get("status", "")})
                 except Exception as exc:
-                    probe["tf_decode"] = {"status": "error", "error": str(exc)}
+                    legacy = probe.get("track_decode")
+                    if legacy:
+                        probe["legacy_track_decode"] = legacy
+                    failure = {"version": 1, "status": "error", "error": str(exc), "groups": []}
+                    probe["tf_decode"] = failure
+                    probe["track_decode"] = failure
                     probe_path.write_text(json.dumps(probe, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
         result = original(package_dir)
         if isinstance(result, dict):
             result["tf_codec"] = decoded
+            result["tf_codec_removed_stale_timeline_count"] = removed_timelines
             result["tf_codec_ok_count"] = sum(1 for item in decoded if str(item.get("status", "")).startswith("ok:"))
         return result
 
