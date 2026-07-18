@@ -6,7 +6,6 @@ from pathlib import Path
 
 import anim_tf_codec as codec
 import anim_track_skel_map_patch as timeline_patch
-import blender_named_timeline_patch as blender_patch
 
 
 def _read_json(path: Path):
@@ -77,78 +76,11 @@ def _install_named_frame_channels() -> None:
     timeline_patch._named_frame_timeline = named_frame_timeline
 
 
-def _install_blender_quaternion_support() -> None:
-    """Teach the generated Blender script to key typed quaternion channels."""
-    script = blender_patch.BLENDER_SCRIPT
-    old_set = """def set_value(pose_bone,value):
-    if value is None:
-        return False
-    if MODE=='location':
-        set_location(pose_bone,value)
-    elif MODE=='rotation_euler':
-        set_rotation_euler(pose_bone,value)
-    else:
-        set_raw_props(pose_bone,value)
-    return True"""
-    new_set = """def set_value(pose_bone,value,channel=''):
-    if value is None:
-        return False
-    if channel=='rotation_quaternion':
-        pose_bone.rotation_mode='QUATERNION'
-        pose_bone.rotation_quaternion=tuple(float(item) for item in value)
-    elif channel=='location':
-        set_location(pose_bone,value)
-    elif channel=='scale':
-        pose_bone.scale=tuple(float(item) for item in value)
-    elif MODE=='location':
-        set_location(pose_bone,value)
-    elif MODE=='rotation_euler':
-        set_rotation_euler(pose_bone,value)
-    else:
-        set_raw_props(pose_bone,value)
-    return True"""
-    old_insert = """def insert_value_key(pose_bone,frame):
-    if MODE=='location':
-        pose_bone.keyframe_insert(data_path='location',frame=frame)
-        return 3
-    if MODE=='rotation_euler':
-        pose_bone.keyframe_insert(data_path='rotation_euler',frame=frame)
-        return 3
-    pose_bone.keyframe_insert(data_path='[\"pak_anim_raw_x\"]',frame=frame)
-    pose_bone.keyframe_insert(data_path='[\"pak_anim_raw_y\"]',frame=frame)
-    pose_bone.keyframe_insert(data_path='[\"pak_anim_raw_z\"]',frame=frame)
-    return 3"""
-    new_insert = """def insert_value_key(pose_bone,frame,channel=''):
-    if channel=='rotation_quaternion':
-        pose_bone.keyframe_insert(data_path='rotation_quaternion',frame=frame)
-        return 4
-    if channel=='location' or MODE=='location':
-        pose_bone.keyframe_insert(data_path='location',frame=frame)
-        return 3
-    if channel=='scale':
-        pose_bone.keyframe_insert(data_path='scale',frame=frame)
-        return 3
-    if MODE=='rotation_euler':
-        pose_bone.keyframe_insert(data_path='rotation_euler',frame=frame)
-        return 3
-    pose_bone.keyframe_insert(data_path='[\"pak_anim_raw_x\"]',frame=frame)
-    pose_bone.keyframe_insert(data_path='[\"pak_anim_raw_y\"]',frame=frame)
-    pose_bone.keyframe_insert(data_path='[\"pak_anim_raw_z\"]',frame=frame)
-    return 3"""
-    script = script.replace(old_set, new_set).replace(old_insert, new_insert)
-    script = script.replace(
-        "if set_value(bone,value):\n                    action_report['inserted_key_channels']+=insert_value_key(bone,frame_index)",
-        "channel=item.get('channel','')\n                if set_value(bone,value,channel):\n                    action_report['inserted_key_channels']+=insert_value_key(bone,frame_index,channel)",
-    )
-    blender_patch.BLENDER_SCRIPT = script
-
-
 def install_into() -> None:
     if getattr(timeline_patch, "_tf_codec_installed", False):
         return
     timeline_patch._tf_codec_installed = True
     _install_named_frame_channels()
-    _install_blender_quaternion_support()
     original = timeline_patch._enrich_package
 
     def enrich_package(package_dir):
