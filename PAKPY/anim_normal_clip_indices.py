@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Exact reference parser for DKCTF ANIM normal_clip LoadIdxData.
+"""Exact reference parser for DKCTF ANIM normal_clip index data.
 
-Reverse engineered from:
-  CAnimStreamData::LoadIdxData(SAnimStreamStart const&, int&)
-  NSO text address 0x195BA8, size 0xDFC (3580 bytes)
+Reverse engineered from the supplied ExeFS build:
 
-The parser covers the serialized data consumed by LoadIdxData only. It does
-not decode keyframe values or timing; those are processed by later routines.
+* ``CAnimStream::CreateAnimData`` @ ``0x193708``
+* optional pre-index bit-track setup @ ``0x1954DC`` / ``0x1826DC``
+* ``CAnimStreamData::LoadIdxData`` @ ``0x195BA8``
+
+The optional bit track is serialized between ``SAnimStreamStart`` and the
+rotation/translation/scale bitmaps.  Its values are not needed by the current
+skeletal decoder, but its exact byte length must be consumed before
+``LoadIdxData`` starts.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -21,6 +24,7 @@ from typing import Any
 
 RFRM_HEADER_SIZE = 0x20
 ANIM_STREAM_FILE_OFFSET = 0x28
+AUXILIARY_TRACK_SETUP_BITS = 8
 
 
 class LoadIdxDataError(ValueError):
@@ -48,10 +52,10 @@ def set_bit_indices_lsb(data: bytes) -> list[int]:
 
 
 def compute_stream_start_offset(stream: bytes) -> int:
-    """Port of CAnimStream::CreateAnimData @ 0x193708.
+    """Port of ``CAnimStream::CreateAnimData`` @ ``0x193708``.
 
-    ``stream`` starts at the ANIM control word (file offset 0x28). The return
-    value is relative to ``stream`` and points at SAnimStreamStart.
+    ``stream`` starts at the ANIM control word (file offset ``0x28``).  The
+    return value is relative to ``stream`` and points at ``SAnimStreamStart``.
     """
     header = u16le(stream, 0)
     offset = 8
@@ -62,6 +66,38 @@ def compute_stream_start_offset(stream: bytes) -> int:
             raise LoadIdxDataError("truncated extended stream header")
         offset = offset + stream[offset] * 4 + 7
     return offset
+
+
+def decode_stream_sample_count(stream: bytes) -> int:
+    """Port the control-field count helper at ExeFS text ``0x192F74``.
+
+    Most normal clips store an 8-bit count in control byte 3.  Formats whose
+    first control byte sets bit 6 extend it with control byte 8.
+    """
+    _read_exact(stream, 0, 4, "ANIM control word")
+    count = stream[3]
+    if stream[0] & 0x40:
+        count |= _read_exact(stream, 8, 1, "extended ANIM sample count")[0] << 8
+    return count
+
+
+def has_auxiliary_pre_index_track(stream: bytes) -> bool:
+    """Match the signed-halfword test at ExeFS text ``0x1954DC``."""
+    _read_exact(stream, 0, 2, "ANIM control halfword")
+    return bool(stream[1] & 0x80)
+
+
+@dataclass
+class AuxiliaryBitTrack:
+    descriptor_file_offset: int
+    descriptor: int
+    descriptor_hex: str
+    setup_bit_count: int
+    bits_per_sample: int
+    sample_count: int
+    payload_file_offset: int
+    payload_byte_count: int
+    end_file_offset: int
 
 
 @dataclass
@@ -97,6 +133,7 @@ class LoadIdxDataResult:
     stream_start_byte0: int
     flags: int
     flags_hex: str
+    auxiliary_bit_track: AuxiliaryBitTrack | None
     index_data_file_offset: int
     load_pair_data_file_offset: int
     bytes_consumed_by_load_idx_data: int
@@ -134,8 +171,54 @@ def _read_exact(data: bytes, offset: int, size: int, label: str) -> bytes:
     return data[offset:end]
 
 
+def consume_auxiliary_bit_track(
+    stream: bytes,
+    cursor: int,
+    sample_count: int,
+) -> tuple[AuxiliaryBitTrack, int]:
+    """Consume the generic pre-index bit track loaded at ExeFS ``0x1826DC``.
+
+    The first byte is a descriptor.  When descriptor bit 1 is clear, bits 2..7
+    encode the number of bits stored per sample; when bit 1 is set, the track is
+    constant and has no per-sample payload.  The current normal-clip layout
+    first consumes one 8-bit setup value, matching the codec-0 reader at
+    ``0x1825C4``.  The game then advances by the rounded-up total bit count.
+
+    The values themselves are intentionally ignored.  Only the exact cursor
+    movement is required before the existing normal-clip index/setup/frame/value
+    decoders can run.
+    """
+    if sample_count < 0:
+        raise LoadIdxDataError(f"invalid auxiliary sample count {sample_count}")
+
+    descriptor_offset = cursor
+    descriptor = _read_exact(stream, cursor, 1, "auxiliary bit-track descriptor")[0]
+    cursor += 1
+
+    bits_per_sample = 0 if descriptor & 0x02 else descriptor >> 2
+    payload_bits = AUXILIARY_TRACK_SETUP_BITS + bits_per_sample * sample_count
+    payload_bytes = ceil_div(payload_bits, 8)
+    _read_exact(stream, cursor, payload_bytes, "auxiliary bit-track payload")
+    end = cursor + payload_bytes
+
+    return (
+        AuxiliaryBitTrack(
+            descriptor_file_offset=ANIM_STREAM_FILE_OFFSET + descriptor_offset,
+            descriptor=descriptor,
+            descriptor_hex=f"0x{descriptor:02X}",
+            setup_bit_count=AUXILIARY_TRACK_SETUP_BITS,
+            bits_per_sample=bits_per_sample,
+            sample_count=sample_count,
+            payload_file_offset=ANIM_STREAM_FILE_OFFSET + cursor,
+            payload_byte_count=payload_bytes,
+            end_file_offset=ANIM_STREAM_FILE_OFFSET + end,
+        ),
+        end,
+    )
+
+
 def parse_load_idx_data(raw: bytes, node_count: int, *, strict: bool = True) -> LoadIdxDataResult:
-    """Parse exactly the data consumed by CAnimStreamData::LoadIdxData.
+    """Parse the optional pre-index track and exact ``LoadIdxData`` payload.
 
     ``raw`` must be a complete RFRM/ANIM resource. ``node_count`` is the full
     CSkelLayout node count, not the skin-bone count.
@@ -151,12 +234,21 @@ def parse_load_idx_data(raw: bytes, node_count: int, *, strict: bool = True) -> 
 
     stream = raw[ANIM_STREAM_FILE_OFFSET:]
     control = int.from_bytes(raw[0x28:0x2C], "big")
+    sample_count = decode_stream_sample_count(stream)
     start_rel = compute_stream_start_offset(stream)
     start = _read_exact(stream, start_rel, 2, "SAnimStreamStart")
     flags = start[1]
     cursor = start_rel + 2
-    index_data_start = cursor
 
+    auxiliary_bit_track: AuxiliaryBitTrack | None = None
+    if has_auxiliary_pre_index_track(stream):
+        auxiliary_bit_track, cursor = consume_auxiliary_bit_track(
+            stream,
+            cursor,
+            sample_count,
+        )
+
+    index_data_start = cursor
     definitions = (
         ("rotation", 0x40),
         ("translation", 0x20),
@@ -237,6 +329,8 @@ def parse_load_idx_data(raw: bytes, node_count: int, *, strict: bool = True) -> 
     notes = [
         "Bitmap bit order is LSB-first within every byte.",
         "The selector bitmap addresses positions in the base-node list, not skeleton nodes directly.",
+        "A negative control halfword enables a generic auxiliary bit track before LoadIdxData.",
+        "The auxiliary descriptor controls bits per sample; its values are skipped but not interpreted.",
         "LoadIdxData stores constant-node lists for rotation and translation; constant scale nodes are not persisted.",
         "No keyframe times or sample records are parsed by LoadIdxData.",
     ]
@@ -247,13 +341,14 @@ def parse_load_idx_data(raw: bytes, node_count: int, *, strict: bool = True) -> 
         node_count=node_count,
         control_u32=f"0x{control:08X}",
         control_class=(control >> 24) & 0xFF,
-        frame_count_field=control & 0xFF,
+        frame_count_field=sample_count,
         stream_file_offset=ANIM_STREAM_FILE_OFFSET,
         stream_start_relative_offset=start_rel,
         stream_start_file_offset=ANIM_STREAM_FILE_OFFSET + start_rel,
         stream_start_byte0=start[0],
         flags=flags,
         flags_hex=f"0x{flags:02X}",
+        auxiliary_bit_track=auxiliary_bit_track,
         index_data_file_offset=ANIM_STREAM_FILE_OFFSET + index_data_start,
         load_pair_data_file_offset=ANIM_STREAM_FILE_OFFSET + cursor,
         bytes_consumed_by_load_idx_data=cursor - index_data_start,
@@ -276,9 +371,18 @@ def load_skeleton_names(path: Path) -> tuple[int, list[str]]:
 def format_summary(result: LoadIdxDataResult) -> str:
     lines = [
         f"SAnimStreamStart: file 0x{result.stream_start_file_offset:X}, flags {result.flags_hex}",
-        f"LoadIdxData payload: 0x{result.index_data_file_offset:X}..0x{result.load_pair_data_file_offset:X} "
-        f"({result.bytes_consumed_by_load_idx_data} bytes)",
     ]
+    if result.auxiliary_bit_track is not None:
+        track = result.auxiliary_bit_track
+        lines.append(
+            "Auxiliary bit track: "
+            f"descriptor {track.descriptor_hex}, {track.bits_per_sample} bits/sample, "
+            f"file 0x{track.descriptor_file_offset:X}..0x{track.end_file_offset:X}"
+        )
+    lines.append(
+        f"LoadIdxData payload: 0x{result.index_data_file_offset:X}..0x{result.load_pair_data_file_offset:X} "
+        f"({result.bytes_consumed_by_load_idx_data} bytes)"
+    )
     for channel in (result.rotation, result.translation, result.scale):
         base_offset = f"0x{channel.base_bitmap_file_offset:X}" if channel.base_bitmap_file_offset is not None else "-"
         selector_offset = f"0x{channel.selector_bitmap_file_offset:X}" if channel.selector_bitmap_file_offset is not None else "-"
