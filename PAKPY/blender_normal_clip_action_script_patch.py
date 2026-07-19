@@ -1,7 +1,4 @@
-from pathlib import Path
-import blender_named_timeline_patch as blender_patch
-
-NORMAL_CLIP_ACTION_SCRIPT = r'''#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Create real Blender Actions from PAKPY normal_clip bind/hierarchy JSON.
 
 Run inside Blender, for example from the Scripting workspace, or:
@@ -222,7 +219,7 @@ def create_action(armature, path, document, fps):
             target = conversion @ matrix4(absolute[node_index]) @ corrections[pose_bone.name]
             pose_bone.rotation_mode = "QUATERNION"
             pose_bone.matrix = target
-        bpy.context.view_layer.update()
+            bpy.context.view_layer.update()
         for _palette, node_index, _name, pose_bone, _game_rest, _blender_rest in ordered:
             if not (0 <= node_index < len(absolute)):
                 continue
@@ -326,43 +323,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-'''
-
-NORMAL_CLIP_ACTION_README = '''Blender normal_clip Actions
-
-Datei: blender_import_normal_clip_actions.py
-
-Voraussetzungen:
-- Character-/Model-Paket wurde mit dem aktuellen PAKPY exportiert.
-- debug/anim_normal_clip_bind/*.normal_clip_bind.json ist vorhanden.
-- Die Armature aus dem experimental_skeletal DAE/GLB/BLEND ist geöffnet.
-
-Blender Scripting:
-1. blender_import_normal_clip_actions.py öffnen.
-2. Script ausführen.
-3. Die erzeugten Actions im Dope Sheet / Action Editor auswählen.
-
-Kommandozeile:
-blender character.blend --python blender_import_normal_clip_actions.py -- --package PFAD --filter b_idle_1_ws --fps 30 --save character_animated.blend
-
-Der Importer kalibriert Spielachsen, Maßstab und Bone-Roll aus der vorhandenen Restpose. Er setzt vollständige globale 81-Node-Ergebnisse auf die 60 Skin-Bones und erzeugt Quaternion-, Location- und Scale-F-Curves für jeden Integer-Frame.
-
-Wichtig: Die Action stellt den isolierten normal_clip dar. Ein Live-Spiel-Capture kann zusätzliche Posegraph-, Blend-, Look-at-, Physik- oder Procedural-Layer enthalten.
-'''
-
-
-def install(App):
-    original = blender_patch._write_blender_files
-
-    def write_blender_files(package_dir):
-        result = original(package_dir)
-        root = Path(package_dir)
-        script = root / "blender_import_normal_clip_actions.py"
-        readme = root / "BLENDER_NORMAL_CLIP_ACTIONS.txt"
-        script.write_text(NORMAL_CLIP_ACTION_SCRIPT.strip() + "\n", encoding="utf-8", newline="\n")
-        readme.write_text(NORMAL_CLIP_ACTION_README, encoding="utf-8", newline="\n")
-        result["normal_clip_action_script"] = script.name
-        result["normal_clip_action_readme"] = readme.name
-        return result
-
-    blender_patch._write_blender_files = write_blender_files

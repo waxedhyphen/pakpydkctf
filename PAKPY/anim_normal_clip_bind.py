@@ -309,12 +309,18 @@ def build_current_absolute(
         parent = int(parent_indices[index])
         if not 0 <= parent < index:
             raise NormalClipBindError(f"node {index} has invalid runtime parent {parent}")
-        if int(node_flags[index]) & 1:
-            output[index] = build_absolute_no_scale_propagation(
-                output[parent], relative_coords[parent], relative_coords[index]
-            )
-        else:
-            output[index] = build_absolute_scale_propagation(output[parent], relative_coords[index])
+        # Scale must NOT propagate/compound down the skin hierarchy. Flag bit 0 is
+        # the skin-bone marker (set for exactly the skin_bone_count nodes), not a
+        # scale-propagation control, so the old `node_flags[index] & 1` test made
+        # ~1/4 of nodes (incl. the spine chain and the *_scalecomp_skin bones)
+        # inherit and multiply parent scale, giving 1.x^depth blow-up on clips with
+        # real squash/stretch (mild on idle, extreme on react/stun/hurl).
+        # Segment-scale-compensate every hierarchy node: absolute scale == local
+        # animated scale. This is a no-op whenever parent scale is ~1, so it never
+        # affects rotation/translation-only or idle clips.
+        output[index] = build_absolute_no_scale_propagation(
+            output[parent], relative_coords[parent], relative_coords[index]
+        )
     return output
 
 
@@ -377,7 +383,7 @@ def compose_bind_hierarchy_from_pose(
             "Relative CCoords are animation * bind: quaternion product, scale product, translation sum.",
             "The active anchor relative transform is copied to absolute node zero.",
             "Base hierarchical matrices omit local scale below the root/control zone.",
-            "Node flag bit 0 selects no-scale propagation; clear selects scale propagation.",
+            "Scale is segment-compensated on every hierarchy node; it never propagates/compounds down the chain.",
             "Render matrices are currentAbsolute[node] * inverseBaseAbsolute[node].",
             "External model/world transforms and Blender basis conversion remain separate.",
         ],
