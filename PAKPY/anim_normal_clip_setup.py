@@ -22,8 +22,10 @@ ROT_QUANT_SCALE = 2.0 ** -27
 ROT_RANGE_SCALE = 2.0 ** -23
 PAIR_VECTOR_QUANT_SCALE = 2.0 ** -29
 VEC_RANGE_DECODE_SCALE = struct.unpack('<f', bytes.fromhex('0402813f'))[0]
-VEC_RANGE_FINE_MULTIPLIER = 2.0 ** -30
-VEC_RANGE_COARSE_MULTIPLIER = 2.0 ** -20
+# Exact constants used by the callers after LoadVecRange. The compact constant
+# is deliberately not rounded to 2^-20: its binary value is 0x35800008.
+VEC_RANGE_FINE_MULTIPLIER = struct.unpack('<f', bytes.fromhex('00008030'))[0]
+VEC_RANGE_COARSE_MULTIPLIER = struct.unpack('<f', bytes.fromhex('08008035'))[0]
 
 
 def _u32(value: int) -> int:
@@ -316,12 +318,11 @@ def decode_vector_ranges(raw: bytes, offset: int, node_indices: list[int], span_
 
 
 def translation_span_multiplier(flags: int) -> float:
-    return VEC_RANGE_FINE_MULTIPLIER if (flags & 0x04) else VEC_RANGE_COARSE_MULTIPLIER
+    return VEC_RANGE_FINE_MULTIPLIER if (flags & 0x0C) == 0x0C else VEC_RANGE_COARSE_MULTIPLIER
 
 
 def scale_span_multiplier(flags: int) -> float:
-    mode = ((flags & 0x03) + 1) & 0x03
-    return VEC_RANGE_FINE_MULTIPLIER if mode == 0x03 else VEC_RANGE_COARSE_MULTIPLIER
+    return VEC_RANGE_FINE_MULTIPLIER if (flags & 0x30) == 0x30 else VEC_RANGE_COARSE_MULTIPLIER
 
 
 def parse_normal_clip_setup(raw: bytes, node_count: int, *, strict: bool = True) -> NormalClipSetupResult:
@@ -390,6 +391,8 @@ def parse_normal_clip_setup(raw: bytes, node_count: int, *, strict: bool = True)
             'LoadPairData uses a branchless 12-byte lookahead and advances each record by 8 or 12 bytes.',
             'LoadRotRange consumes low nibble first and uses scale=R*2^-23.',
             'Vector range records are 8 bytes per animated channel.',
+            'Extended vector spans use exact float 2^-30; compact spans use exact float 0x1.00001p-20.',
+            'Translation codec mode is selected by flags 0x0C and scale mode by flags 0x30.',
             'frame_data_file_offset is the offset stored in CAnimStreamData+0x08 after setup parsing.',
         ],
     )
