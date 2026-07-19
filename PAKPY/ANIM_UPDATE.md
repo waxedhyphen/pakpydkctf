@@ -1,11 +1,11 @@
 # DKCTF ANIM — central update file
 
 **Status date:** 2026-07-19  
-**Document schema:** 6
+**Document schema:** 7
 
-This is the authoritative current-state document. Replace or extend it when
-new findings are confirmed. Runtime code changes require a regression test and
-unsupported stages must remain in a `pending:*` state.
+This is the authoritative current-state document. Replace or extend it when new
+findings are confirmed. Runtime changes require a regression test. Isolated
+resource playback and strict live-game pose reproduction are tracked separately.
 
 ## Current runtime pipeline
 
@@ -20,17 +20,17 @@ unsupported stages must remain in a `pending:*` state.
 | `anim_normal_clip_pose_patch.py` | writes complete identity-base local pose frames |
 | `anim_normal_clip_bind.py` | exact bind, root-anchor, hierarchy and render-matrix composition |
 | `anim_normal_clip_bind_patch.py` | writes 81-node absolute and 60-bone render matrices |
-| `test_anim_normal_clip_values.py` | value codec and corrected multiplier tests |
-| `test_anim_normal_clip_pose.py` | interpolation, inheritance and SKEL-remap tests |
-| `test_anim_normal_clip_bind.py` | bind/hierarchy, scale propagation and rest-pose tests |
-| `anim_research/NormalClip_value_payloads.md` | address-level payload documentation |
-| `anim_research/NormalClip_pose_interpolation.md` | `0x1973BC` and local-pose documentation |
-| `anim_research/NormalClip_bind_hierarchy.md` | exact CSkelPose bind/hierarchy documentation |
-| `anim_research/normal_clip_value_validation.csv` | 30-clip value validation report |
-| `anim_research/normal_clip_pose_validation.csv` | 30-clip local-pose validation report |
-| `anim_research/normal_clip_bind_validation.csv` | 30-clip hierarchy validation report |
+| `blender_normal_clip_action_script_patch.py` | generates rest-calibrated Blender Action importer |
+| `test_blender_normal_clip_action_math.py` | verifies rest calibration and motion preservation |
+| `anim_research/NormalClip_value_payloads.md` | value-reader documentation |
+| `anim_research/NormalClip_pose_interpolation.md` | local interpolation documentation |
+| `anim_research/NormalClip_bind_hierarchy.md` | CSkelPose bind/hierarchy documentation |
+| `anim_research/RenderDoc_idle_capture.md` | RDC/CSV analysis and live-pose limitations |
+| `anim_research/renderdoc_frame1_metadata.json` | parsed RDC metadata |
+| `anim_research/renderdoc_frame1_matrix_copies.csv` | exact GPU palette locations |
+| `anim_research/renderdoc_capture_sequence.csv` | chronological palette-change report |
 
-Exported normal clips now receive:
+Exported normal clips receive:
 
 ```text
 normal_clip_indices.*
@@ -44,24 +44,37 @@ normal_clip_bind_file
 normal_clip_bind_summary
 ```
 
-Sparse decoded values are written to:
+Generated analysis and Blender files include:
 
 ```text
 debug/anim_normal_clip_values/*.normal_clip_values.json
 debug/anim_normal_clip_pose/*.normal_clip_pose.json
 debug/anim_normal_clip_bind/*.normal_clip_bind.json
+blender_import_normal_clip_actions.py
+BLENDER_NORMAL_CLIP_ACTIONS.txt
 ```
 
-The current generic track status is deliberately:
+## Current readiness
+
+```text
+isolated normal_clip Blender Action: ready
+strict live-game layered pose match: pending posegraph/timestamp inputs
+```
+
+The existing generic probe status remains:
 
 ```text
 pending:normal_clip_external_root_and_blender_basis
 ```
 
-No old marker-derived or prefix-mapped animation is accepted as a real
+That status refers to strict live-game actor reproduction. The generated isolated
+`normal_clip` Blender Action path is ready and is reported separately by the
+Blender importer.
+
+No marker-derived or prefix-mapped heuristic animation is accepted as a real
 `normal_clip` timeline.
 
-## Function map
+## Verified binary stages
 
 | Address | Function | State |
 |---:|---|---|
@@ -74,7 +87,7 @@ No old marker-derived or prefix-mapped animation is accepted as a real
 | `0x198B64` | rotation value reader | payload fully ported |
 | `0x198D48` | extended vector value reader | payload fully ported |
 | `0x198E4C` | packed duration decoder | fully ported |
-| `0x198F40` | due-channel list builder | fully ported structurally |
+| `0x198F40` | due-channel list builder | structurally ported |
 | `0x199058` | `ProcessFrame` | traversal plus compact vector payload ported |
 | `0x1973BC` | local TRS interpolation/output | fully ported/validated |
 | `0x197900` | output/base-pose initialization | structurally ported |
@@ -91,127 +104,88 @@ No old marker-derived or prefix-mapped animation is accepted as a real
 | `0x18AB48` | no-scale propagation | fully ported |
 | `0x12E9A0` | 60-bone render transforms | normal path fully ported |
 
-## Verified setup and timing
+## Verified codec and pose rules
 
-- `LoadIdxData` reads base bitmaps and selector bitmaps LSB-first.
+- Node/channel maps are two-level LSB-first base and selector bitmaps.
 - Selector `1` is animated; selector `0` is constant.
-- Node indices are exact full-skeleton node indices, not skin-bone prefixes.
-- Constant rotations and translations are decoded before range tables.
-- Initial keys occur at frame 0.
-- Explicit durations are BE16 words consumed LSB-first.
-- Every supplied channel ends at `frame_count - 1`.
-- Value blocks are aligned to four bytes; duration streams to two bytes.
-
-## Corrected vector-range scaling
-
-The previous setup implementation selected span multipliers from the wrong
-flags. Correct behavior from the caller around `0x195754` and `0x1958A4`:
-
-```text
-translation extended when (flags & 0x0C) == 0x0C
-scale extended when       (flags & 0x30) == 0x30
-```
-
-Exact span multipliers:
-
-```text
-extended 30-bit: float 0x30800000 = 2^-30
-compact 20-bit:  float 0x35800008 = 0x1.00001p-20
-```
-
-The earlier low-bit multiplier selection is rejected.
-
-## Verified value payloads
-
-### Rotation
-
-- 8/12-byte advance selected by bit 15 of the first BE16.
-- The reader intentionally performs a 12-byte lookahead.
-- XYZ are unsigned 24-bit values dequantized with the per-channel rotation range.
-- W is reconstructed with a sign bit and `sqrt(1-|XYZ|²)`.
-- Special paths produce normalized W=0 quaternions or compact exact-axis quaternions.
-- Sparse key values are stored as WXYZ.
-
-### Translation and scale
-
-- Compact path: unsigned 20-bit XYZ; 4/8-byte advance.
-- Extended path: unsigned 30-bit XYZ; 4/8/12-byte advance.
-- Both paths intentionally read beyond the nominal advance and overlap following data.
-- Values use `base + scaledSpan * quantized` per component.
-
-## Verified local-pose interpolation
-
-- Missing channels inherit an input pose; the standalone evaluator uses identity TRS.
-- Rotation is shortest-path normalized linear interpolation.
-- The right key's interpolation sign bit controls the segment ending at that key.
-- The binary's correction coefficient multiplies both quaternion weights equally and cancels after normalization.
-- Translation and scale are component-wise linear.
-- Output layout is WXYZ at `+0x00`, scale XYZ at `+0x10`, translation XYZ at `+0x1C`.
-- Optional SKEL sign/permutation helpers are ported but remain opt-in because their caller flag is external to the ANIM stream.
-
-Local-pose validation across all clips:
-
-```text
-clips evaluated:               30 / 30
-complete local node-frames:    65,286
-maximum quaternion norm error: 2.22044604925e-16
-all TRS values finite:         yes
-```
-
-## Verified bind and hierarchy composition
-
-- `CCoords::x_y_ss` combines animation and bind as quaternion product, component-wise scale product and translation sum.
-- Quaternion order is `animation * bind`.
-- Warus layout starts are `relative_start=2`, `hierarchy_start=3`, `active_anchor=2` (`root`).
-- The active anchor relative transform is also written to absolute slot zero and drives children serialized under node zero.
-- Base hierarchical matrices omit local bind scale below the control-root zone.
-- Runtime node flag bit zero selects no-scale propagation; clear selects scale propagation.
-- No-scale propagation is `parentAbs * diag(1/parentRelativeScale) * childLocal`.
-- Render matrices are `currentAbsolute[node] * inverseBaseAbsolute[node]` in exact SKEL skin-node order.
-
-Hierarchy validation across all clips:
-
-```text
-clips composed:              30 / 30
-absolute 81-node frames:     65,286
-render 60-bone frames:       48,360
-all matrix values finite:    yes
-maximum absolute value:      9.33534035921
-rest-pose identity test:     passed
-```
-
-The 41 RenderDoc CSVs do not contain animation timestamps or the external actor/model transform. A strict capture match is therefore still pending; treating them as 41 consecutive integer frames of the 61-frame idle clip is rejected.
+- Node indices address the complete skeleton, not a skin-bone prefix.
+- Rotation records use unsigned 24-bit XYZ and reconstructed W.
+- Compact vectors are unsigned 20-bit; extended vectors are unsigned 30-bit.
+- Rotation uses shortest-path normalized linear interpolation.
+- Translation and scale interpolate component-wise linearly.
+- Animation and bind compose as quaternion `animation * bind`, scale product and
+  translation sum.
+- Warus uses `relative_start=2`, `hierarchy_start=3`, `active_anchor=2`.
+- Node flag bit zero selects parent-scale cancellation.
+- Render matrices are `currentAbsolute[node] * inverseBaseAbsolute[node]` in SKEL
+  skin order.
 
 ## Validation
 
-Across all 30 supplied Warus clips:
+Across the 30 supplied Warus clips:
 
 ```text
 complete clips:                 30 / 30
 decoded animated records:       42,681
-rotation records:               31,172
-compact vector records:          5,033
-extended vector records:         6,476
-special exact-axis rotations:        6
-quaternion norms:                0.9999999999999999 .. 1.0
-20-bit values within range:      yes
-30-bit values within range:      yes
-all vector outputs finite:       yes
-key schedules match exactly:     yes
+absolute 81-node frames:         65,286
+render 60-bone frames:           48,360
+all quaternion/TRS/matrix values finite: yes
+rest-pose identity test:         passed
 ```
 
-## Remaining path to Blender
+Blender Action calibration tests:
 
-1. Recover RenderDoc capture time and the external actor/model-root transform.
-2. Confirm the real caller state for the optional SKEL sign/permutation path.
-3. Apply DKCTF-to-Blender basis conversion.
-4. Convert decoded local animation deltas to Blender pose-bone channels relative to rest matrices.
-5. Emit quaternion/location/scale F-curves and activate the Blender Action.
+```text
+rest matrix maps exactly:        passed
+current motion preserved:        passed
+```
+
+## RenderDoc result
+
+The uploaded capture 1 was parsed and its one-gigabyte FrameCapture section was
+successfully decompressed. The 60×3×4 matrix palette exported in `1.csv` occurs
+five times byte-identically in the RDC. CSV files 1–41 are chronological, but no
+capture contains an ANIM frame number or a common fixed frame step.
+
+The live palette is not treated as the output of one pure normal clip. Bone-wise
+comparison shows additional live posegraph/helper/procedural influences. The
+isolated clip importer is therefore marked ready, while exact reproduction of
+the complete live actor remains a separate task.
+
+## Blender Action mapping
+
+The generated importer estimates a similarity transform `C` between game and
+Blender rest-joint positions, then uses a per-bone rest correction:
+
+```text
+O_b = inverse(C * gameRestGlobal_b) * blenderRestGlobal_b
+M_b(frame) = C * gameCurrentGlobal_b(frame) * O_b
+```
+
+This maps the decoded rest pose exactly onto the opened armature and absorbs
+Blender bone roll without a fixed manual axis table. It writes location,
+quaternion and scale keys for every integer clip frame and sets linear
+interpolation.
+
+## Remaining work
+
+For isolated `normal_clip` playback in Blender: none beyond executing the
+generated importer on the exported armature.
+
+For strict live-game 1:1 reproduction:
+
+1. recover animation time for every original RDC, not only CSV order;
+2. capture or decode all active posegraph/blend/procedural inputs;
+3. identify the external actor/model transform and optional SKEL-remap caller state;
+4. compare the complete layered pose against the GPU palette.
 
 ## Rejected assumptions
 
 - marker-spaced six-byte vectors are the `normal_clip` codec;
-- channel order can be inferred from the first N skin bones;
-- `LoadIdxData` contains key times or a separate serialized permutation table;
+- channel order is the first N skin bones;
+- `LoadIdxData` contains key times or a serialized permutation table;
 - vector span mode is selected from unrelated low flag bits;
-- nominal record advance means the decoder may not read into following bytes.
+- nominal record advance limits decoder lookahead;
+- CSV number equals ANIM frame number;
+- the 41 chronological palettes are a pure isolated `b_idle_1_ws` export;
+- the old diagnostic order `inverse(bind) * current` isolates the animation delta.
