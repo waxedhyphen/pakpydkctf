@@ -1,7 +1,7 @@
 # DKCTF ANIM — central update file
 
 **Status date:** 2026-07-19  
-**Document schema:** 5
+**Document schema:** 6
 
 This is the authoritative current-state document. Replace or extend it when
 new findings are confirmed. Runtime code changes require a regression test and
@@ -18,12 +18,17 @@ unsupported stages must remain in a `pending:*` state.
 | `anim_normal_clip_values_patch.py` | writes sparse node-indexed key documents |
 | `anim_normal_clip_pose.py` | exact local-pose interpolation and optional SKEL remap |
 | `anim_normal_clip_pose_patch.py` | writes complete identity-base local pose frames |
+| `anim_normal_clip_bind.py` | exact bind, root-anchor, hierarchy and render-matrix composition |
+| `anim_normal_clip_bind_patch.py` | writes 81-node absolute and 60-bone render matrices |
 | `test_anim_normal_clip_values.py` | value codec and corrected multiplier tests |
 | `test_anim_normal_clip_pose.py` | interpolation, inheritance and SKEL-remap tests |
+| `test_anim_normal_clip_bind.py` | bind/hierarchy, scale propagation and rest-pose tests |
 | `anim_research/NormalClip_value_payloads.md` | address-level payload documentation |
 | `anim_research/NormalClip_pose_interpolation.md` | `0x1973BC` and local-pose documentation |
+| `anim_research/NormalClip_bind_hierarchy.md` | exact CSkelPose bind/hierarchy documentation |
 | `anim_research/normal_clip_value_validation.csv` | 30-clip value validation report |
 | `anim_research/normal_clip_pose_validation.csv` | 30-clip local-pose validation report |
+| `anim_research/normal_clip_bind_validation.csv` | 30-clip hierarchy validation report |
 
 Exported normal clips now receive:
 
@@ -35,6 +40,8 @@ normal_clip_values_file
 normal_clip_values_summary
 normal_clip_pose_file
 normal_clip_pose_summary
+normal_clip_bind_file
+normal_clip_bind_summary
 ```
 
 Sparse decoded values are written to:
@@ -42,12 +49,13 @@ Sparse decoded values are written to:
 ```text
 debug/anim_normal_clip_values/*.normal_clip_values.json
 debug/anim_normal_clip_pose/*.normal_clip_pose.json
+debug/anim_normal_clip_bind/*.normal_clip_bind.json
 ```
 
 The current generic track status is deliberately:
 
 ```text
-pending:normal_clip_bind_composition
+pending:normal_clip_external_root_and_blender_basis
 ```
 
 No old marker-derived or prefix-mapped animation is accepted as a real
@@ -73,6 +81,15 @@ No old marker-derived or prefix-mapped animation is accepted as a real
 | `0x12D57C` | optional quaternion SKEL remap | fully ported |
 | `0x12D610` | optional translation SKEL remap | fully ported |
 | `0x199360` | frame generation control | control flow understood |
+| `0x11A490` | `CCoords::x_y_ss` | fully ported |
+| `0x12C558` | layout start/anchor discovery | relevant fields fully ported |
+| `0x12C930` | base absolute construction | fully ported |
+| `0x12CA44` | inverse base absolute construction | fully ported |
+| `0x12E830` | animation/bind relative CCoords | fully ported |
+| `0x12E358` | 81-node absolute hierarchy | fully ported |
+| `0x18AA40` | scale propagation | fully ported |
+| `0x18AB48` | no-scale propagation | fully ported |
+| `0x12E9A0` | 60-bone render transforms | normal path fully ported |
 
 ## Verified setup and timing
 
@@ -141,6 +158,30 @@ maximum quaternion norm error: 2.22044604925e-16
 all TRS values finite:         yes
 ```
 
+## Verified bind and hierarchy composition
+
+- `CCoords::x_y_ss` combines animation and bind as quaternion product, component-wise scale product and translation sum.
+- Quaternion order is `animation * bind`.
+- Warus layout starts are `relative_start=2`, `hierarchy_start=3`, `active_anchor=2` (`root`).
+- The active anchor relative transform is also written to absolute slot zero and drives children serialized under node zero.
+- Base hierarchical matrices omit local bind scale below the control-root zone.
+- Runtime node flag bit zero selects no-scale propagation; clear selects scale propagation.
+- No-scale propagation is `parentAbs * diag(1/parentRelativeScale) * childLocal`.
+- Render matrices are `currentAbsolute[node] * inverseBaseAbsolute[node]` in exact SKEL skin-node order.
+
+Hierarchy validation across all clips:
+
+```text
+clips composed:              30 / 30
+absolute 81-node frames:     65,286
+render 60-bone frames:       48,360
+all matrix values finite:    yes
+maximum absolute value:      9.33534035921
+rest-pose identity test:     passed
+```
+
+The 41 RenderDoc CSVs do not contain animation timestamps or the external actor/model transform. A strict capture match is therefore still pending; treating them as 41 consecutive integer frames of the 61-frame idle clip is rejected.
+
 ## Validation
 
 Across all 30 supplied Warus clips:
@@ -161,11 +202,11 @@ key schedules match exactly:     yes
 
 ## Remaining path to Blender
 
-1. Port the bind-pose/hierarchy application after local-pose output.
-2. Resolve `blendspace`, `root.move`, `root` and the external model transform.
-3. Reconstruct all 81 global node matrices including helper/scale-compensation nodes.
-4. Verify final skinning matrices against the 41 RenderDoc captures.
-5. Apply Blender basis conversion and emit quaternion/location/scale F-curves.
+1. Recover RenderDoc capture time and the external actor/model-root transform.
+2. Confirm the real caller state for the optional SKEL sign/permutation path.
+3. Apply DKCTF-to-Blender basis conversion.
+4. Convert decoded local animation deltas to Blender pose-bone channels relative to rest matrices.
+5. Emit quaternion/location/scale F-curves and activate the Blender Action.
 
 ## Rejected assumptions
 
