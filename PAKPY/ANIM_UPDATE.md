@@ -1,40 +1,45 @@
 # DKCTF ANIM — central update file
 
 **Status date:** 2026-07-19  
-**Document schema:** 1  
-**Authoritative rule:** This is the central current-state document. Replace or extend this file when new binary findings are confirmed. Historical notes under `anim_research/` remain evidence, but any conflict is resolved in favor of this file and tested runtime code.
+**Document schema:** 2  
+**Authoritative rule:** Replace or extend this file when new findings are confirmed. Historical notes under `anim_research/` remain evidence, but conflicts are resolved in favor of this file and tested runtime code.
 
 ## Update protocol
 
-For every new finding:
-
-1. Mark it as **verified**, **strongly supported**, **hypothesis**, or **rejected**.
-2. Record the binary function/address and sample set used.
-3. Update the corresponding parser or patch only for verified behavior.
+1. Mark each finding as **verified**, **strongly supported**, **hypothesis**, or **rejected**.
+2. Record the binary address and sample set.
+3. Change runtime code only for verified behavior.
 4. Add or update a regression test.
-5. Keep unsupported decoding in a `pending:*` state; do not emit plausible-looking fake animation tracks.
+5. Keep unsupported decoding in a `pending:*` state.
 
 ## Runtime integration
 
 | File | Purpose |
 |---|---|
-| `anim_normal_clip_indices.py` | Exact `LoadIdxData` parser and standalone CLI |
-| `anim_normal_clip_indices_patch.py` | Adds exact channel lists to exported ANIM probes and disables the old false `normal_clip` marker decode |
-| `test_anim_normal_clip_indices.py` | Synthetic regression tests for LSB map order and two-level remapping |
-| `anim_research/LoadIdxData.md` | Full address-level reverse-engineering document |
+| `anim_normal_clip_indices.py` | Exact `LoadIdxData` parser |
+| `anim_normal_clip_indices_patch.py` | Exports exact base/animated/constant node lists |
+| `anim_normal_clip_setup.py` | Exact setup-stage parser through `LoadPairData`, range tables and frame-stream start |
+| `anim_normal_clip_setup_patch.py` | Exports constants, ranges and `frame_data_file_offset` into probe JSON |
+| `test_anim_normal_clip_indices.py` | Index bitmap regression tests |
+| `test_anim_normal_clip_setup.py` | Setup decoder regression tests |
+| `anim_research/LoadIdxData.md` | Address-level `LoadIdxData` notes |
+| `anim_research/LoadPairData_and_ranges.md` | Address-level setup-stage notes |
 
-When a CHAR/model package contains a skeleton JSON, every resolved `normal_clip` probe now receives:
+Every resolved `normal_clip` probe with a skeleton now receives:
 
 ```text
-normal_clip_indices.rotation.base_nodes
-normal_clip_indices.rotation.animated_nodes
-normal_clip_indices.rotation.constant_nodes
+normal_clip_indices.rotation.*
 normal_clip_indices.translation.*
 normal_clip_indices.scale.*
-normal_clip_indices.load_pair_data_file_offset
+normal_clip_setup.constant_rotations
+normal_clip_setup.constant_translations
+normal_clip_setup.rotation_ranges
+normal_clip_setup.translation_ranges
+normal_clip_setup.scale_ranges
+normal_clip_setup.frame_data_file_offset
 ```
 
-The old marker-derived `normal_clip` tracks are no longer accepted. Until the real frame processor is ported, the probe status is:
+No fabricated animation timeline is emitted. Current track status remains:
 
 ```text
 pending:normal_clip_frame_decode
@@ -48,142 +53,140 @@ Nintendo Switch NSO main SHA-256:
 
 Decompressed .text SHA-256:
 1b93d59da91ecda15a048840787d22bcb52c99815acd0c2b32767da3615af252
-
-LoadIdxData bytes SHA-256:
-5d27ddb7e2c78e6fda7c124780e5b104d65b9c4b54fb8023800db0fda5b0f081
 ```
 
 ## Function map
 
 | Address | Function | Current state |
 |---:|---|---|
-| `0x1823FC` | `CAnimBitStream::DecodeValue32` | LSB-first reader identified; belongs to packed variants, not normal rotation records |
-| `0x194B98` | `NAnimStream::RemapIndex` | verified |
-| `0x194C00` | `NAnimStream::CountBoneBits` | verified |
-| `0x194CD0` | `NAnimStream::BuildBoneMap` | verified |
-| `0x194D44` | `NAnimStream::BuildActiveBoneSet` | verified |
-| `0x195BA8` | `CAnimStreamData::LoadIdxData` | fully ported and validated |
-| `0x1969A4` | `CAnimStreamData::LoadPairData` | next reverse-engineering target |
-| `0x196D88` | `CAnimStreamData::LoadRotRange` | range concept identified; production port pending |
-| `0x197BE0` | `CAnimStreamProcess::LoadSetupFrames` | pending |
-| `0x198B64` | normal-clip value reader | partial notes only; exact port pending |
+| `0x1823FC` | `CAnimBitStream::DecodeValue32` | verified LSB reader for packed variants |
+| `0x194B98` | `RemapIndex` | verified |
+| `0x194C00` | `CountBoneBits` | verified |
+| `0x194CD0` | `BuildBoneMap` | verified |
+| `0x194D44` | `BuildActiveBoneSet` | verified |
+| `0x195BA8` | `LoadIdxData` | fully ported and validated |
+| `0x1969A4` | `LoadPairData` | fully ported and validated |
+| `0x196D88` | `LoadRotRange` | fully ported and validated |
+| `0x196E98` | translation/scale range loader | fully ported and validated |
+| `0x197BE0` | `LoadSetupFrames` | next target |
+| `0x198B64` | normal-clip value reader | partial notes; exact port pending |
 | `0x199058` | Slerp step | interpolation type verified |
-| `0x199360` | `GenerateFrame` | pending full port |
+| `0x199360` | `GenerateFrame` | pending |
 
-## `normal_clip` verified structure
+## Verified serialized setup order
 
-### Container and stream start
-
-- `RFRM` at file `0x00`
-- `ANIM` at file `0x14`
-- control word at file `0x28`; low byte is the observed frame-count field
-- `CAnimStream` data pointer starts at file `0x28`
-- `SAnimStreamStart` is calculated dynamically by `CAnimStream::CreateAnimData`
-- for all 30 supplied Warus clips: start at file `0x53`, flags at `0x54`, index data at `0x55`
-
-The earlier statement that the rotation bitmap starts at `0x54` is rejected. `0x54` is the flags byte.
-
-### `LoadIdxData` result
-
-`LoadIdxData` does **not** parse frame times, sample records, or a separate serialized permutation table.
-
-It reads two bitmap levels, LSB-first:
-
-1. Base node-space maps for rotation, translation and scale.
-2. Selector maps over the resulting base lists.
-   - selector bit `1`: animated channel
-   - selector bit `0`: constant channel
-3. `RemapIndex` converts selector-local positions through the base list to real skeleton node indices.
-
-Flags used:
+Starting after `LoadIdxData`:
 
 ```text
-0x40 rotation maps present
-0x20 translation maps present
-0x10 scale maps present
+constant rotation records
+constant translation records
+rotation range nibble table
+translation range records
+scale range records
+frame-processing stream
 ```
 
-Serialized order:
+No alignment is inserted between these blocks.
+
+## `LoadIdxData`
+
+- Reads node-space base bitmaps for rotation, translation and scale.
+- Reads selector bitmaps over the base lists.
+- Selector `1` means animated; selector `0` means constant.
+- `RemapIndex` maps selector-local positions to real skeleton node indices.
+- Does not read key times or a separate serialized permutation table.
+
+For `016__b_idle_1_ws`:
 
 ```text
-rotation base map
-translation base map
-scale base map
-rotation selector
-translation selector
-scale selector
-LoadPairData begins immediately after the final selector
-```
-
-There is no alignment between these bitmap blocks.
-
-### Worked sample: `016__b_idle_1_ws`
-
-```text
-full nodes: 81
-SAnimStreamStart: 0x53
+81 nodes
 flags: 0x79
-rotation base: 0x55, 53 nodes
-translation base: 0x60, 10 nodes
-scale base: 0x6B, 13 nodes
-rotation selector: 0x76, 37 animated / 16 constant
-translation selector: 0x7D, 8 animated / 2 constant
-scale selector: 0x7F, 13 animated / 0 constant
-LoadPairData starts: 0x81
+rotation: 53 base / 37 animated / 16 constant
+translation: 10 base / 8 animated / 2 constant
+scale: 13 base / 13 animated / 0 constant
+LoadPairData start: 0x81
 ```
 
-### Validation
+## `LoadPairData`: verified
 
-Strict parser result over all supplied Warus clips:
+### Constant rotation
+
+- One record per constant rotation node.
+- Original routine performs a 12-byte lookahead.
+- Stream advances by 8 or 12 bytes according to bit 31 of the first big-endian word.
+- Quantized `X/Y/Z` use multiplier `2^-27` and offset `-1`.
+- `W = ±sqrt(1 - X² - Y² - Z²)` when the vector length is below one.
+- Bit 30 selects the sign of `W`.
+- Stored order is `(W, X, Y, Z)`.
+
+### Constant translation
+
+- One record per constant translation node.
+- Same 8/12-byte advance rule and 12-byte lookahead.
+- Bits 25..29 encode a power-of-two range exponent.
+- Bit 30 selects direct or reciprocal range.
+- Components use `value = integer * (2 * R * 2^-29) - R`.
+
+## Range loaders: verified
+
+### Rotation ranges
+
+One nibble per animated rotation channel, **low nibble first**:
 
 ```text
-30 / 30 parsed
-0 base-map padding violations
-0 selector padding violations
-0 partition failures
-SAnimStreamStart = 0x53 in all samples
-LoadPairData start = 0x7F..0x83
+R = reinterpret_float(0x3F800000 - (nibble << 22))
+base = -R
+scale = R * 2^-23
 ```
 
-## Rotation codec: current truth
+The earlier `R * 2 * 2^-23` claim is rejected.
 
-Verified or strongly supported:
+### Translation and scale ranges
 
-- normal-clip rotation records are big-endian fixed records, not the old six-byte marker vectors
-- record size is 8 or 12 bytes depending on a flag
-- channel-specific ranges are loaded by `LoadRotRange`
-- quaternion `W` is reconstructed from `X/Y/Z` and a sign flag
-- playback uses quaternion Slerp
+- One 8-byte range record per animated channel.
+- Produces base `xyz` and span `xyz`.
+- Compact floats are reconstructed exactly from the binary instruction sequence.
+- Translation span multiplier: flag bit 2 set -> `2^-30`, otherwise `2^-20`.
+- Scale span multiplier: encoded mode `3` -> `2^-30`, otherwise `2^-20`.
 
-Not yet safe to implement as final:
+## Validation
 
-- exact record flag positions
-- exact 23/24-bit component assembly
-- special-record path
-- frame/key timing and record traversal
+Strict parsing against all 30 supplied Warus clips and the full 81-node skeleton:
 
-Consequently, no real `normal_clip` timeline is emitted yet.
+```text
+30 / 30 index blocks parsed
+30 / 30 setup blocks parsed
+0 bitmap padding violations
+all constant quaternion norms ~= 1
+all constant vectors finite
+all range values finite
+frame-data offsets: 0x122 .. 0x1ED
+```
 
-## Packed variants
+For `016__b_idle_1_ws`:
 
-`packed_clip_82`, `packed_state_c1`, and `packed_state_c2` are separate codec families. The existing `anim_packed_sample_decode.py` remains experimental and must not be treated as verified. The LSB-first `DecodeValue32` route is relevant here, not as the main normal-clip rotation record path.
+```text
+LoadPairData start:       0x081
+LoadPairData end:         0x111
+rotation ranges end:      0x124
+translation ranges end:   0x164
+frame-data start:         0x1CC
+```
 
 ## Remaining path to Blender playback
 
-1. Port `LoadPairData` for constant rotation and translation values.
-2. Port rotation/vector range loaders.
-3. Port `LoadSetupFrames` and the frame-processing routine.
-4. Port `0x198B64` exactly.
-5. Produce local node TRS keys with correct timing.
-6. Apply Slerp for rotations and verify translation/scale interpolation.
-7. Validate fixed node mapping against the 41 RenderDoc frames.
-8. Export real quaternion/location/scale F-curves to Blender.
+1. Port `LoadSetupFrames @ 0x197BE0`.
+2. Identify frame-block traversal and key timing.
+3. Port the value readers, including `0x198B64`, instruction-for-instruction.
+4. Produce local node rotation/translation/scale keys.
+5. Apply Slerp for rotations and verify vector interpolation.
+6. Validate fixed node mapping against the 41 RenderDoc captures.
+7. Emit real Blender quaternion/location/scale F-curves.
 
 ## Rejected earlier assumptions
 
-- `0x54` is the rotation bitmap — rejected.
-- `b_idle_1` has 58 rotation channels at this stage — rejected; the correct animated count is 37 and base count is 53.
-- `BuildActiveBoneSet` reads one seven-channel flag byte per node — rejected; it is an unrolled bitmap splitter.
+- `0x54` is the rotation bitmap — rejected; it is the flags byte.
 - `LoadIdxData` reads keyframe times — rejected.
 - `LoadIdxData` reads a separate permutation table — rejected.
+- normal-clip rotation ranges use `R * 2 * 2^-23` — rejected; the binary uses `R * 2^-23`.
 - marker-spaced six-byte vectors are the normal-clip codec — rejected.
