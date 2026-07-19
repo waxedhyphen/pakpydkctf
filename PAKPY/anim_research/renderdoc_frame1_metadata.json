@@ -1,0 +1,29 @@
+{
+  "rdc_sha256": "3cf3aa474cfc203dae4dd354797bb4d8685cf8d5d3dac20084d24bc7f1a2c6fc",
+  "file_size": 452629218,
+  "file_version": 258,
+  "program_version": "1.45 2fc0bc",
+  "header_length": 135914,
+  "thumbnail": [1080, 488, 135838],
+  "driver_id": 8,
+  "driver_name": "Vulkan",
+  "machine_ident": 8449,
+  "timestamp_base": 1490467273743,
+  "timestamp_frequency": 10.0,
+  "section_type": 1,
+  "section_name": "renderdoc/internal/framecapture",
+  "section_compressed_size": 452493232,
+  "section_uncompressed_size": 1004863296,
+  "section_version": 32,
+  "section_flags": 2,
+  "decompressed_block_count": 959,
+  "matrix_copy_offsets": [
+    "0x3B08AE80",
+    "0x3B0A3480",
+    "0x3B0A5500",
+    "0x3B0B3880",
+    "0x3B0B5900"
+  ],
+  "matrix_palette_bytes": 2880,
+  "matrix_palette_shape": "60 x 3 x 4 float32"
+}
