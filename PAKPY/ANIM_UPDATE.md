@@ -1,11 +1,11 @@
 # DKCTF ANIM — central update file
 
 **Status date:** 2026-07-19  
-**Document schema:** 7
+**Document schema:** 8
 
-This is the authoritative current-state document. Replace or extend it when new
-findings are confirmed. Runtime changes require a regression test. Isolated
-resource playback and strict live-game pose reproduction are tracked separately.
+This is the authoritative current-state document. Runtime changes require a
+regression test. Isolated resource playback, Blender conversion and strict
+live-game pose reproduction are tracked separately.
 
 ## Current runtime pipeline
 
@@ -14,21 +14,17 @@ resource playback and strict live-game pose reproduction are tracked separately.
 | `anim_normal_clip_indices.py` | exact two-level node/channel bitmap parser |
 | `anim_normal_clip_setup.py` | constants, quantization ranges and frame-stream start |
 | `anim_normal_clip_frames.py` | exact key timing and record boundaries |
-| `anim_normal_clip_values.py` | exact rotation/compact-vector/extended-vector payload decode |
-| `anim_normal_clip_values_patch.py` | writes sparse node-indexed key documents |
-| `anim_normal_clip_pose.py` | exact local-pose interpolation and optional SKEL remap |
-| `anim_normal_clip_pose_patch.py` | writes complete identity-base local pose frames |
-| `anim_normal_clip_bind.py` | exact bind, root-anchor, hierarchy and render-matrix composition |
-| `anim_normal_clip_bind_patch.py` | writes 81-node absolute and 60-bone render matrices |
-| `blender_normal_clip_action_script_patch.py` | generates rest-calibrated Blender Action importer |
-| `test_blender_normal_clip_action_math.py` | verifies rest calibration and motion preservation |
-| `anim_research/NormalClip_value_payloads.md` | value-reader documentation |
-| `anim_research/NormalClip_pose_interpolation.md` | local interpolation documentation |
-| `anim_research/NormalClip_bind_hierarchy.md` | CSkelPose bind/hierarchy documentation |
-| `anim_research/RenderDoc_idle_capture.md` | RDC/CSV analysis and live-pose limitations |
-| `anim_research/renderdoc_frame1_metadata.json` | parsed RDC metadata |
-| `anim_research/renderdoc_frame1_matrix_copies.csv` | exact GPU palette locations |
-| `anim_research/renderdoc_capture_sequence.csv` | chronological palette-change report |
+| `anim_normal_clip_values.py` | rotation/compact-vector/extended-vector payload decode |
+| `anim_normal_clip_pose.py` | local-pose interpolation and optional SKEL remap |
+| `anim_normal_clip_bind.py` | bind, root-anchor, hierarchy and render-matrix composition |
+| `blender_normal_clip_action_script_patch.py` | base Blender Action script generator |
+| `blender_normal_clip_action_v2_patch.py` | guarded basis, split FPS, loop and capture-fit upgrade |
+| `anim_capture_fit.py` | cyclic/subframe RenderDoc palette-to-clip matcher |
+| `test_anim_capture_fit.py` | capture parser and cyclic subframe regression tests |
+| `test_blender_normal_clip_action_generator.py` | generated-script, timing, basis-guard and loop tests |
+| `anim_research/RenderDoc_idle_capture.md` | corrected Pompy capture analysis |
+| `anim_research/Warus_level_posegraph.md` | level actor and clip-selection evidence |
+| `anim_research/warus_pompy_capture_fit.*` | machine-readable 30-clip ranking |
 
 Exported normal clips receive:
 
@@ -37,39 +33,27 @@ normal_clip_indices.*
 normal_clip_setup.*
 normal_clip_frames.*
 normal_clip_values_file
-normal_clip_values_summary
 normal_clip_pose_file
-normal_clip_pose_summary
 normal_clip_bind_file
-normal_clip_bind_summary
 ```
 
-Generated analysis and Blender files include:
+Generated package tools include:
 
 ```text
-debug/anim_normal_clip_values/*.normal_clip_values.json
-debug/anim_normal_clip_pose/*.normal_clip_pose.json
-debug/anim_normal_clip_bind/*.normal_clip_bind.json
 blender_import_normal_clip_actions.py
 BLENDER_NORMAL_CLIP_ACTIONS.txt
+anim_capture_fit.py
+ANIM_CAPTURE_FIT.txt
 ```
 
 ## Current readiness
 
 ```text
-isolated normal_clip Blender Action: ready
-strict live-game layered pose match: pending posegraph/timestamp inputs
+normal_clip binary decode and integer game poses: ready
+isolated Blender Action generation: ready with guarded basis validation
+Warus capture base clip and timing: identified
+strict complete live actor pose: pending additional actor/posegraph inputs
 ```
-
-The existing generic probe status remains:
-
-```text
-pending:normal_clip_external_root_and_blender_basis
-```
-
-That status refers to strict live-game actor reproduction. The generated isolated
-`normal_clip` Blender Action path is ready and is reported separately by the
-Blender importer.
 
 No marker-derived or prefix-mapped heuristic animation is accepted as a real
 `normal_clip` timeline.
@@ -119,8 +103,9 @@ No marker-derived or prefix-mapped heuristic animation is accepted as a real
 - Node flag bit zero selects parent-scale cancellation.
 - Render matrices are `currentAbsolute[node] * inverseBaseAbsolute[node]` in SKEL
   skin order.
+- For the supplied Warus capture the optional SKEL remap must remain disabled.
 
-## Validation
+## Decoder validation
 
 Across the 30 supplied Warus clips:
 
@@ -133,51 +118,75 @@ all quaternion/TRS/matrix values finite: yes
 rest-pose identity test:         passed
 ```
 
-Blender Action calibration tests:
+## Corrected RenderDoc result
+
+The one-gigabyte RDC FrameCapture section was decompressed and the 60×3×4 CSV
+palette was found five times byte-identically.
+
+The previous comparison used the wrong clip. The uploaded level PAK shows that
+the Ledge Guardian render component selects `a_pompy_idle_ws`. A package-wide
+fit of all 30 normal clips gives:
 
 ```text
-rest matrix maps exactly:        passed
-current motion preserved:        passed
+best clip:                    a_pompy_idle_ws
+integer samples:              31
+interpreted loop length:      30 frames
+capture 1 time:               approximately 27.5
+capture step:                 approximately 0.5 ANIM frames
+render/clip rate:             approximately 60 Hz / 30 fps
+absolute RMSE:                0.13559
+motion RMSE:                  0.00163
+centered residual RMSE:       0.01191
+
+b_idle_1_ws absolute RMSE:    0.60129
+b_idle_1_ws motion RMSE:      0.00888
 ```
 
-## RenderDoc result
-
-The uploaded capture 1 was parsed and its one-gigabyte FrameCapture section was
-successfully decompressed. The 60×3×4 matrix palette exported in `1.csv` occurs
-five times byte-identically in the RDC. CSV files 1–41 are chronological, but no
-capture contains an ANIM frame number or a common fixed frame step.
-
-The live palette is not treated as the output of one pure normal clip. Bone-wise
-comparison shows additional live posegraph/helper/procedural influences. The
-isolated clip importer is therefore marked ready, while exact reproduction of
-the complete live actor remains a separate task.
+The very low motion error shows that the decoded Pompy motion is close to the
+capture. Remaining errors are dominated by nearly constant offsets in selected
+shoulder, wrist/hand/finger, helper and mustache chains. These are tracked as
+additional live actor/posegraph inputs, not as evidence that the normal-clip
+payload decoder is half-functional.
 
 ## Blender Action mapping
 
-The generated importer estimates a similarity transform `C` between game and
-Blender rest-joint positions, then uses a per-bone rest correction:
+The importer still uses per-bone rest correction:
 
 ```text
 O_b = inverse(C * gameRestGlobal_b) * blenderRestGlobal_b
 M_b(frame) = C * gameCurrentGlobal_b(frame) * O_b
 ```
 
-This maps the decoded rest pose exactly onto the opened armature and absorbs
-Blender bone roll without a fixed manual axis table. It writes location,
-quaternion and scale keys for every integer clip frame and sets linear
-interpolation.
+The generated script now improves the unsafe parts around `C` and timing:
 
-## Remaining work
+- default basis fit uses stable torso/leg anchors rather than every Blender bone
+  head;
+- the basis fit has a configurable maximum residual and aborts on failure;
+- anchor-fit and all-bone residuals are reported separately;
+- scene/render FPS and source clip FPS are separate;
+- `--scene-fps 60 --clip-fps 30` reproduces the capture sampling cadence;
+- duplicate-endpoint loops receive Cycles modifiers automatically.
 
-For isolated `normal_clip` playback in Blender: none beyond executing the
-generated importer on the exported armature.
+The previous Warus Blender report used a high-residual all-bone fit:
 
-For strict live-game 1:1 reproduction:
+```text
+basis scale:                    0.854199
+all-bone residual median:       0.297898
+all-bone residual maximum:      0.911374
+```
 
-1. recover animation time for every original RDC, not only CSV order;
-2. capture or decode all active posegraph/blend/procedural inputs;
-3. identify the external actor/model transform and optional SKEL-remap caller state;
-4. compare the complete layered pose against the GPU palette.
+That fit is no longer silently accepted as proof of a correct basis. The
+experimental skeletal DAE joint globals match the decoded SKEL rest positions to
+approximately `1e-8`.
+
+## Remaining work for strict live 1:1 reproduction
+
+1. recover or capture the input/base pose supplied to missing/masked clip channels;
+2. identify the active ActorKeyframe, helper, constraint and procedural outputs;
+3. apply the external actor/model transform when comparing absolute world poses;
+4. rerun the updated Blender importer on the untouched experimental skeletal
+   Armature and inspect its guarded basis report;
+5. compare the complete layered result against the GPU palette.
 
 ## Rejected assumptions
 
@@ -187,5 +196,7 @@ For strict live-game 1:1 reproduction:
 - vector span mode is selected from unrelated low flag bits;
 - nominal record advance limits decoder lookahead;
 - CSV number equals ANIM frame number;
-- the 41 chronological palettes are a pure isolated `b_idle_1_ws` export;
-- the old diagnostic order `inverse(bind) * current` isolates the animation delta.
+- the supplied captures are `b_idle_1_ws`;
+- each capture advances one integer ANIM frame;
+- a high-residual all-bone Blender similarity fit is valid;
+- the old diagnostic order `inverse(bind) * current` isolates animation delta.
