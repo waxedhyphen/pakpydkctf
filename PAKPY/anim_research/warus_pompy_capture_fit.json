@@ -1,0 +1,55 @@
+{
+  "type": "ANIM_CAPTURE_CLIP_FIT",
+  "capture_count": 41,
+  "capture_source": "chronological RenderDoc palette CSVs 1..41",
+  "best_match": {
+    "clip_name": "a_pompy_idle_ws",
+    "source_file": "a_pompy_idle_ws__610e7380b3f647c284ea16fbde80b2c0.normal_clip_bind.json",
+    "frame_count": 31,
+    "loop_length": 30.0,
+    "capture_count": 41,
+    "offset": 27.6,
+    "step": 0.49,
+    "absolute_rmse": 0.135589555006564,
+    "motion_rmse": 0.0016295416030725652,
+    "centered_rmse": 0.011905041781410185,
+    "score": 0.0055318368813448635
+  },
+  "runner_up": {
+    "clip_name": "b_idle_1_ws",
+    "source_file": "b_idle_1_ws__ffbe63fb223d4ed8978271d420312f23.normal_clip_bind.json",
+    "frame_count": 61,
+    "loop_length": 60.0,
+    "capture_count": 41,
+    "offset": 58.0,
+    "step": 0.35,
+    "absolute_rmse": 0.601293297064417,
+    "motion_rmse": 0.008880684869170654,
+    "centered_rmse": 0.07761523814535347,
+    "score": 0.028668074624994343
+  },
+  "interpreted_timing": {
+    "clip": "a_pompy_idle_ws",
+    "effective_loop_frames": 30,
+    "capture_1_anim_frame_approx": 27.5,
+    "anim_frames_per_capture_approx": 0.5,
+    "capture_rate_hz_approx": 60,
+    "clip_rate_fps": 30
+  },
+  "level_pak_evidence": {
+    "source_pak": "b00_mangrove_seaLion.pak",
+    "render_component_offset": "0x433C9",
+    "char_entry_uuid": "02603871c3ab4ccfb81b27a7929bc20a",
+    "default_clip": "a_pompy_idle_ws",
+    "actor_keyframe_clips": [
+      "a_pompy_idle_ws",
+      "a_pompy_attack_forward_ws",
+      "a_pompy_jump_into_arena_ws"
+    ]
+  },
+  "notes": [
+    "The optimized numeric fit is 27.6/0.49 because diagnostic subframes linearly interpolate exported render matrices.",
+    "The runtime-consistent interpretation is approximately 27.5/0.5: 60-Hz render samples of a 30-fps clip.",
+    "The remaining error is dominated by nearly constant bone-chain offsets rather than the clip motion."
+  ]
+}
