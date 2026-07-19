@@ -1,7 +1,7 @@
 # DKCTF ANIM — central update file
 
 **Status date:** 2026-07-19  
-**Document schema:** 4
+**Document schema:** 5
 
 This is the authoritative current-state document. Replace or extend it when
 new findings are confirmed. Runtime code changes require a regression test and
@@ -12,13 +12,18 @@ unsupported stages must remain in a `pending:*` state.
 | File | Purpose |
 |---|---|
 | `anim_normal_clip_indices.py` | exact two-level node/channel bitmap parser |
-| `anim_normal_clip_setup.py` | constants, corrected quantization ranges and frame-stream start |
+| `anim_normal_clip_setup.py` | constants, quantization ranges and frame-stream start |
 | `anim_normal_clip_frames.py` | exact key timing and record boundaries |
 | `anim_normal_clip_values.py` | exact rotation/compact-vector/extended-vector payload decode |
 | `anim_normal_clip_values_patch.py` | writes sparse node-indexed key documents |
+| `anim_normal_clip_pose.py` | exact local-pose interpolation and optional SKEL remap |
+| `anim_normal_clip_pose_patch.py` | writes complete identity-base local pose frames |
 | `test_anim_normal_clip_values.py` | value codec and corrected multiplier tests |
+| `test_anim_normal_clip_pose.py` | interpolation, inheritance and SKEL-remap tests |
 | `anim_research/NormalClip_value_payloads.md` | address-level payload documentation |
-| `anim_research/normal_clip_value_validation.csv` | 30-clip validation report |
+| `anim_research/NormalClip_pose_interpolation.md` | `0x1973BC` and local-pose documentation |
+| `anim_research/normal_clip_value_validation.csv` | 30-clip value validation report |
+| `anim_research/normal_clip_pose_validation.csv` | 30-clip local-pose validation report |
 
 Exported normal clips now receive:
 
@@ -28,18 +33,21 @@ normal_clip_setup.*
 normal_clip_frames.*
 normal_clip_values_file
 normal_clip_values_summary
+normal_clip_pose_file
+normal_clip_pose_summary
 ```
 
 Sparse decoded values are written to:
 
 ```text
 debug/anim_normal_clip_values/*.normal_clip_values.json
+debug/anim_normal_clip_pose/*.normal_clip_pose.json
 ```
 
 The current generic track status is deliberately:
 
 ```text
-pending:normal_clip_pose_composition
+pending:normal_clip_bind_composition
 ```
 
 No old marker-derived or prefix-mapped animation is accepted as a real
@@ -60,7 +68,10 @@ No old marker-derived or prefix-mapped animation is accepted as a real
 | `0x198E4C` | packed duration decoder | fully ported |
 | `0x198F40` | due-channel list builder | fully ported structurally |
 | `0x199058` | `ProcessFrame` | traversal plus compact vector payload ported |
-| `0x1973BC` | interpolation/output composition | next target |
+| `0x1973BC` | local TRS interpolation/output | fully ported/validated |
+| `0x197900` | output/base-pose initialization | structurally ported |
+| `0x12D57C` | optional quaternion SKEL remap | fully ported |
+| `0x12D610` | optional translation SKEL remap | fully ported |
 | `0x199360` | frame generation control | control flow understood |
 
 ## Verified setup and timing
@@ -111,6 +122,25 @@ The earlier low-bit multiplier selection is rejected.
 - Both paths intentionally read beyond the nominal advance and overlap following data.
 - Values use `base + scaledSpan * quantized` per component.
 
+## Verified local-pose interpolation
+
+- Missing channels inherit an input pose; the standalone evaluator uses identity TRS.
+- Rotation is shortest-path normalized linear interpolation.
+- The right key's interpolation sign bit controls the segment ending at that key.
+- The binary's correction coefficient multiplies both quaternion weights equally and cancels after normalization.
+- Translation and scale are component-wise linear.
+- Output layout is WXYZ at `+0x00`, scale XYZ at `+0x10`, translation XYZ at `+0x1C`.
+- Optional SKEL sign/permutation helpers are ported but remain opt-in because their caller flag is external to the ANIM stream.
+
+Local-pose validation across all clips:
+
+```text
+clips evaluated:               30 / 30
+complete local node-frames:    65,286
+maximum quaternion norm error: 2.22044604925e-16
+all TRS values finite:         yes
+```
+
 ## Validation
 
 Across all 30 supplied Warus clips:
@@ -131,11 +161,11 @@ key schedules match exactly:     yes
 
 ## Remaining path to Blender
 
-1. Port the interpolation/output composition around `0x1973BC`.
-2. Establish the exact multiplication order with SKEL bind transforms.
-3. Apply root motion and coordinate-system conversion.
-4. Verify composed bone matrices against the 41 RenderDoc captures.
-5. Emit quaternion/location/scale F-curves and activate the Blender Action.
+1. Port the bind-pose/hierarchy application after local-pose output.
+2. Resolve `blendspace`, `root.move`, `root` and the external model transform.
+3. Reconstruct all 81 global node matrices including helper/scale-compensation nodes.
+4. Verify final skinning matrices against the 41 RenderDoc captures.
+5. Apply Blender basis conversion and emit quaternion/location/scale F-curves.
 
 ## Rejected assumptions
 
