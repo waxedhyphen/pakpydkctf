@@ -18,6 +18,7 @@ from blender_preview_timeline_script_patch import install as install_blender_pre
 from char_required_anim_mirror_patch import install as install_char_required_anim_mirror_patch
 from prefix_track_map_patch import install as install_prefix_track_map_patch
 from anim_normal_clip_indices_patch import install as install_anim_normal_clip_indices_patch
+from anim_normal_clip_setup_patch import install as install_anim_normal_clip_setup_patch
 from group_accept_patch import install as install_group_accept_patch
 from windows_compat import configure_root, setup_windows_process
 install_skeletal_tail_patch()
@@ -33,6 +34,7 @@ install_char_anim_selector_patch(App)
 install_anim_raw_probe_patch(App)
 install_prefix_track_map_patch(App)
 install_anim_normal_clip_indices_patch(App)
+install_anim_normal_clip_setup_patch(App)
 install_anim_track_skel_map_patch(App)
 install_group_accept_patch(App)
 install_anim_timeline_summary_scope_patch(App)
