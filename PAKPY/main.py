@@ -21,6 +21,7 @@ from anim_normal_clip_indices_patch import install as install_anim_normal_clip_i
 from anim_normal_clip_setup_patch import install as install_anim_normal_clip_setup_patch
 from anim_normal_clip_frames_patch import install as install_anim_normal_clip_frames_patch
 from anim_normal_clip_values_patch import install as install_anim_normal_clip_values_patch
+from anim_normal_clip_pose_patch import install as install_anim_normal_clip_pose_patch
 from group_accept_patch import install as install_group_accept_patch
 from windows_compat import configure_root, setup_windows_process
 install_skeletal_tail_patch()
@@ -39,6 +40,7 @@ install_anim_normal_clip_indices_patch(App)
 install_anim_normal_clip_setup_patch(App)
 install_anim_normal_clip_frames_patch(App)
 install_anim_normal_clip_values_patch(App)
+install_anim_normal_clip_pose_patch(App)
 install_anim_track_skel_map_patch(App)
 install_group_accept_patch(App)
 install_anim_timeline_summary_scope_patch(App)
