@@ -9,6 +9,7 @@ from missing_txtr_export_error_patch import install as install_missing_txtr_expo
 from skeletal_tail_patch import install as install_skeletal_tail_patch
 from exact_skeletal_rig_patch import install as install_exact_skeletal_rig_patch
 from mesh_partition_export_patch import install as install_mesh_partition_export_patch
+from mesh_partition_outliner_cleanup_patch import install as install_mesh_partition_outliner_cleanup_patch
 from tree_ctrl_select_patch import install as install_tree_ctrl_select_patch
 from model_animation_refs_patch import install as install_model_animation_refs_patch
 from char_anim_selector_patch import install as install_char_anim_selector_patch
@@ -34,6 +35,7 @@ from windows_compat import configure_root, setup_windows_process
 install_skeletal_tail_patch()
 install_exact_skeletal_rig_patch()
 install_mesh_partition_export_patch()
+install_mesh_partition_outliner_cleanup_patch()
 install_dcln_gui(App)
 install_room_gui(App)
 install_char_gui(App)
