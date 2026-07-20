@@ -10,7 +10,6 @@ import pak_core
 import pak_extract
 import rigged_gltf
 
-
 def _pack_half(value: float) -> bytes:
     value = float(value)
     if not math.isfinite(value):
@@ -85,7 +84,7 @@ def _encode_vertex_buffer(
                 record[offset : offset + 12] = struct.pack("<3f", *[float(value) for value in vertex["position"][:3]])
             elif fmt == 34 and semantic == 1 and offset + 8 <= stride:
                 _write_vec4_half(record, offset, list(vertex["normal"][:3]) + [0.0])
-            elif fmt == 34 and semantic in {2, 3} and offset + 8 <= stride:
+            elif fmt == 34 and semantic in {2, 3, 12, 13} and offset + 8 <= stride:
                 _write_vec4_half(record, offset, vertex["tangent"][:4])
             elif fmt in (20, 21) and semantic in {4, 5, 6, 7, 8, 9, 10, 11} and offset + 4 <= stride:
                 _write_vec2_half(record, offset, vertex["uv"][:2])
@@ -162,8 +161,11 @@ def _build_model_asset(original_asset: bytes, parts: list[dict[str, Any]]) -> tu
             )
     new_vertex_blocks: list[bytes] = []
     for index, descriptor in enumerate(vbufs):
-        descriptor["vertex_count"] = len(vbuf_vertices[index])
-        new_vertex_blocks.append(_encode_vertex_buffer(descriptor, vbuf_vertices[index], old_gpu_data[index]))
+        if vbuf_vertices[index]:
+            descriptor["vertex_count"] = len(vbuf_vertices[index])
+            new_vertex_blocks.append(_encode_vertex_buffer(descriptor, vbuf_vertices[index], old_gpu_data[index]))
+        else:
+            new_vertex_blocks.append(old_gpu_data[index])
     ibuf_indices: list[list[int]] = [[] for _ in ibufs]
     for mesh_index, (mesh, part) in enumerate(zip(new_meshes, parts)):
         ibuf_index = int(mesh["index_buffer_index"])
@@ -178,6 +180,10 @@ def _build_model_asset(original_asset: bytes, parts: list[dict[str, Any]]) -> tu
     new_index_blocks: list[bytes] = []
     for index, descriptor in enumerate(ibufs):
         values = ibuf_indices[index]
+        used = any(int(mesh["index_buffer_index"]) == index for mesh in new_meshes)
+        if not used:
+            new_index_blocks.append(old_gpu_data[len(vbufs) + index])
+            continue
         max_index = max(values, default=0)
         old_type = int(descriptor.get("index_type", 1))
         if max_index > 0xFFFF:
