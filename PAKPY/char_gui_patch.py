@@ -49,6 +49,8 @@ def install(App):
                     '',
                     f'Modelle: {result["resolved_model_count"]}/{result["model_count"]} aufgelöst',
                     f'Animationen: {result["resolved_animation_count"]}/{result["animation_count"]} aufgelöst',
+                    f'Blender-Actions: {result.get("experimental_skeletal_blend_action_count", 0)} | Status: {result.get("experimental_skeletal_blend_actions_status", "nicht ausgefÃ¼hrt")}',
+                    f'Action-Fehler: {result.get("experimental_skeletal_blend_action_error_count", 0)}',
                     f'Weitere Ressourcen: {result["resource_count"]}',
                     f'Fehlende Referenzen: {result["missing_count"]}'
                 ]

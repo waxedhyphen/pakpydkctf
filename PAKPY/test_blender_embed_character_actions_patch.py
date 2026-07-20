@@ -102,6 +102,26 @@ class CharacterBlendActionEmbedTests(unittest.TestCase):
                 wrapped(None, None, None)
             mocked.assert_called_once()
 
+    def test_raw_character_export_dispatches_direct_batch_without_bind_json(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            def original(_parsed, _entry, _out_dir, require_store=None):
+                return {
+                    "package_dir": str(root),
+                    "animation_source_mode": "character_root_raw",
+                }
+
+            wrapped = character_embed._wrap_character_export(original)
+            with patch.object(
+                character_embed.character_animation_batch,
+                "run_character_animation_batch",
+                return_value={"status": "ok"},
+            ) as batch_run:
+                wrapped(None, None, None)
+            batch_run.assert_called_once()
+            self.assertEqual(batch_run.call_args.args[0], root.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

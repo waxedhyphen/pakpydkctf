@@ -2,6 +2,8 @@ import unittest
 
 from anim_normal_clip_setup import (
     ROT_RANGE_SCALE,
+    VEC_RANGE_COARSE_MULTIPLIER,
+    VEC_RANGE_FINE_MULTIPLIER,
     decode_constant_rotation,
     decode_rotation_ranges,
     decode_vector_range_record,
@@ -36,10 +38,10 @@ class NormalClipSetupTests(unittest.TestCase):
         self.assertEqual(span, (0.0, 0.0, 0.0))
 
     def test_precision_modes_from_stream_flags(self):
-        self.assertEqual(translation_span_multiplier(0x79), 2.0 ** -20)
-        self.assertEqual(translation_span_multiplier(0x7D), 2.0 ** -30)
-        self.assertEqual(scale_span_multiplier(0x79), 2.0 ** -20)
-        self.assertEqual(scale_span_multiplier(0x7A), 2.0 ** -30)
+        self.assertEqual(translation_span_multiplier(0x79), VEC_RANGE_COARSE_MULTIPLIER)
+        self.assertEqual(translation_span_multiplier(0x7D), VEC_RANGE_FINE_MULTIPLIER)
+        self.assertEqual(scale_span_multiplier(0x79), VEC_RANGE_FINE_MULTIPLIER)
+        self.assertEqual(scale_span_multiplier(0x7A), VEC_RANGE_FINE_MULTIPLIER)
 
 
 if __name__ == "__main__":

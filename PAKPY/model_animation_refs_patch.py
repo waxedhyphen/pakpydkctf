@@ -403,24 +403,13 @@ def _install_model_package_patch():
 def _install_char_package_patch():
     original=char_skeletal_package_patch.export_clean_char_package
     def patched_export_clean_char_package(parsed,entry,out_dir,require_store=None):
+        # A normal CHAR export deliberately stops at the compact raw ANIM
+        # sources here.  The final character Blender batch consumes them
+        # directly.  _write_animation_probe_set remains available for explicit
+        # diagnostics, but writing its multi-gigabyte JSON tree is not part of
+        # the production export path.
         result=original(parsed,entry,out_dir,require_store=require_store)
-        try:
-            package_dir=Path(result['package_dir'])
-            refs=_collect_char_animation_refs(parsed,entry,require_store)
-            anim_result=_write_animation_probe_set(parsed,entry,package_dir,refs,require_store,root_name='char')
-            result['anim_probe21_summary_path']=str(package_dir/anim_result['summary_file'])
-            result['anim_probe21_count']=anim_result['animation_count']
-            result['anim_probe21_compact21_count']=anim_result['compact21_count']
-            manifest_path=Path(result.get('manifest_path') or package_dir/'manifest.json')
-            if manifest_path.is_file():
-                manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
-                manifest['anim_probe21_summary']=anim_result['summary_file']
-                manifest['anim_probe21_count']=anim_result['animation_count']
-                manifest['anim_probe21_compact21_count']=anim_result['compact21_count']
-                manifest['anim_probe21_refs']=anim_result['animations']
-                manifest_path.write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding='utf-8',newline='\n')
-        except Exception as e:
-            result['anim_probe21_error']=str(e)
+        result['animation_source_mode']='character_root_raw'
         return result
     def export_char_package(parsed,entry,out_dir,require_store=None):
         return patched_export_clean_char_package(parsed,entry,out_dir,require_store=require_store)

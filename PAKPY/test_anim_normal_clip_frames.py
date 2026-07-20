@@ -2,6 +2,7 @@ from types import SimpleNamespace
 import unittest
 
 from anim_normal_clip_frames import (
+    NormalClipFrameError,
     _WordDurationReader,
     compact_vector_record_size,
     extended_vector_record_size,
@@ -64,6 +65,29 @@ class FrameScheduleTests(unittest.TestCase):
         self.assertEqual(len(result.blocks), 2)
         self.assertEqual(result.stream_end_file_offset, len(raw) - 8)
         self.assertEqual(result.trailing_hex, "00" * 8)
+
+    def test_nonstrict_schedule_holds_previous_key_when_final_record_is_omitted(self):
+        value_block = bytes(8 + 4 + 4)
+        raw = bytearray()
+        raw += value_block
+        raw += bytes([0x1C])
+        raw += bytes(3)
+        raw += value_block
+        raw += bytes([0x1C])
+        raw += bytes(3)
+        indices = SimpleNamespace(
+            flags=0,
+            frame_count_field=3,
+            rotation=ChannelSet([4]),
+            translation=ChannelSet([5]),
+            scale=ChannelSet([6]),
+        )
+        setup = SimpleNamespace(indices=indices, frame_data_file_offset=0)
+        result = parse_frame_schedule_from_setup(bytes(raw), setup, strict=False)
+        self.assertEqual(result.stream_end_file_offset, len(raw))
+        self.assertEqual(len(result.blocks[-1].records), 0)
+        with self.assertRaises(NormalClipFrameError):
+            parse_frame_schedule_from_setup(bytes(raw), setup, strict=True)
 
 
 if __name__ == "__main__":

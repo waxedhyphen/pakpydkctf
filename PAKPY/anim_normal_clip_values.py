@@ -53,7 +53,7 @@ class NormalClipValueResult:
                     item['node_name']=node_names[i] if 0<=i<len(node_names) else f'<node_{i}>'
         return out
 
-def decode_rotation_payload(raw,off,base,scale):
+def decode_rotation_payload(raw,off,base,scale,*,allow_non_axis_special=False):
     """12-byte lookahead, 8/12-byte caller advance."""
     b=_need(raw,off,12,'rotation record/lookahead')
     h0,h1,h2,h3=(int.from_bytes(b[i:i+2],'big') for i in (0,2,4,6))
@@ -63,11 +63,13 @@ def decode_rotation_payload(raw,off,base,scale):
     sign_bit=(h0>>1)&1
     if special and not extended:
         if {h1,h2,h3}!={1,2,3}:
-            raise NormalClipValueError(f'bad special quaternion slots at 0x{off:X}')
-        q=[0.0]*4; q[h1]=sign
-        return {'quaternion_wxyz':tuple(q),'quantized_xyz':None,'extended':False,
-                'special':True,'normalized_vector_path':False,
-                'interpolation_code':code,'interpolation_sign_bit':sign_bit}
+            if not allow_non_axis_special:
+                raise NormalClipValueError(f'bad special quaternion slots at 0x{off:X}')
+        else:
+            q=[0.0]*4; q[h1]=sign
+            return {'quaternion_wxyz':tuple(q),'quantized_xyz':None,'extended':False,
+                    'special':True,'normalized_vector_path':False,
+                    'interpolation_code':code,'interpolation_sign_bit':sign_bit}
     qi=((h1<<8)|b[9],(h2<<8)|b[10],(h3<<8)|b[11])
     x,y,z=(base+scale*v for v in qi); length2=x*x+y*y+z*z
     normalized=special or length2>=1.0
@@ -93,9 +95,17 @@ def decode_compact_vector_payload(raw,off,base,span):
     return {'value_xyz':tuple(base[i]+span[i]*qi[i] for i in range(3)),
             'quantized_xyz':qi,'codec':'vector_compact_4_8'}
 
-def decode_extended_vector_payload(raw,off,base,span):
+def decode_extended_vector_payload(raw,off,base,span,*,allow_truncated_lookahead=False):
     """Unsigned 30-bit XYZ, 12-byte lookahead, 4/8/12-byte advance."""
-    b=_need(raw,off,12,'extended vector record/lookahead')
+    try:
+        b=_need(raw,off,12,'extended vector record/lookahead')
+    except NormalClipValueError:
+        if not allow_truncated_lookahead or off<0 or len(raw)-off<4:
+            raise
+        # The final short record has no following record to provide the
+        # decoder's normal 12-byte lookahead.  Runtime memory is zero-padded;
+        # reproduce that only in non-strict production playback.
+        b=raw[off:]+bytes(12-(len(raw)-off))
     r0=int.from_bytes(b[:4],'little'); r1=int.from_bytes(b[4:8],'little'); r2=int.from_bytes(b[8:12],'little')
     a,c,d=_rev32(r0),_rev32(r1),_rev32(r2)
     qx=_bfxil(_bfxil(_rev32(r0&0x0000f03f),c,10,20),d,20,10)
@@ -121,7 +131,7 @@ def parse_normal_clip_values(raw,node_count,*,strict=True):
         counts['all']+=1; i=rec.channel_index
         if rec.channel_type=='rotation':
             counts['rot']+=1; rr=setup.rotation_ranges[i]
-            p=decode_rotation_payload(raw,rec.file_offset,rr.base,rr.scale)
+            p=decode_rotation_payload(raw,rec.file_offset,rr.base,rr.scale,allow_non_axis_special=not strict)
             counts['special']+=int(p['special']); counts['rot_ext']+=int(p['extended'])
             rt[i]['keys'].append({'frame':rec.key_frame,'file_offset':rec.file_offset,
                 'record_size':rec.record_size,**p})
@@ -130,7 +140,7 @@ def parse_normal_clip_values(raw,node_count,*,strict=True):
         elif rec.channel_type=='scale': rr=setup.scale_ranges[i]; target=st[i]
         else: raise NormalClipValueError(f'unknown channel {rec.channel_type}')
         if rec.codec=='vector_extended_4_8_12':
-            counts['extended']+=1; p=decode_extended_vector_payload(raw,rec.file_offset,rr.base_xyz,rr.span_xyz)
+            counts['extended']+=1; p=decode_extended_vector_payload(raw,rec.file_offset,rr.base_xyz,rr.span_xyz,allow_truncated_lookahead=not strict)
         elif rec.codec=='vector_compact_4_8':
             counts['compact']+=1; p=decode_compact_vector_payload(raw,rec.file_offset,rr.base_xyz,rr.span_xyz)
         else: raise NormalClipValueError(f'unknown codec {rec.codec}')

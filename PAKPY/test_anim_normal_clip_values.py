@@ -8,6 +8,7 @@ from anim_normal_clip_setup import (
     translation_span_multiplier,
 )
 from anim_normal_clip_values import (
+    NormalClipValueError,
     decode_compact_vector_payload,
     decode_extended_vector_payload,
     decode_rotation_payload,
@@ -60,8 +61,39 @@ class RotationPayloadTests(unittest.TestCase):
         self.assertEqual(payload["quantized_xyz"], None)
         self.assertEqual(payload["quaternion_wxyz"], (0.0, 0.0, -1.0, 0.0))
 
+    def test_nonstrict_special_rotation_can_use_normalized_vector_path(self):
+        record = bytes.fromhex("400100100020003000000000")
+        with self.assertRaises(NormalClipValueError):
+            decode_rotation_payload(record, 0, -0.5, 0.5 * (2.0**-23))
+        payload = decode_rotation_payload(
+            record,
+            0,
+            -0.5,
+            0.5 * (2.0**-23),
+            allow_non_axis_special=True,
+        )
+        self.assertTrue(payload["special"])
+        self.assertTrue(payload["normalized_vector_path"])
+        self.assertAlmostEqual(
+            math.sqrt(sum(value * value for value in payload["quaternion_wxyz"])),
+            1.0,
+        )
+
 
 class VectorPayloadTests(unittest.TestCase):
+    def test_nonstrict_final_extended_record_uses_zero_padded_lookahead(self):
+        record = bytes.fromhex("0000000000000000")
+        with self.assertRaises(NormalClipValueError):
+            decode_extended_vector_payload(record, 0, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+        payload = decode_extended_vector_payload(
+            record,
+            0,
+            (0.0, 0.0, 0.0),
+            (1.0, 1.0, 1.0),
+            allow_truncated_lookahead=True,
+        )
+        self.assertEqual(payload["quantized_xyz"], (0, 0, 0))
+
     def test_compact_20_bit_fixture(self):
         base = (0.13582677114754915, -0.042322834488004446, -0.06102362181991339)
         span = (3.754626859638719e-09, 2.1119776085467796e-08, 7.978582076732279e-08)

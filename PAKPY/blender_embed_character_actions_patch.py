@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import blender_embed_normal_clip_actions_patch as model_embed
+import character_animation_batch
 
 
 REPORT_NAME = "blender_normal_clip_character_embed_report.json"
@@ -104,6 +105,8 @@ def _update_character_manifest(root: Path, aggregate: dict[str, Any]) -> None:
 
 def embed_character_package_actions(package_dir: str | Path, result: dict[str, Any]) -> dict[str, Any]:
     root = Path(package_dir).resolve()
+    if result.get("animation_source_mode") == "character_root_raw":
+        return character_animation_batch.run_character_animation_batch(root, result)
     binds = _bind_files(root)
     targets = _blend_targets(root)
     models: list[dict[str, Any]] = []

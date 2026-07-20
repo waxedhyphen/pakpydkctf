@@ -201,6 +201,8 @@ def _consume_value_records(
     nodes: dict[str, list[int]],
     active: dict[str, list[int]],
     key_frames: dict[str, list[int]],
+    *,
+    allow_truncated: bool = False,
 ) -> tuple[list[ValueRecord], int]:
     records: list[ValueRecord] = []
     for channel_type in ("rotation", "translation", "scale"):
@@ -208,16 +210,24 @@ def _consume_value_records(
             active[channel_type], key_frames[channel_type]
         ):
             node_index = nodes[channel_type][channel_index]
-            if channel_type == "rotation":
-                size = rotation_record_size(raw, cursor)
-                codec = "rotation_8_12"
-            else:
-                codec = _vector_codec(flags, channel_type)
-                if codec == "vector_extended_4_8_12":
-                    size = extended_vector_record_size(raw, cursor)
+            try:
+                if channel_type == "rotation":
+                    size = rotation_record_size(raw, cursor)
+                    codec = "rotation_8_12"
                 else:
-                    size = compact_vector_record_size(raw, cursor)
-            _require(raw, cursor, size, f"{channel_type} value record")
+                    codec = _vector_codec(flags, channel_type)
+                    if codec == "vector_extended_4_8_12":
+                        size = extended_vector_record_size(raw, cursor)
+                    else:
+                        size = compact_vector_record_size(raw, cursor)
+                _require(raw, cursor, size, f"{channel_type} value record")
+            except NormalClipFrameError:
+                # Some shipped clips omit a redundant final key record exactly
+                # at EOF.  Production playback can hold the previous sparse
+                # key; strict diagnostics still reject the malformed stream.
+                if allow_truncated and cursor >= len(raw) - 1:
+                    return records, len(raw)
+                raise
             records.append(
                 ValueRecord(
                     channel_type=channel_type,
@@ -359,7 +369,7 @@ def parse_frame_schedule_from_setup(
     initial_start = cursor
     zero_frames = {name: [0] * len(values) for name, values in nodes.items()}
     initial_records, cursor = _consume_value_records(
-        raw, cursor, flags, nodes, all_active, zero_frames
+        raw, cursor, flags, nodes, all_active, zero_frames, allow_truncated=not strict
     )
     initial_end = cursor
 
@@ -370,7 +380,7 @@ def parse_frame_schedule_from_setup(
         for name in nodes
     }
     second_records, value_end = _consume_value_records(
-        raw, value_start, flags, nodes, all_active, second_key_frames
+        raw, value_start, flags, nodes, all_active, second_key_frames, allow_truncated=not strict
     )
     for name in nodes:
         for i, frame in enumerate(second_key_frames[name]):
@@ -409,6 +419,10 @@ def parse_frame_schedule_from_setup(
             ]
             for name in nodes
         }
+        if not strict and not any(active.values()):
+            # No channel reaches another key inside this clip.  Some resources
+            # end here instead of serializing empty headers up to frame_count.
+            break
         header_data, cursor = _apply_header(raw, cursor, nodes, active, timing)
         value_start = align_up(cursor, 4)
         new_key_frames = {
@@ -418,11 +432,30 @@ def parse_frame_schedule_from_setup(
             ]
             for name in nodes
         }
+        record_active = active
+        record_key_frames = new_key_frames
+        if not strict:
+            # A duration is allowed to carry a sparse key beyond the clip's
+            # final sampled frame.  The game holds the previous value and does
+            # not serialize a payload for that out-of-range key.
+            record_active = {name: [] for name in nodes}
+            record_key_frames = {name: [] for name in nodes}
+            for name in nodes:
+                for channel_index, key_frame in zip(active[name], new_key_frames[name]):
+                    if key_frame < frame_count:
+                        record_active[name].append(channel_index)
+                        record_key_frames[name].append(key_frame)
         records, value_end = _consume_value_records(
-            raw, value_start, flags, nodes, active, new_key_frames
+            raw,
+            value_start,
+            flags,
+            nodes,
+            record_active,
+            record_key_frames,
+            allow_truncated=not strict,
         )
         for name in nodes:
-            for i, frame in zip(active[name], new_key_frames[name]):
+            for i, frame in zip(record_active[name], record_key_frames[name]):
                 key_tracks[name][i].append(frame)
         blocks.append(
             FrameBlock(

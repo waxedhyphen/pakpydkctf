@@ -9,6 +9,22 @@ import blender_embed_normal_clip_actions_patch as embed_patch
 
 
 class EmbeddedNormalClipActionTests(unittest.TestCase):
+    def test_model_wrapper_does_not_use_stale_binds_without_animation_refs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bind_dir = root / "debug" / "anim_normal_clip_bind"
+            bind_dir.mkdir(parents=True)
+            (bind_dir / "stale.normal_clip_bind.json").write_text("{}", encoding="utf-8")
+
+            def original(*_args, **_kwargs):
+                return {"package_dir": str(root)}
+
+            wrapped = embed_patch._wrap_export(original)
+            with patch.object(embed_patch, "embed_normal_clip_actions") as embed:
+                result = wrapped(None, None, None, animation_refs=None, skeleton_refs=[])
+            embed.assert_not_called()
+            self.assertEqual(result["experimental_skeletal_blend_actions_status"], "deferred:character_batch")
+
     def test_skips_package_without_decoded_bind_files(self):
         with tempfile.TemporaryDirectory() as temp:
             result = embed_patch.embed_normal_clip_actions(temp, {})

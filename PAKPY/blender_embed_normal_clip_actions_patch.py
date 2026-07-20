@@ -236,6 +236,13 @@ def _wrap_export(original):
             animation_refs=animation_refs,
             skeleton_refs=skeleton_refs,
         )
+        # CHAR sub-models intentionally receive no animation_refs.  Never let
+        # stale bind JSON from an existing output directory reactivate the old
+        # per-model Blender import in that case.
+        if not animation_refs:
+            result["experimental_skeletal_blend_actions_status"] = "deferred:character_batch"
+            result["experimental_skeletal_blend_action_count"] = 0
+            return result
         package_dir = Path(result["package_dir"])
         try:
             embed = embed_normal_clip_actions(package_dir, result)

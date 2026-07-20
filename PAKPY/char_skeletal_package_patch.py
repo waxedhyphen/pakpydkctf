@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 import char_codec
 import char_gui_patch
@@ -6,6 +7,12 @@ from pak_core import get_entry_asset, safe_name, kind_to_ext, sha1_bytes
 from skeletal_codec import find_known_uuid_refs, parse_skel_asset
 
 ZERO_UUID = '00000000000000000000000000000000'
+ANIMATION_DIAGNOSTIC_DIRS = (
+    'anim_probe21',
+    'anim_normal_clip_values',
+    'anim_normal_clip_pose',
+    'anim_normal_clip_bind',
+)
 
 def _rel(root, path):
     return str(Path(path).relative_to(root)).replace('\\', '/')
@@ -109,6 +116,61 @@ def _export_skeleton_sources(package_dir, parsed, skeleton_refs, require_store):
         skeleton_items.append(item)
     return skeleton_items
 
+def _export_animation_sources(package_dir, parsed, animation_refs, require_store):
+    """Resolve CHAR animations once at the character-package root.
+
+    Model packages must not mirror or decode these assets.  They all consume the
+    same character-level source set during the final Blender batch pass.
+    """
+    animations = []
+    missing = []
+    resolved_count = 0
+    for anim in animation_refs:
+        uuid_hex = anim['uuid_hex']
+        rec = dict(anim)
+        rec.update({'resolved': False, 'source_kind': '', 'source_path': '', 'entry_type': '', 'source_file': ''})
+        asset_data, ref_entry, source, source_path = char_codec._resolve_ref(parsed, uuid_hex, require_store)
+        rec.update({
+            'resolved': ref_entry is not None and asset_data is not None,
+            'source_kind': source,
+            'source_path': source_path,
+            'entry_type': ref_entry.get('type') if ref_entry else '',
+        })
+        if ref_entry is not None and asset_data is not None:
+            resolved_count += 1
+            anim_path = _write_bytes(
+                package_dir / 'source' / 'anim' /
+                (safe_name(f'{anim["index"]:03d}__{anim["name"]}__{uuid_hex}') + kind_to_ext(ref_entry['type'])),
+                asset_data,
+            )
+            rec['source_file'] = _rel(package_dir, anim_path)
+        else:
+            missing_path = _write_text(
+                package_dir / 'missing' / 'animations' /
+                (safe_name(f'{anim["index"]:03d}__{anim["name"]}__{uuid_hex}') + '.missing.txt'),
+                _missing_text('Animation-Ref', anim, uuid_hex),
+            )
+            rec['missing_file'] = _rel(package_dir, missing_path)
+            missing.append({'kind': 'animation', 'uuid_hex': uuid_hex, 'name': anim.get('name', ''), 'file': rec['missing_file']})
+        animations.append(rec)
+    return animations, resolved_count, missing
+
+def _clear_generated_animation_diagnostics(package_dir):
+    """Remove stale generated probes only when this exact package is re-exported."""
+    root = Path(package_dir)
+    debug_roots = [root / 'debug']
+    debug_roots.extend(path / 'debug' for path in (root / 'models').glob('*') if path.is_dir())
+    for debug_root in debug_roots:
+        for name in ANIMATION_DIAGNOSTIC_DIRS:
+            path = debug_root / name
+            if path.is_dir():
+                shutil.rmtree(path)
+        for name in ('anim_probe21_summary.json', 'anim_structure_report.json'):
+            try:
+                (debug_root / name).unlink()
+            except FileNotFoundError:
+                pass
+
 def export_clean_char_package(parsed, entry, out_dir, require_store=None):
     if entry.get('type') != 'CHAR':
         raise char_codec.PakError('CHAR-Paket geht nur bei CHAR')
@@ -117,6 +179,7 @@ def export_clean_char_package(parsed, entry, out_dir, require_store=None):
     base_name = info.get('name') or entry.get('display_name') or entry.get('name') or entry['uuid_hex']
     package_dir = Path(out_dir) / f'{safe_name(base_name)}_character_package'
     package_dir.mkdir(parents=True, exist_ok=True)
+    _clear_generated_animation_diagnostics(package_dir)
     char_source = _write_bytes(package_dir / 'source' / 'char' / _source_name(entry), asset)
     char_analysis_path = package_dir / 'debug' / 'char_parse.json'
     char_analysis_path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,8 +187,11 @@ def export_clean_char_package(parsed, entry, out_dir, require_store=None):
     animation_refs = [item for item in info.get('animations', []) if item.get('uuid_hex') and item.get('uuid_hex') != ZERO_UUID]
     skeleton_refs = _collect_skeleton_refs(asset, parsed, require_store)
     skeleton_items = _export_skeleton_sources(package_dir, parsed, skeleton_refs, require_store)
+    animations, resolved_animation_count, animation_missing = _export_animation_sources(
+        package_dir, parsed, animation_refs, require_store
+    )
     models = []
-    missing = []
+    missing = list(animation_missing)
     resolved_model_count = 0
     for model in info.get('model_slots', []):
         uuid_hex = model['uuid_hex']
@@ -138,7 +204,10 @@ def export_clean_char_package(parsed, entry, out_dir, require_store=None):
                 model_parsed = parsed if source == 'pak' else char_codec._required_parsed_for_uuid(require_store, uuid_hex)
                 if model_parsed is None:
                     raise char_codec.PakError('Kein Parsed-Kontext für Modellpaket verfügbar')
-                result = export_model_package(model_parsed, ref_entry, package_dir / 'models', require_store=require_store, animation_refs=animation_refs, skeleton_refs=skeleton_refs)
+                # CHAR animations are resolved and decoded once at package root.
+                # Passing them into every model package caused N identical probe
+                # trees and N slow Blender imports.
+                result = export_model_package(model_parsed, ref_entry, package_dir / 'models', require_store=require_store, animation_refs=None, skeleton_refs=skeleton_refs)
                 resolved_model_count += 1
                 rec['model_package_dir'] = _rel(package_dir, result['package_dir'])
                 model_manifest = _read_model_package_manifest(result['package_dir'])
@@ -159,24 +228,6 @@ def export_clean_char_package(parsed, entry, out_dir, require_store=None):
             rec['missing_file'] = _rel(package_dir, missing_path)
             missing.append({'kind': 'model', 'uuid_hex': uuid_hex, 'name': model.get('slot_name', ''), 'file': rec['missing_file']})
         models.append(rec)
-    animations = []
-    resolved_animation_count = 0
-    for anim in info.get('animations', []):
-        uuid_hex = anim['uuid_hex']
-        rec = dict(anim)
-        rec.update({'resolved': False, 'source_kind': '', 'source_path': '', 'entry_type': '', 'source_file': ''})
-        if uuid_hex and uuid_hex != ZERO_UUID:
-            asset_data, ref_entry, source, source_path = char_codec._resolve_ref(parsed, uuid_hex, require_store)
-            rec.update({'resolved': ref_entry is not None and asset_data is not None, 'source_kind': source, 'source_path': source_path, 'entry_type': ref_entry.get('type') if ref_entry else ''})
-            if ref_entry is not None and asset_data is not None:
-                resolved_animation_count += 1
-                anim_path = _write_bytes(package_dir / 'source' / 'anim' / (safe_name(f'{anim["index"]:03d}__{anim["name"]}__{uuid_hex}') + kind_to_ext(ref_entry['type'])), asset_data)
-                rec['source_file'] = _rel(package_dir, anim_path)
-            else:
-                missing_path = _write_text(package_dir / 'missing' / 'animations' / (safe_name(f'{anim["index"]:03d}__{anim["name"]}__{uuid_hex}') + '.missing.txt'), _missing_text('Animation-Ref', anim, uuid_hex))
-                rec['missing_file'] = _rel(package_dir, missing_path)
-                missing.append({'kind': 'animation', 'uuid_hex': uuid_hex, 'name': anim.get('name', ''), 'file': rec['missing_file']})
-        animations.append(rec)
     manifest = {'version': 3, 'source_pak': Path(parsed['path']).name, 'entry_index': entry['index'], 'entry_type': entry['type'], 'entry_uuid_hex': entry['uuid_hex'], 'entry_name': entry.get('display_name') or entry.get('name') or entry['uuid_hex'], 'char_name': info['name'], 'char_uuid_hex': info['uuid_hex'], 'source_char': _rel(package_dir, char_source), 'source_char_sha1': sha1_bytes(char_source.read_bytes()), 'char_parse_json': _rel(package_dir, char_analysis_path), 'model_count': len(models), 'resolved_model_count': resolved_model_count, 'animation_count': len(animations), 'resolved_animation_count': resolved_animation_count, 'skeletons': skeleton_items, 'models': models, 'animations': animations, 'missing': missing, 'missing_count': len(missing), 'animation_lookup_hashes': info.get('animation_lookup_hashes', []), 'tail_offset': info.get('tail_offset', 0), 'tail_size': info.get('tail_size', 0), 'tail_sha1': info.get('tail_sha1', '')}
     manifest_path = package_dir / 'manifest.json'
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8', newline='\n')
