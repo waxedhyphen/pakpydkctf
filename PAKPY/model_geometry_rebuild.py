@@ -74,6 +74,8 @@ def _encode_vertex_buffer(
     output = bytearray()
     for vertex in vertices:
         record = bytearray(template)
+        tangent_written = False
+        uv_written = False
         for component in descriptor.get("components") or []:
             offset = int(component.get("offset", 0))
             fmt = int(component.get("format", -1))
@@ -84,10 +86,12 @@ def _encode_vertex_buffer(
                 record[offset : offset + 12] = struct.pack("<3f", *[float(value) for value in vertex["position"][:3]])
             elif fmt == 34 and semantic == 1 and offset + 8 <= stride:
                 _write_vec4_half(record, offset, list(vertex["normal"][:3]) + [0.0])
-            elif fmt == 34 and semantic in {2, 3, 12, 13} and offset + 8 <= stride:
+            elif fmt == 34 and semantic in {2, 3, 12, 13} and offset + 8 <= stride and not tangent_written:
                 _write_vec4_half(record, offset, vertex["tangent"][:4])
-            elif fmt in (20, 21) and semantic in {4, 5, 6, 7, 8, 9, 10, 11} and offset + 4 <= stride:
+                tangent_written = True
+            elif fmt in (20, 21) and semantic in {4, 5, 6, 7, 8, 9, 10, 11} and offset + 4 <= stride and not uv_written:
                 _write_vec2_half(record, offset, vertex["uv"][:2])
+                uv_written = True
             elif fmt == 22 and semantic == 9 and offset + 4 <= stride:
                 joints = [min(max(0, int(value)), 255) for value in vertex["joints"][:4]]
                 while len(joints) < 4:
