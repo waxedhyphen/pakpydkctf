@@ -29,7 +29,7 @@ def skinned_descriptor(vertex_count):
     components = [
         {'field_0': 0, 'offset': 0, 'stride': 44, 'format': 37, 'type': 0},
         {'field_0': 0, 'offset': 12, 'stride': 44, 'format': 34, 'type': 1},
-        {'field_0': 0, 'offset': 20, 'stride': 44, 'format': 34, 'type': 2},
+        {'field_0': 0, 'offset': 20, 'stride': 44, 'format': 34, 'type': 12},
         {'field_0': 0, 'offset': 28, 'stride': 44, 'format': 20, 'type': 4},
         {'field_0': 0, 'offset': 32, 'stride': 44, 'format': 22, 'type': 9},
         {'field_0': 0, 'offset': 36, 'stride': 44, 'format': 34, 'type': 10},
