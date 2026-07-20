@@ -77,3 +77,9 @@ def install() -> None:
     # The already-installed wrapper resolves this global at export time.
     mesh_partition_export_patch._patch_skel_helper_nodes = _skip_visible_skel_helpers
     skeletal_tail_patch._connected_blend_script = _minimal_blend_script
+
+    # model_package and main.py both install this module, so this hook keeps the
+    # deterministic mesh-index mapping active for every supported entrypoint.
+    import mesh_repack_diagnostics_patch
+
+    mesh_repack_diagnostics_patch.install()
