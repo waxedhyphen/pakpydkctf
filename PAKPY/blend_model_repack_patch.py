@@ -126,10 +126,14 @@ def _model_package_dirs(folder: Path) -> list[Path]:
         except Exception as exc:
             raise pak_core.PakError(f"CHAR manifest.json konnte nicht gelesen werden: {exc}") from exc
         result = []
+        seen = set()
         for item in char_manifest.get("models") or []:
             rel = str(item.get("model_package_dir") or "")
-            if rel and (folder / rel / "repack_manifest.json").is_file():
-                result.append(folder / rel)
+            package_dir = folder / rel if rel else None
+            key = str(package_dir.resolve()) if package_dir is not None else ""
+            if package_dir is not None and key not in seen and (package_dir / "repack_manifest.json").is_file():
+                seen.add(key)
+                result.append(package_dir)
         if result:
             return result
     result = sorted({path.parent for path in folder.rglob("repack_manifest.json")})
