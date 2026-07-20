@@ -60,7 +60,9 @@ Pose Mode changes and active animations are ignored. Blender is forced to export
 the armature in rest position.
 
 Weight painting is allowed. Every exported vertex is reduced to the four
-strongest valid original-bone influences and the weights are normalized.
+strongest valid original-bone influences and the weights are normalized. A
+replacement mesh must keep or receive an Armature modifier and vertex groups for
+the original bones; an unskinned replacement cannot be written into an SMDL.
 
 ## Source-part rule
 
