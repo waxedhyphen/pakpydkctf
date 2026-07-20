@@ -59,13 +59,14 @@ Known layouts written by the encoder:
 
 - format `37`, semantic `0`: float32 position XYZ;
 - format `34`, semantic `1`: float16 normal XYZW;
-- format `34`, semantic `2/3/12/13`: float16 tangent XYZW;
-- format `20/21`, UV semantics: float16 UV;
+- the first format `34` component with semantic `2/3/12/13`: float16 tangent XYZW;
+- the first format `20/21` UV-semantic component: float16 UV0;
 - format `22`, semantic `9`: four unsigned-byte joint indices;
 - format `34`, semantic `10`: four float16 weights.
 
-Unknown bytes start from a template copy of the first original vertex in that
-VBUF. Unreferenced VBUF/IBUF blocks are preserved byte-for-byte.
+Unknown bytes and additional tangent/UV-like channels start from a template copy
+of the first original vertex in that VBUF. Unreferenced VBUF/IBUF blocks are
+preserved byte-for-byte.
 
 ### IBUF
 
