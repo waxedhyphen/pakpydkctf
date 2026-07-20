@@ -1,27 +1,42 @@
 # Automatic normal_clip Actions in generated BLEND files
 
-**Status:** implemented
+**Status:** implemented with a character-level final pass
 
-## Behaviour
+## Export order
 
-Model-package export still creates the exact skeletal GLB and BLEND first. After
-the complete animation pipeline has written
-`debug/anim_normal_clip_bind/*.normal_clip_bind.json`, a final export wrapper:
+A Character export has two relevant phases:
 
-1. locates the generated `*.experimental_skeletal.blend`;
-2. locates Blender through `PAKPY_BLENDER_EXE`, `BLENDER_EXE`, `PATH`, or the
-   normal Windows installation directories;
-3. opens the existing BLEND in background mode;
-4. runs `blender_import_normal_clip_actions.py` for every decoded bind document;
-5. saves the same BLEND with persistent Blender Actions.
+1. each nested model package creates its exact skeletal GLB and BLEND;
+2. after all models are complete, the character-level animation pipeline writes
+   `debug/anim_normal_clip_bind/*.normal_clip_bind.json`.
 
-No manual Scripting-workspace import is required for newly exported packages.
-The generated importer remains in the package as a diagnostic and manual
-fallback.
+The original automatic embed hook ran during phase 1. That is sufficient for
+standalone model exports and model packages that already have local bind files,
+but it can run too early when the authoritative bind files are produced only at
+the Character root.
 
-## Manifest fields
+`blender_embed_character_actions_patch.py` now wraps the completed Character
+export. It runs after phase 2 and:
 
-`repack_manifest.json` records:
+1. locates every `models/*/model/*.experimental_skeletal.blend`;
+2. opens each BLEND through Blender background mode;
+3. points `blender_import_normal_clip_actions.py` at the Character package root;
+4. imports all decoded Character-root and model-local normal clips;
+5. saves the same BLEND with persistent Actions;
+6. copies an individual Blender report into each model package.
+
+The earlier model-level hook remains active for standalone model exports. Running
+the Character final pass again is safe because Actions with matching names are
+replaced before being recreated.
+
+## Blender discovery
+
+Blender is located through `PAKPY_BLENDER_EXE`, `BLENDER_EXE`, `PATH`, or the
+normal Windows installation directories.
+
+## Reports and manifests
+
+Each model `repack_manifest.json` records:
 
 ```text
 experimental_skeletal_blend_actions_status
@@ -31,14 +46,21 @@ experimental_skeletal_blend_action_error
 experimental_skeletal_blend_action_report
 ```
 
-The BLEND SHA-1 is recalculated after the Actions have been embedded.
+The Character `manifest.json` records the aggregate values plus
+`experimental_skeletal_blend_action_models`. The complete final-pass report is:
+
+```text
+blender_normal_clip_character_embed_report.json
+```
+
+The BLEND SHA-1 is recalculated after the final save.
 
 ## Failure handling
 
-Unsupported ANIM classes do not abort model export. Only available
+Unsupported ANIM classes do not abort model or Character export. Only available
 `normal_clip_bind` documents are embedded. A missing Blender executable or an
-individual Action conversion failure is recorded in the manifest and in
-`blender_normal_clip_action_report.json`.
+individual Action conversion failure is recorded in the model and Character
+manifests.
 
 The subprocess timeout defaults to 900 seconds and can be changed with
 `PAKPY_BLENDER_ACTION_TIMEOUT`. The Action frame rate defaults to 30 fps and can
