@@ -17,6 +17,7 @@ from anim_timeline_summary_scope_patch import install as install_anim_timeline_s
 from blender_named_timeline_patch import install as install_blender_named_timeline_patch
 from blender_preview_timeline_script_patch import install as install_blender_preview_timeline_script_patch
 from blender_normal_clip_action_script_patch import install as install_blender_normal_clip_action_script_patch
+from blender_embed_normal_clip_actions_patch import install as install_blender_embed_normal_clip_actions_patch
 from blender_normal_clip_fixed_basis_patch import install as install_blender_normal_clip_fixed_basis_patch
 from char_required_anim_mirror_patch import install as install_char_required_anim_mirror_patch
 from prefix_track_map_patch import install as install_prefix_track_map_patch
@@ -55,6 +56,7 @@ install_blender_preview_timeline_script_patch(App)
 install_blender_normal_clip_fixed_basis_patch()
 install_blender_normal_clip_action_script_patch(App)
 install_char_required_anim_mirror_patch(App)
+install_blender_embed_normal_clip_actions_patch()
 def main():
     setup_windows_process()
     root = tk.Tk()
