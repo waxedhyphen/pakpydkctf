@@ -4,15 +4,23 @@ Source: `b00_mangrove_seaLion(4).pak` (73,928,768 bytes)
 
 ## Implementation status
 
-Implemented by `mesh_partition_export_patch.py`:
+Implemented by `mesh_partition_export_patch.py` and the Outliner cleanup patch:
 
 - every source MESH record is exported as one compact glTF mesh and one scene node;
 - Blender therefore receives one separately selectable object per source MESH record;
 - deterministic names include model name, zero-padded source MESH index, material name, and a non-generic dominant SKEL joint when the weight evidence is strong;
 - glTF node/mesh extras and Blender custom properties retain source indices, buffer references, offsets, counts, flags, material data, and used joint names;
 - `_PAKPY_SOURCE_VERTEX_INDEX` preserves the original vertex-buffer index for every compacted exported vertex;
-- non-skin SKEL nodes are added to glTF as named helper nodes and converted in Blender to `use_deform = False` helper bones while their helper objects are retained for exact transform inspection;
-- model manifests record `source_mesh_objects`, `source_mesh_object_count`, `skel_helpers`, and `skel_helper_count`.
+- the generated BLEND keeps one armature and one `__MESH_PARTS` collection without duplicate mesh parenting or visible SKEL-helper objects;
+- model manifests record the source MESH object mapping required for geometry replacement.
+
+Implemented by `blend_model_repack_patch.py`:
+
+- a changed generated `.blend` can rebuild positions, normals, tangents, UV0, weights, triangles, VBUF, IBUF, MESH, HEAD and GPU data;
+- vertex and triangle counts may change freely inside every existing source MESH part;
+- changed textures and changed model geometry are combined into one PAK rebuild;
+- selecting a CHAR-package root rebuilds all changed nested model packages;
+- the source armature is protected by a bind-pose snapshot and must remain unchanged.
 
 The split is deliberately performed at source MESH-record level. Connected geometry islands remain inside their source partition because island splitting would incorrectly fragment valid body meshes.
 
@@ -99,17 +107,23 @@ Names are deterministic, for example:
 
 `sea_lion__mesh_000__P2_pompy_helmet__helmet_skin`
 
-The name is only a readable label. Source indices, offsets and the `_PAKPY_SOURCE_VERTEX_INDEX` attribute remain authoritative for future replacement/repacking.
+The name is only a readable label. The `pakpy_source_mesh_index` property is authoritative for rebuilding the corresponding source partition.
 
 ## SKEL representation
 
-The exporter preserves both:
+The BLEND file exposes the original skin bones in one armature. Non-skin helper/control/attachment-node analysis remains available in exported debug JSON and manifests, but visible helper empties and duplicate helper bones are not created.
 
-- skin bones in their original skin-table order;
-- non-skin helper/control/attachment nodes.
-
-Non-skin nodes are represented as named glTF helpers. During BLEND creation they are also added to the armature as `use_deform = False` bones and retain their source node index, parent, flags and names as custom properties.
+The geometry repacker does not rebuild SKEL. It verifies that the armature object transform, skin-bone count, names, indices, parent hierarchy and rest matrices still match the snapshot created during package export.
 
 ## Repacking status
 
-The current package rebuild path only detects changed texture files. Modified OBJ, DAE, GLB, or BLEND geometry is not currently converted back into CMDL/SMDL/WMDL. Preserving exact source metadata now is therefore essential for implementing model-part replacement later.
+Changed PNG/TXTR files and changed generated BLEND geometry can now be rebuilt together.
+
+The first geometry-repack version supports arbitrary vertices and triangles inside each existing source MESH part while preserving the original MESH-part count, material assignments and armature. It rebuilds model buffers and writes all new GPU segments with zlib compression.
+
+Adding/deleting source MESH parts, changing material partitions, changing the armature/SKEL, morph targets and game-specific unknown vertex attributes remain outside the current scope.
+
+See:
+
+- `Blend_geometry_repack.md` for the user workflow and restrictions;
+- `Model_geometry_binary_rebuild.md` for the binary encoder design and validation path.
