@@ -5,7 +5,6 @@ from tkinter import messagebox
 from pak_core import PakError
 from mesh_viewer import open_mesh_viewer
 
-
 MODEL_TYPES = {"CMDL", "SMDL", "WMDL"}
 
 
@@ -60,11 +59,19 @@ def install(App):
     def open_selected_mesh_viewer(self):
         entry = self._find_selected_model_entry()
         if entry is None:
-            messagebox.showinfo("Mesh Viewer", "Bitte zuerst einen CMDL-, SMDL- oder WMDL-Eintrag auswählen.")
+            messagebox.showinfo(
+                "Mesh Viewer",
+                "Bitte zuerst einen CMDL-, SMDL- oder WMDL-Eintrag auswählen.",
+            )
             self.update_mesh_viewer_state()
             return
         try:
-            open_mesh_viewer(self.root, self.parsed, entry)
+            open_mesh_viewer(
+                self.root,
+                self.parsed,
+                entry,
+                require_store=getattr(self, "require_store", None),
+            )
         except PakError as exc:
             messagebox.showerror("Mesh Viewer", str(exc))
         except Exception as exc:
