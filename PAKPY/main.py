@@ -18,6 +18,7 @@ from mesh_viewer_visibility_patch import install as install_mesh_viewer_visibili
 import mesh_viewer
 import mesh_viewer_material_shader_patch
 import mesh_viewer_fur_shader_patch
+import mesh_viewer_fur_renderdoc_patch
 from tree_ctrl_select_patch import install as install_tree_ctrl_select_patch
 from model_animation_refs_patch import install as install_model_animation_refs_patch
 from char_anim_selector_patch import install as install_char_anim_selector_patch
@@ -59,6 +60,7 @@ mesh_viewer_material_shader_patch._PREVIOUS_LOAD_SCENE = mesh_viewer.load_entry_
 mesh_viewer_material_shader_patch.install()
 mesh_viewer_fur_shader_patch._PREVIOUS_LOAD_SCENE = mesh_viewer.load_entry_scene
 mesh_viewer_fur_shader_patch.install()
+mesh_viewer_fur_renderdoc_patch.install()
 install_tree_ctrl_select_patch(App)
 install_model_animation_refs_patch(App)
 install_char_anim_selector_patch(App)
