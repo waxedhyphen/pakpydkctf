@@ -9,9 +9,10 @@ relevant uniforms and permutations:
 - uc_rimFresnelMin / uc_rimFresnelMax / uc_rimBrightness
 - FUR_FINS / INITIALIZE_FUR_DYNAMICS / APPLY_FUR_DYNAMICS
 
-This patch implements the static shell portion. The original view-dependent fin
-pass and runtime fur dynamics remain outside the viewer, but fur materials no
-longer fall through the generic PBR interpretation.
+This patch implements the static opaque/cutout shell portion.  EXEFS shows that
+the game also has a separate view-dependent FurFins pass and runtime FurDynamics;
+those stages remain outside the viewer.  The shell pass uses the diffuse map for
+color and Fur maps only for geometry, coverage, length and flow.
 """
 from __future__ import annotations
 
@@ -26,7 +27,6 @@ import mesh_viewer_material_shader_patch as material_patch
 
 _INSTALLED = False
 _PREVIOUS_LOAD_SCENE = None
-GL_NEAREST = 0x2600
 
 _FUR_SLOT_BY_TAG = {
     "FURTTXTR": "fur_mask",
@@ -40,8 +40,11 @@ FUR_VERTEX_SHADER_SOURCE = r"""
 #version 120
 attribute vec4 a_tangent;
 
+uniform sampler2D u_fur_length_map;
+uniform sampler2D u_fur_flow_map;
 uniform float u_shell_fraction;
 uniform float u_fur_thickness;
+uniform float u_fur_flow_strength;
 uniform float u_fur_bend_power;
 
 varying vec2 v_uv;
@@ -49,30 +52,60 @@ varying vec3 v_eye_pos;
 varying vec3 v_tangent;
 varying vec3 v_bitangent;
 varying vec3 v_normal;
+varying vec2 v_fur_flow;
+varying float v_fur_length;
 varying float v_shell_fraction;
 
 void main() {
+    vec2 uv = gl_MultiTexCoord0.xy;
     vec3 object_normal = normalize(gl_Normal.xyz);
-    float shell_curve = pow(clamp(u_shell_fraction, 0.0, 1.0), max(u_fur_bend_power, 0.05));
+    vec3 object_tangent = a_tangent.xyz;
+    if (dot(object_tangent, object_tangent) < 0.000001) {
+        vec3 helper = abs(object_normal.z) < 0.999
+            ? vec3(0.0, 0.0, 1.0)
+            : vec3(0.0, 1.0, 0.0);
+        object_tangent = cross(helper, object_normal);
+    }
+    object_tangent = normalize(
+        object_tangent - object_normal * dot(object_normal, object_tangent)
+    );
+    float handedness = a_tangent.w < 0.0 ? -1.0 : 1.0;
+    vec3 object_bitangent = normalize(cross(object_normal, object_tangent)) * handedness;
+
+    vec2 flow = texture2D(u_fur_flow_map, uv).xy * 2.0 - 1.0;
+    float flow_length = length(flow);
+    flow = flow_length > 0.0001 ? flow / flow_length : vec2(0.0);
+    float length_mask = clamp(texture2D(u_fur_length_map, uv).r, 0.0, 1.0);
+
+    // EXEFS exposes uc_furFlowMap, uc_furFlowStrength and uc_furBendPower as
+    // geometry inputs. The flow therefore bends the shell displacement itself;
+    // it is not merely another color texture.
+    vec3 flow_direction = object_tangent * flow.x + object_bitangent * flow.y;
+    float shell_curve = pow(
+        clamp(u_shell_fraction, 0.0, 1.0),
+        max(u_fur_bend_power, 0.05)
+    );
+    vec3 fur_direction = normalize(
+        object_normal + flow_direction * (u_fur_flow_strength * 0.28 * shell_curve)
+    );
     vec4 displaced = gl_Vertex;
-    displaced.xyz += object_normal * (u_fur_thickness * shell_curve);
+    displaced.xyz += fur_direction * (
+        u_fur_thickness * shell_curve * length_mask
+    );
 
     vec4 eye_pos = gl_ModelViewMatrix * displaced;
     vec3 normal = normalize(gl_NormalMatrix * gl_Normal);
-    vec3 tangent = gl_NormalMatrix * a_tangent.xyz;
-    if (dot(tangent, tangent) < 0.000001) {
-        vec3 helper = abs(normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
-        tangent = cross(helper, normal);
-    }
+    vec3 tangent = normalize(gl_NormalMatrix * object_tangent);
     tangent = normalize(tangent - normal * dot(normal, tangent));
-    float handedness = a_tangent.w < 0.0 ? -1.0 : 1.0;
     vec3 bitangent = normalize(cross(normal, tangent)) * handedness;
 
-    v_uv = gl_MultiTexCoord0.xy;
+    v_uv = uv;
     v_eye_pos = eye_pos.xyz;
     v_tangent = tangent;
     v_bitangent = bitangent;
     v_normal = normal;
+    v_fur_flow = flow;
+    v_fur_length = length_mask;
     v_shell_fraction = u_shell_fraction;
     gl_Position = gl_ProjectionMatrix * eye_pos;
 }
@@ -104,42 +137,61 @@ uniform float u_fur_flow_strength;
 uniform float u_fur_occlusion_start;
 uniform float u_spec_power;
 uniform float u_normal_y_sign;
+uniform float u_shell_count;
 
 varying vec2 v_uv;
 varying vec3 v_eye_pos;
 varying vec3 v_tangent;
 varying vec3 v_bitangent;
 varying vec3 v_normal;
+varying vec2 v_fur_flow;
+varying float v_fur_length;
 varying float v_shell_fraction;
 
-float hash12(vec2 value) {
-    return fract(sin(dot(value, vec2(127.1, 311.7))) * 43758.5453123);
+float interleaved_noise(vec2 pixel) {
+    return fract(52.9829189 * fract(0.06711056 * pixel.x + 0.00583715 * pixel.y));
 }
 
 void main() {
     vec4 base_sample = texture2D(u_base_map, v_uv);
-    vec3 flow_sample = texture2D(u_fur_flow_map, v_uv).rgb * 2.0 - 1.0;
-    vec2 flow = flow_sample.xy;
-    float flow_length = length(flow);
-    if (flow_length > 0.0001) {
-        flow /= flow_length;
-    } else {
-        flow = vec2(1.0, 0.0);
-    }
+    vec2 flow = v_fur_flow;
 
+    // FURTTXTR is a tiny cutout/coverage texture. It must affect coverage,
+    // never RGB. The original renderer has opaque/GBuffer permutations and
+    // alpha-to-coverage support, so this single-sample viewport emulates that
+    // with a shell-dependent cutout plus screen-space coverage dithering.
     float density = max(u_fur_density, 1.0);
+    float layer_index = floor(v_shell_fraction * max(u_shell_count, 1.0) + 0.5);
+    vec2 layer_jitter = vec2(
+        fract(layer_index * 0.754877666),
+        fract(layer_index * 0.569840296)
+    ) - 0.5;
     vec2 mask_uv = v_uv * density;
-    mask_uv += flow * (v_shell_fraction * u_fur_flow_strength * 0.018);
+    mask_uv += layer_jitter / 32.0;
+    mask_uv += flow * (v_shell_fraction * u_fur_flow_strength * 0.028);
+
     float strand_mask = texture2D(u_fur_mask_map, mask_uv).r;
-    if (strand_mask < 0.48) {
+    float strand_length = clamp(v_fur_length, 0.0, 1.0);
+    if (v_shell_fraction > strand_length) {
         discard;
     }
 
-    float length_mask = texture2D(u_fur_length_map, v_uv).r;
-    vec2 strand_cell = floor(fract(mask_uv) * 32.0);
-    float strand_variation = mix(0.72, 1.0, hash12(strand_cell));
-    float strand_length = clamp(length_mask * strand_variation, 0.0, 1.0);
-    if (v_shell_fraction > strand_length) {
+    // Linear filtering turns the binary 32x32 mask into a coverage field.
+    // Higher shells progressively shrink that field instead of drawing the
+    // identical opaque pattern on every layer.
+    float strand_threshold = mix(0.34, 0.72, pow(v_shell_fraction, 0.72));
+    float strand_coverage = smoothstep(
+        strand_threshold - 0.09,
+        strand_threshold + 0.09,
+        strand_mask
+    );
+    float length_edge = 1.0 - smoothstep(
+        max(0.0, strand_length - 0.08),
+        max(0.001, strand_length),
+        v_shell_fraction
+    );
+    strand_coverage *= max(length_edge, 0.12);
+    if (strand_coverage <= interleaved_noise(floor(gl_FragCoord.xy))) {
         discard;
     }
 
@@ -157,29 +209,43 @@ void main() {
     vec3 half_dir = normalize(light_dir + view_dir);
     float n_dot_l = max(dot(normal, light_dir), 0.0);
 
-    vec3 flow_tangent = normalize(v_tangent * flow.x + v_bitangent * flow.y + normal * 0.08);
+    vec3 flow_tangent = normalize(
+        v_tangent * flow.x + v_bitangent * flow.y + normal * 0.08
+    );
     float t_dot_h = clamp(dot(flow_tangent, half_dir), -1.0, 1.0);
     float anisotropic_angle = sqrt(max(0.0, 1.0 - t_dot_h * t_dot_h));
     float spec_falloff = u_has_spec_curve != 0
         ? texture2D(u_spec_curve_map, vec2(anisotropic_angle, 0.5)).r
         : pow(anisotropic_angle, max(u_spec_power, 1.0));
-    vec3 spec_sample = u_has_spec != 0 ? texture2D(u_spec_map, v_uv).rgb : vec3(1.0);
+    vec3 spec_sample = u_has_spec != 0
+        ? texture2D(u_spec_map, v_uv).rgb
+        : vec3(0.12);
 
     float shell_position = v_shell_fraction / max(strand_length, 0.001);
-    float root_light = smoothstep(clamp(u_fur_occlusion_start, 0.0, 0.98), 1.0, shell_position);
-    float root_occlusion = mix(0.42, 1.0, root_light);
+    float root_light = smoothstep(
+        clamp(u_fur_occlusion_start, 0.0, 0.98),
+        1.0,
+        shell_position
+    );
+    float root_occlusion = mix(0.38, 1.0, root_light);
 
+    // Fur color is always sourced from DIFTTXTR * DIFCCOLR. FURTTXTR is only
+    // coverage. Specular and rim are deliberately bounded so RBRTCOLR.w=2.5
+    // cannot bleach an entire shell to white.
     vec3 albedo = base_sample.rgb * u_base_color;
-    vec3 color = albedo * (0.18 + 0.82 * n_dot_l) * root_occlusion;
-    color += spec_sample * u_spec_color * spec_falloff * n_dot_l;
+    vec3 color = albedo * (0.20 + 0.80 * n_dot_l) * root_occlusion;
+    color += spec_sample * u_spec_color * (spec_falloff * n_dot_l * 0.32);
 
     float fresnel = 1.0 - max(dot(normal, view_dir), 0.0);
-    float rim = smoothstep(u_rim_min, max(u_rim_max, u_rim_min + 0.001), fresnel);
-    color += u_rim_color * (rim * u_rim_strength);
+    float rim = smoothstep(
+        u_rim_min,
+        max(u_rim_max, u_rim_min + 0.001),
+        fresnel
+    );
+    vec3 rim_tint = mix(albedo, albedo * u_rim_color, 0.65);
+    color += rim_tint * (rim * min(u_rim_strength, 3.0) * 0.18);
 
-    float tip_fade = 1.0 - smoothstep(0.86, 1.0, shell_position);
-    float alpha = clamp(base_sample.a * mix(0.82, 0.58, v_shell_fraction) * max(tip_fade, 0.15), 0.0, 1.0);
-    gl_FragColor = vec4(color, alpha);
+    gl_FragColor = vec4(max(color, vec3(0.0)), 1.0);
 }
 """
 
@@ -463,30 +529,19 @@ def install():
                     "u_base_color", "u_spec_color", "u_rim_color", "u_rim_strength",
                     "u_rim_min", "u_rim_max", "u_fur_density", "u_fur_flow_strength",
                     "u_fur_occlusion_start", "u_spec_power", "u_normal_y_sign",
-                    "u_shell_fraction", "u_fur_thickness", "u_fur_bend_power",
+                    "u_shell_fraction", "u_shell_count", "u_fur_thickness",
+                    "u_fur_bend_power",
                 )
                 self._fur_uniforms = {
                     name: self._glsl["glGetUniformLocation"](program, name.encode("ascii"))
                     for name in names
                 }
                 self._fur_tangent_location = self._glsl["glGetAttribLocation"](program, b"a_tangent")
-                self._fur_status.configure(text="Fur: Shell-Pass aktiv")
+                self._fur_status.configure(text="Fur: EXEFS Cutout-Shells")
             except Exception as exc:
                 self._fur_shader_error = str(exc)
                 self._fur_program = 0
                 self._fur_status.configure(text="Fur: Shader-Fallback")
-
-        def _upload_textures(self):
-            super()._upload_textures()
-            gl = self._wgl.opengl
-            for material_index, slots in self._material_gl_textures.items():
-                texture_id = slots.get("fur_mask")
-                if not texture_id:
-                    continue
-                gl.glBindTexture(mv.GL_TEXTURE_2D, texture_id)
-                gl.glTexParameteri(mv.GL_TEXTURE_2D, mv.GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-                gl.glTexParameteri(mv.GL_TEXTURE_2D, mv.GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-            gl.glBindTexture(mv.GL_TEXTURE_2D, 0)
 
         def _fur_uniform_i(self, name, value):
             location = self._fur_uniforms.get(name, -1)
@@ -630,8 +685,8 @@ def install():
                 functions["glDisableVertexAttribArray"](self._tangent_location)
             functions["glUseProgram"](0)
 
-            # EXEFS-guided shell pass. LCNTCOLR.x is the layer count; the
-            # "NO_fur" base material has zero and is deliberately skipped.
+            # EXEFS-guided opaque/cutout shell pass. LCNTCOLR.x is the layer
+            # count; the explicitly named NO_fur base material has zero.
             if self.fur_enabled.get() and self._fur_program:
                 functions["glUseProgram"](self._fur_program)
                 fur_sampler_names = (
@@ -711,6 +766,7 @@ def install():
                     self._fur_uniform_f("u_fur_bend_power", fur_params.get("bend_power", 1.0))
 
                     shell_count = int(fur_params.get("shell_count", 0))
+                    self._fur_uniform_f("u_shell_count", float(max(shell_count, 1)))
                     for shell_index in range(1, shell_count + 1):
                         shell_fraction = shell_index / float(shell_count)
                         self._fur_uniform_f("u_shell_fraction", shell_fraction)
