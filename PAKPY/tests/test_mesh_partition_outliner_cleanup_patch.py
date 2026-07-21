@@ -1,7 +1,10 @@
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 mesh_patch = types.ModuleType('mesh_partition_export_patch')
 mesh_patch._patch_skel_helper_nodes = lambda path, skeleton: ['old']
