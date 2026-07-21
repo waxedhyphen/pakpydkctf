@@ -16,17 +16,16 @@ def install(App):
 
     def __init__(self, root):
         original_init(self, root)
+        anchor = _find_button(self.root, "Modellpaket exportieren")
+        parent = anchor.master if anchor is not None else self.root
         self.mesh_viewer_button = tk.Button(
-            self.root,
+            parent,
             text="Mesh Viewer",
             command=self.open_selected_mesh_viewer,
             width=16,
             state="disabled",
         )
-
-        anchor = _find_button(self.root, "Modellpaket exportieren")
         if anchor is not None:
-            self.mesh_viewer_button.configure(master=anchor.master)
             try:
                 self.mesh_viewer_button.pack(side="left", padx=(8, 0), after=anchor)
             except Exception:
