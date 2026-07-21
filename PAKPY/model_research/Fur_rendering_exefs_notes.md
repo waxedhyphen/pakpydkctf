@@ -40,6 +40,17 @@ The same region contains these compile/permutation names:
 
 The function at text offset `0xE09F8` conditionally adds those defines from a flag word. This confirms that the original renderer has separate fin, dynamics, opaque and deferred/G-buffer paths rather than treating fur as an ordinary Phong/PBR material.
 
+## Recovered pass and depth behaviour
+
+`CMaterial_Fur::ApplyMaterial` and `ApplyIdentifiedMaterial` construct a depth state with depth testing and depth writing enabled for the normal Fur draw. `SetupInstanceInfo` also constructs at least two separate paths:
+
+- a depth-enabled path with `NoColorWrite`, associated with Fur initialization/stream-out work;
+- a full-color path with its own depth mode.
+
+The executable also exposes alpha-to-coverage state and NVN alpha-reference controls. A direct source-level link between every one of those calls and the Fur color pass has not been recovered, but the `OPAQUE_PASS`/`GBuffer` permutations and enabled depth writing show that ordinary back-to-front alpha blending is not the primary Fur path.
+
+The viewer therefore keeps opaque depth-writing shells and approximates coverage with shell-dependent cutouts plus screen-space dithering. This substitutes for the original console multisample/coverage behaviour in the single-sample WGL viewport.
+
 ## Texture-property mapping
 
 The FURM samples use:
@@ -50,9 +61,11 @@ The FURM samples use:
 | `NMAPTXTR` | tangent-space normal | `uc_normalMap` |
 | `SPCTTXTR` | specular texture | `uc_specularMap` |
 | `SPCFTXTR` | 1D specular falloff curve | 128x1 texture and `uc_specularFalloffMap` |
-| `FURTTXTR` | strand/shell mask | binary-looking 32x32 texture and `uc_furMap` |
+| `FURTTXTR` | strand/shell coverage | binary-looking 32x32 texture and `uc_furMap` |
 | `FURLTXTR` | length map | grayscale body-region mask and `uc_furLengthMap` |
 | `FURFTXTR` | flow map | signed-looking RG direction texture and `uc_furFlowMap` |
+
+`FURTTXTR` is not a color texture. The supplied sample is effectively a binary 32x32 coverage pattern. It must control which shell fragments survive; the final Fur RGB still comes from `DIFTTXTR` multiplied by `DIFCCOLR`.
 
 ## Scalar and color properties
 
@@ -82,17 +95,21 @@ The names line up with the EXEFS uniforms as follows:
 
 Implemented:
 
-- opaque/base material pass;
-- repeated shell displacement along vertex normals;
-- strand mask, length map and flow map;
+- opaque base-material pass;
+- depth-writing cutout shells rather than transparent overlaid surfaces;
+- shell-dependent coverage and dithered edge coverage;
+- length-map-scaled displacement;
+- flow-map bending in the tangent/bitangent plane;
 - EXEFS material shell count, thickness, density and root occlusion;
 - tangent/flow-oriented specular response using the 1D falloff texture;
-- rim lighting parameters;
+- bounded, albedo-aware rim lighting;
+- Fur RGB from `DIFTTXTR * DIFCCOLR` only;
 - exact `DIFCCOLR` lookup, avoiding the previous `LCNTCOLR` neon-tint bug.
 
 Not yet reconstructed:
 
-- the separate `FurFins` silhouette pass;
+- the separate view-dependent `FurFins` silhouette pass;
 - runtime `FurDynamics`, external forces, drag and constraints;
-- the exact original alpha/depth blend state and all LOD rules;
-- exact interpretation of the remaining `LCNTCOLR` components and `FROSSCLR`.
+- the exact original multisample alpha-to-coverage state and all LOD rules;
+- exact interpretation of the remaining `LCNTCOLR` components and `FROSSCLR`;
+- the final platform shader's exact equations and constants.
