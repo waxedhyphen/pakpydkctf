@@ -25,18 +25,23 @@ def install():
             self._mesh_visibility = {}
             self._mesh_panel_paned = None
             self._mesh_visibility_label = None
+            self._retired_viewport = None
             super().__init__(parent, parsed, entry, require_store=require_store)
 
         def _install_mesh_panel(self):
-            # The original viewport is created before the OpenGL context is
-            # initialised. Recreate it as a child of a PanedWindow so the list
-            # width can be changed with a draggable sash.
+            # The base viewer has already created a viewport and queued Tk idle /
+            # configure callbacks for it. Destroying that widget here leaves those
+            # callbacks pointing at an invalid Tk path. Keep the old frame alive
+            # but unmanaged; WGL initialisation will use the replacement assigned
+            # to self.viewport below.
             old_viewport = self.viewport
             try:
                 old_viewport.pack_forget()
-                old_viewport.destroy()
+                old_viewport.unbind("<Configure>")
+                old_viewport.unbind("<Expose>")
             except Exception:
                 pass
+            self._retired_viewport = old_viewport
 
             paned = tk.PanedWindow(
                 self,
@@ -46,7 +51,6 @@ def install():
                 showhandle=False,
                 opaqueresize=True,
                 borderwidth=0,
-                highlightthickness=0,
             )
             paned.pack(fill="both", expand=True, padx=8, pady=(4, 8))
             self._mesh_panel_paned = paned
@@ -137,7 +141,8 @@ def install():
 
             def place_initial_sash():
                 try:
-                    paned.sash_place(0, 360, 0)
+                    if paned.winfo_exists():
+                        paned.sash_place(0, 360, 0)
                 except Exception:
                     pass
 
