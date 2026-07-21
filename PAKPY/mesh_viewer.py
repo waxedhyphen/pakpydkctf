@@ -1,9 +1,9 @@
 """Lightweight Tkinter mesh viewer used by the PAK browser UI.
 
-The first implementation deliberately has no external OpenGL dependency. It
-renders triangle edges into a Canvas and supports orbit, pan, zoom, fit and
-wireframe/solid-style display. Geometry is supplied through the existing model
-OBJ exporter, so CMDL/SMDL/WMDL decoding stays in one place.
+This fallback viewer deliberately has no external OpenGL dependency. It renders
+model geometry into a Canvas and supports orbit, pan, zoom and fit. Rendering is
+coalesced and simplified while dragging so large models do not block Tk's event
+loop for every mouse-motion event.
 """
 from __future__ import annotations
 
@@ -33,10 +33,7 @@ def _parse_obj(path: Path) -> tuple[list[tuple[float, float, float]], list[tuple
                 if not value:
                     continue
                 index = int(value)
-                if index < 0:
-                    index = len(vertices) + index
-                else:
-                    index -= 1
+                index = len(vertices) + index if index < 0 else index - 1
                 if 0 <= index < len(vertices):
                     indices.append(index)
             if len(indices) >= 3:
@@ -54,6 +51,10 @@ def load_entry_geometry(parsed, entry):
 
 
 class MeshViewer(tk.Toplevel):
+    FRAME_MS = 16
+    INTERACTIVE_FACE_LIMIT = 4500
+    IDLE_FACE_LIMIT = 18000
+
     def __init__(self, parent, parsed, entry):
         super().__init__(parent)
         self.title(f'Mesh Viewer - {entry.get("display_name") or entry.get("name") or entry.get("uuid_hex", "Modell")}')
@@ -69,6 +70,8 @@ class MeshViewer(tk.Toplevel):
         self.pan_y = 0.0
         self.last_mouse: tuple[int, int] | None = None
         self.drag_mode = "orbit"
+        self.dragging = False
+        self._redraw_job = None
         self.fill_faces = tk.BooleanVar(value=True)
         self.show_grid = tk.BooleanVar(value=True)
         self._normalise_geometry()
@@ -76,27 +79,30 @@ class MeshViewer(tk.Toplevel):
         toolbar = ttk.Frame(self, padding=(8, 8, 8, 4))
         toolbar.pack(fill="x")
         ttk.Button(toolbar, text="Ansicht einpassen", command=self.fit_view).pack(side="left")
-        ttk.Checkbutton(toolbar, text="Flächen", variable=self.fill_faces, command=self.redraw).pack(side="left", padx=(12, 0))
-        ttk.Checkbutton(toolbar, text="Grid", variable=self.show_grid, command=self.redraw).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(toolbar, text="Flächen", variable=self.fill_faces, command=self.request_redraw).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(toolbar, text="Grid", variable=self.show_grid, command=self.request_redraw).pack(side="left", padx=(12, 0))
         self.status = ttk.Label(toolbar, text=self._status_text())
         self.status.pack(side="right")
 
         self.canvas = tk.Canvas(self, background="#20242a", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=8, pady=(4, 8))
-        self.canvas.bind("<Configure>", lambda _event: self.redraw())
+        self.canvas.bind("<Configure>", lambda _event: self.request_redraw())
         self.canvas.bind("<ButtonPress-1>", self._start_orbit)
         self.canvas.bind("<B1-Motion>", self._drag)
+        self.canvas.bind("<ButtonRelease-1>", self._end_drag)
         self.canvas.bind("<ButtonPress-2>", self._start_pan)
         self.canvas.bind("<B2-Motion>", self._drag)
+        self.canvas.bind("<ButtonRelease-2>", self._end_drag)
         self.canvas.bind("<ButtonPress-3>", self._start_pan)
         self.canvas.bind("<B3-Motion>", self._drag)
+        self.canvas.bind("<ButtonRelease-3>", self._end_drag)
         self.canvas.bind("<MouseWheel>", self._wheel)
         self.canvas.bind("<Button-4>", lambda _event: self._zoom_by(1.12))
         self.canvas.bind("<Button-5>", lambda _event: self._zoom_by(1 / 1.12))
         self.bind("<Key-r>", lambda _event: self.fit_view())
         self.bind("<Escape>", lambda _event: self.destroy())
         self.focus_set()
-        self.after_idle(self.redraw)
+        self.after_idle(self.request_redraw)
 
     def _normalise_geometry(self):
         xs = [v[0] for v in self.vertices]
@@ -117,15 +123,22 @@ class MeshViewer(tk.Toplevel):
         self.zoom = 1.0
         self.pan_x = 0.0
         self.pan_y = 0.0
-        self.redraw()
+        self.request_redraw()
 
     def _start_orbit(self, event):
         self.last_mouse = (event.x, event.y)
         self.drag_mode = "orbit"
+        self.dragging = True
 
     def _start_pan(self, event):
         self.last_mouse = (event.x, event.y)
         self.drag_mode = "pan"
+        self.dragging = True
+
+    def _end_drag(self, _event):
+        self.dragging = False
+        self.last_mouse = None
+        self.request_redraw(immediate=True)
 
     def _drag(self, event):
         if self.last_mouse is None:
@@ -140,14 +153,30 @@ class MeshViewer(tk.Toplevel):
         else:
             self.yaw += dx * 0.01
             self.pitch = max(-1.5, min(1.5, self.pitch + dy * 0.01))
-        self.redraw()
+        self.request_redraw()
 
     def _wheel(self, event):
         self._zoom_by(1.12 if event.delta > 0 else 1 / 1.12)
 
     def _zoom_by(self, factor):
         self.zoom = max(0.08, min(20.0, self.zoom * factor))
-        self.redraw()
+        self.request_redraw()
+
+    def request_redraw(self, immediate=False):
+        if not hasattr(self, "canvas"):
+            return
+        if self._redraw_job is not None:
+            if not immediate:
+                return
+            try:
+                self.after_cancel(self._redraw_job)
+            except Exception:
+                pass
+            self._redraw_job = None
+        if immediate:
+            self.redraw()
+        else:
+            self._redraw_job = self.after(self.FRAME_MS, self.redraw)
 
     def _project_vertices(self):
         width = max(1, self.canvas.winfo_width())
@@ -161,11 +190,12 @@ class MeshViewer(tk.Toplevel):
             z1 = -sy * x + cy * z
             y2 = cp * y - sp * z1
             z2 = sp * y + cp * z1
-            distance = 4.0
-            perspective = distance / max(0.35, distance - z2)
-            sx = width * 0.5 + self.pan_x + x1 * scale * perspective
-            sy2 = height * 0.5 + self.pan_y - y2 * scale * perspective
-            projected.append((sx, sy2, z2))
+            perspective = 4.0 / max(0.35, 4.0 - z2)
+            projected.append((
+                width * 0.5 + self.pan_x + x1 * scale * perspective,
+                height * 0.5 + self.pan_y - y2 * scale * perspective,
+                z2,
+            ))
         return projected
 
     def _draw_grid(self):
@@ -181,19 +211,39 @@ class MeshViewer(tk.Toplevel):
         self.canvas.create_line(0, cy, width, cy, fill="#505966")
         self.canvas.create_line(cx, 0, cx, height, fill="#505966")
 
+    @staticmethod
+    def _front_facing(polygon):
+        if len(polygon) < 3:
+            return False
+        ax, ay, _ = polygon[0]
+        bx, by, _ = polygon[1]
+        cx, cy, _ = polygon[2]
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) < 0.0
+
     def redraw(self):
-        if not hasattr(self, "canvas"):
+        self._redraw_job = None
+        if not hasattr(self, "canvas") or not self.winfo_exists():
             return
         self.canvas.delete("all")
         if self.show_grid.get():
             self._draw_grid()
         points = self._project_vertices()
+        limit = self.INTERACTIVE_FACE_LIMIT if self.dragging else self.IDLE_FACE_LIMIT
+        step = max(1, math.ceil(len(self.faces) / limit))
         draw_faces = []
-        for face in self.faces:
+        for face_index in range(0, len(self.faces), step):
+            face = self.faces[face_index]
             polygon = [points[index] for index in face]
+            if not self._front_facing(polygon):
+                continue
+            xs = [point[0] for point in polygon]
+            ys = [point[1] for point in polygon]
+            if max(xs) - min(xs) < 0.75 and max(ys) - min(ys) < 0.75:
+                continue
             depth = sum(point[2] for point in polygon) / len(polygon)
             draw_faces.append((depth, polygon))
-        draw_faces.sort(key=lambda item: item[0])
+        if not self.dragging:
+            draw_faces.sort(key=lambda item: item[0])
         for depth, polygon in draw_faces:
             coords = [coordinate for x, y, _z in polygon for coordinate in (x, y)]
             if self.fill_faces.get():
@@ -201,7 +251,8 @@ class MeshViewer(tk.Toplevel):
                 fill = f"#{shade:02x}{min(150, shade + 12):02x}{min(170, shade + 25):02x}"
             else:
                 fill = ""
-            self.canvas.create_polygon(coords, fill=fill, outline="#cbd5df", width=1)
+            outline = "" if self.dragging and self.fill_faces.get() else "#cbd5df"
+            self.canvas.create_polygon(coords, fill=fill, outline=outline, width=1)
 
 
 def open_mesh_viewer(parent, parsed, entry):
