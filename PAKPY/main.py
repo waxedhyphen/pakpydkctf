@@ -11,6 +11,7 @@ from exact_skeletal_rig_patch import install as install_exact_skeletal_rig_patch
 from mesh_partition_export_patch import install as install_mesh_partition_export_patch
 from mesh_partition_outliner_cleanup_patch import install as install_mesh_partition_outliner_cleanup_patch
 from blend_model_repack_patch import install as install_blend_model_repack_patch
+from mesh_viewer_gui_patch import install as install_mesh_viewer_gui_patch
 from tree_ctrl_select_patch import install as install_tree_ctrl_select_patch
 from model_animation_refs_patch import install as install_model_animation_refs_patch
 from char_anim_selector_patch import install as install_char_anim_selector_patch
@@ -44,6 +45,7 @@ install_char_gui(App)
 install_char_skeletal_package(App)
 install_uuid_gui(App)
 install_missing_txtr_export_error(App)
+install_mesh_viewer_gui_patch(App)
 install_tree_ctrl_select_patch(App)
 install_model_animation_refs_patch(App)
 install_char_anim_selector_patch(App)
