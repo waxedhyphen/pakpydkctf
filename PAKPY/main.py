@@ -15,6 +15,7 @@ from mesh_viewer_gui_patch import install as install_mesh_viewer_gui_patch
 from mesh_viewer_uv_diagnostics_patch import install as install_mesh_viewer_uv_diagnostics_patch
 from mesh_viewer_selection_patch import install as install_mesh_viewer_selection_patch
 from mesh_viewer_visibility_patch import install as install_mesh_viewer_visibility_patch
+from mesh_viewer_material_shader_patch import install as install_mesh_viewer_material_shader_patch
 from tree_ctrl_select_patch import install as install_tree_ctrl_select_patch
 from model_animation_refs_patch import install as install_model_animation_refs_patch
 from char_anim_selector_patch import install as install_char_anim_selector_patch
@@ -52,6 +53,7 @@ install_mesh_viewer_gui_patch(App)
 install_mesh_viewer_uv_diagnostics_patch()
 install_mesh_viewer_selection_patch()
 install_mesh_viewer_visibility_patch()
+install_mesh_viewer_material_shader_patch()
 install_tree_ctrl_select_patch(App)
 install_model_animation_refs_patch(App)
 install_char_anim_selector_patch(App)
