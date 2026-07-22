@@ -1,8 +1,11 @@
-"""Install display-only 180-degree orientation corrections for zlib previews.
+"""Install display-only orientation corrections for zlib previews.
 
-The underlying TXTR and SWF decoders keep their native byte/layout orientation so
-exports, replacement and repacking remain unchanged. Only viewer-owned PIL images
-are rotated.
+The decoded zlib-backed image data uses the opposite vertical image origin from the
+human-facing Tk/Pillow previews. The old workaround rotated previews by 180 degrees;
+that fixed top/bottom but also mirrored left/right. The correct display transform is
+therefore a vertical flip only.
+
+Raw TXTR/SWF bytes, replacement data, PNG import and repacking remain unchanged.
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ _INSTALLED = False
 
 
 def needs_txtr_preview_rotation(info):
-    """Return whether a decoded TXTR should be rotated for human-facing preview."""
+    """Return whether a decoded TXTR needs the zlib preview orientation fix."""
     return str((info or {}).get("gpu_codec", "")).strip().lower() == "zlib"
 
 
@@ -29,10 +32,15 @@ def is_zlib_swf(raw):
 
 
 def rotate_preview_image(image):
-    """Rotate a PIL image without changing its dimensions or resampling pixels."""
+    """Apply the historical preview helper as a vertical flip, not a 180° turn.
+
+    The function name is retained because the GFXL patch imports it. Returning a
+    top/bottom flip also applies the missing horizontal correction relative to the
+    previous 180-degree workaround.
+    """
     if image is None or PILImage is None:
         return image
-    transpose = getattr(getattr(PILImage, "Transpose", PILImage), "ROTATE_180")
+    transpose = getattr(getattr(PILImage, "Transpose", PILImage), "FLIP_TOP_BOTTOM")
     return image.transpose(transpose)
 
 
@@ -54,7 +62,7 @@ def install():
         self._set_buttons()
         try:
             status = self.status_var.get()
-            note = "Anzeige: 180° gedreht"
+            note = "Anzeige: vertikal gespiegelt"
             if note not in status:
                 self.status_var.set(f"{status} | {note}" if status else note)
         except Exception:
@@ -66,6 +74,8 @@ def install():
 
     def parse_swf_movie(raw):
         movie = original_parse_swf(raw)
+        # Keep the old attribute for compatibility with the already-installed
+        # GFXL patch; its meaning is now "apply preview orientation correction".
         movie.preview_rotate_180 = is_zlib_swf(raw)
         return movie
 
