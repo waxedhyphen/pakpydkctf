@@ -270,7 +270,7 @@ Die Vorschau erzeugt bei Bedarf eine deterministische lokale CPU-Liste. Query-, 
 
 ### Audio
 
-`playSound`, `debugSoundPlay`, `EffectsSetting` und `MusicSetting` erzeugen nur einen Audio-Request-Datensatz:
+`playSound`, `debugSoundPlay`, `EffectsSetting` und `MusicSetting` erzeugen einen Audio-Request-Datensatz:
 
 ```json
 {
@@ -282,7 +282,7 @@ Die Vorschau erzeugt bei Bedarf eine deterministische lokale CPU-Liste. Query-, 
 }
 ```
 
-Die tatsächliche CAUD-/CSMP-Ausgabe folgt in einer späteren Stufe.
+Die nachgelagerte Async-/Audio-Stufe löst konstante Soundnamen zusätzlich über CAUD auf, dekodiert referenzierte CSMP-Samples und kann sie optional lokal wiedergeben oder als WAV exportieren.
 
 ### Telemetrie
 
@@ -415,11 +415,30 @@ Die native ABI wird aus ActionScript-Call-Sites abgeleitet. Ohne Ausführung des
 
 Noch offen sind:
 
-- hostseitige Rückrufereignisse nach asynchronen Operationen;
-- konkrete Completion-Events für Save, Loading, Leaderboard und Replay;
+- exakter Abgleich der simulierten Completion-Eventnamen und Payloads mit dem ursprünglichen Host;
 - exakte Text-IDs und MSBT-Sprachauswahl;
-- reale CAUD-/CSMP-Audioauflösung und Wiedergabe;
+- dauerhafte Audio-Loops, Mehrstimmen-Mixing und Voice-Prioritäten;
 - echte Gamepad-Hardware;
 - Abgleich einzelner Callback-Signaturen mit dem Spielcode, sofern entsprechende Symbole oder Disassembly verfügbar werden.
 
-Der nächste Arbeitsblock ist die **asynchrone Callback-/Audio-Stufe**: sichere Completion-Event-Queues, Zuordnung der 676 `playSound`-Call-Sites zu CAUD/CSMP-Ressourcen und anschließend MSBT-basierte Laufzeittexte.
+Der nächste Arbeitsblock nach der umgesetzten Completion-/Audio-Stufe ist die **MSBT- und Laufzeittext-Stufe**: Sprachbundles inventarisieren, Text-IDs aus Data-Value-/Callback-Argumenten zuordnen und lokalisierte Laufzeittexte sicher in dynamische TextFields einspeisen.
+
+## Asynchrone Completion- und Audio-Erweiterung
+
+Die Callback-Schicht wird durch `ui_browser_async_audio_patch.py` nachgelagert erweitert. Der unmittelbare Rückgabewert bleibt unverändert; ausgewählte Operationen können zusätzlich auf der deterministischen AVM2-/Timeline-Uhr abgeschlossen werden.
+
+Unterstützt sind derzeit:
+
+- feldbezogene Events nach `SetDataValue`, `InitDataValue` und `NotifyDataValue`;
+- `SaveBusy` und `isSaveDataPopulated` für Save-/Profile-Operationen;
+- `isLoadingIn` und Transition-Completion für Navigation;
+- Completion-Events für Extras-Loading sowie Leaderboard-/Replay-Aufrufe;
+- `soundComplete` anhand der tatsächlich dekodierten CSMP-Dauer.
+
+Ein manueller Native-Callback-Override und der Modus `Nur beobachten` unterdrücken diese nachgelagerten Nebenwirkungen. Die Queue wird nicht in State-Presets gespeichert.
+
+`playSound` und `debugSoundPlay` werden jetzt gegen einen gemeinsamen CAUD-Katalog aus aktuellem und requireten PAK aufgelöst. Referenzierte CSMP-Ressourcen können in 16-Bit-PCM/WAV dekodiert, exportiert und unter Windows optional abgespielt werden. Audio ist standardmäßig deaktiviert.
+
+Der vollständige Corpus-Scan enthält 680 Audio-Bridge-Call-Sites: 676 `playSound` und 4 `debugSoundPlay`. Von 68 normalisierten konstanten Soundnamen werden 67 auf CAUD/CSMP aufgelöst. Der verbleibende String ist der alte Bibliothekspfad `../libs/music/FrontEnd_ButtonPress_In.mp3`, für den im bereitgestellten PAK-Satz kein gleichnamiges CAUD existiert. Alle 67 aufgelösten ersten CSMP-Varianten wurden ohne Decoderfehler verarbeitet.
+
+Details, Sicherheitsgrenzen, Preset-Schema und reproduzierbarer Scanner: `UI_VIEWER_ASYNC_AUDIO.md` und `PAKPY/scan_ui_audio_links.py`.
