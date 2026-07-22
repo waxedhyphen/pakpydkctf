@@ -82,7 +82,7 @@ Status: eingebettete Fonts und initiale `DefineEditText`-Inhalte abgeschlossen
 - Unicode-Glyphen, Scaleform-HTML, Größe, Farbe, Ausrichtung und `letterSpacing`.
 - 648 EditText-Felder und 647 HTML-Textfelder.
 
-Offen bleiben MSBT-Zuordnung, Laufzeittexte außerhalb der unterstützten AVM2-Pfade und ein pixelgenauer Font-Rasterizer-Abgleich.
+MSBT-Zuordnung und Laufzeittexte sind umgesetzt. Offen bleibt ein pixelgenauer Font-Rasterizer-Abgleich für alle Sprachzeichensätze.
 
 ### Phase 6.5 – Display-List-/State-Inspector
 
@@ -113,7 +113,7 @@ Status: laufende strukturelle Vorschau umgesetzt; AVM2-Frame-Scripts, Lifecycle-
 - dynamisch erzeugte MovieClips mit verknüpfter SWF-Definition verwenden ihre echte Timeline und laufen mit der UI-Timeline;
 - Button-MovieClips wechseln automatisch zwischen `up`, `over`, `down` und `disabled`.
 
-Wichtige Grenzen: vollständiges Flash-Capture/Bubbling, pixelgenaue Hit-Tests, klassische `DefineButton`-Tags und echte Gamepad-Hardware fehlen weiterhin.
+Wichtige Grenzen: vollständiges Flash-Capture/Bubbling, editierbare TextFields und echte Gamepad-Hardware fehlen weiterhin. Klassische Buttons sowie Shape-/Alpha-/Masken-HitTests sind umgesetzt.
 
 Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md` und `UI_VIEWER_BUTTON_NAVIGATION.md`.
 
@@ -155,7 +155,6 @@ Siehe `UI_VIEWER_STATE_PRESETS.md`, `UI_VIEWER_GAME_STATE_MOCKS.md` und `UI_VIEW
 Noch offen:
 
 - semantische Mock-Zuordnung für erst zur Laufzeit erzeugte, frei benannte TextFields;
-- MSBT-Text-IDs und Sprachauswahl;
 - exakter Abgleich einzelner Completion-Eventnamen mit dem ursprünglichen Host.
 
 ### Phase 9 – ActionScript 3
@@ -227,7 +226,10 @@ Validierung:
 - vollständiger Native-Scan: 47 Filmpayloads, 40 eindeutige ABC-Payloads, 0 Parserfehler, 134 Namen, 6.730 Call-Sites;
 - Dry-Run aller 134 Namen mit repräsentativen Argumenten ohne Exception;
 - 15 Async-/Audio-Tests für DSP-Dekodierung, WAV, Queue, Eventdispatch, Priorität, konservative Callback-Auswahl und Presets;
-- Audio-Corpus-Scan: 1.010 CAUD, 1.248 CSMP, 680 Audio-Call-Sites, 67 von 68 normalisierten Namen aufgelöst und 67 von 67 Prüfvarianten ohne Decoderfehler.
+- Audio-Corpus-Scan: 1.010 CAUD, 1.248 CSMP, 680 Audio-Call-Sites, 67 von 68 normalisierten Namen aufgelöst und 67 von 67 Prüfvarianten ohne Decoderfehler;
+- elf MSBT-/Lokalisierungstests sowie Corpus-Scan mit 36 Sprachdateien, 7.641 Nachrichtensätzen, neun Sprachen und null Parserfehlern;
+- acht Tests für klassische SWF-Buttons, AVM1-Sicherheitsgrenzen, Alpha-/Clip-HitTests und ClipDepth-Erkennung;
+- Button-/HitTest-Corpus-Scan: 60 eingebettete Filmpayloads, null klassische Button-Tags, 13 ClipDepth-Placements und null Scannerfehler.
 
 Noch offen:
 
@@ -238,47 +240,43 @@ Noch offen:
 - dynamische Vektorzeichenbefehle und editierbare TextFields;
 - exakter Host-Abgleich der simulierten Completion-Eventnamen und Payloads;
 - exakter Signaturabgleich einzelner nativer Callbacks mit Spielcode;
-- MSBT- und Sprachlogik.
+- vollständige Message-Studio-Parameter- und Kontrolltagsemantik.
 
-Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_NATIVE_CALLBACKS.md` und `UI_VIEWER_ASYNC_AUDIO.md`.
+Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_CLASSIC_BUTTON_HITTEST.md`, `UI_VIEWER_NATIVE_CALLBACKS.md`, `UI_VIEWER_ASYNC_AUDIO.md` und `UI_VIEWER_LOCALIZATION.md`.
 
-### Phase 10 – Eingabe und Audio
+### Phase 10 – Eingabe, Audio und Lokalisierung
 
-Status: Maus, Tastatur, Fokus, Button-Zustände, Richtungsnavigation, sichere Native-Completion-Events und CAUD/CSMP-Audiovorschau umgesetzt; echte Gamepads und MSBT offen
+Status: Maus, Tastatur, Fokus, MovieClip- und klassische Buttonzustände, Richtungsnavigation, präzise HitTests, sichere Native-Completion-Events, CAUD/CSMP-Audio und MSBT-Laufzeittexte umgesetzt; echte Gamepads und editierbare TextFields offen
 
 Implementiert:
 
-- transformierte rechteckige Hit-Regionen für Shapes, TextFields, externe Bilder und dynamische Objekte;
-- `mouseOver`, `mouseOut`, `mouseDown`, `mouseUp` und `click`;
-- `focusIn` und `focusOut`;
-- Fokuswechsel per Mausklick, `Tab` und `Shift+Tab`;
-- Aktivierung des fokussierten Ziels mit Enter oder Leertaste;
-- `keyDown` und `keyUp` mit Keycode, Zeichencode und Tastennamen;
-- direkte Weitergabe entlang stabiler Parent-Pfade bis `root`;
-- automatische Button-Zustände `up`, `over`, `down` und `disabled`;
-- Richtungsfokus mit Pfeiltasten und WASD;
+- Maus-, Tastatur-, Fokus- und Click-Events entlang stabiler Parent-Pfade;
+- Fokuswechsel per Maus, Tab/Shift+Tab, Pfeiltasten und WASD;
+- automatische MovieClip-Buttonzustände und Button-Owner-Routing;
+- `DefineButton` und `DefineButton2` als vierteilige Sprite-kompatible Definitionen;
+- Inventar von ButtonRecords, HitTest-Records, TrackAsMenu, Tastencodes und AVM1-Aktionen;
+- sichere Ausführung ausschließlich der AVM1-Timeline-Aktionen `NextFrame`, `PreviousFrame`, `Play`, `Stop`, `GotoFrame` und `GotoLabel`;
+- Vektor- und TXTR-Alpha-HitTests in nativen Stage-Koordinaten;
+- ClipDepth-, `scrollRect`-, Runtime-`mask`- und `hitArea`-bewusste Treffer;
 - controllerartige Ereignisse für Navigate, Accept und Cancel;
-- `mouseChildren = false` und Button-Owner-Routing;
-- abschaltbare Browser-Optionen `Input Events` und `Button States + Navigation`;
-- sichere DKCTF-Callback-Simulation mit isolierten Audio-Requests und Telemetriepuffern;
-- timelinebasierte Completion-Events für Save, Loading, Leaderboard, Replay, Extras und Data-Value-Änderungen;
-- gemeinsamer CAUD-Katalog aus aktuellem und requireten PAK;
-- CSMP-DSP-ADPCM-Decoder, WAV-Export und optionale Windows-Wiedergabe;
-- Audio-/Async-Inspector über `F12`, Mute und Lautstärke;
-- Audio-Vorschauoptionen im kompatiblen State-Presetformat.
+- sichere DKCTF-Callback-Simulation und timelinebasierte Completion-Events;
+- gemeinsamer CAUD-Katalog, CSMP-DSP-ADPCM-Decoder, WAV-Export und optionale Windows-Wiedergabe;
+- MSBT-Katalog mit neun Sprachcodes, exakter Text-ID-Auflösung, Fallback und dynamischen Laufzeittexten;
+- Audio-/Async-, Localization- und Button-/HitTest-Inspector;
+- Audio- und Lokalisierungsoptionen im kompatiblen State-Presetformat.
 
 Noch offen:
 
-- separates Parsing klassischer `DefineButton`-/`DefineButton2`-Tags;
-- pixelgenaue Hit-Tests, Masken- und ScrollRect-Regeln;
-- vollständige Capture-/Bubbling-Semantik;
+- vollständige Capture-/Bubbling- und Weak-Listener-Semantik;
+- vollständige AVM1-Ausführung außerhalb der sicheren Timeline-Aktionen;
 - echte Gamepad-Hardware;
-- TextField-Cursor und Texteingabe;
+- TextField-Cursor, Auswahl, Texteingabe und IME;
 - dauerhafte Audio-Loops, Mehrstimmen-Mixing und Voice-Prioritäten;
-- MSBT-Sprachtexte;
+- Message-Studio-Parameterformatierung;
+- Scale9-spezifische Hit-Flächen, dynamische Graphics-HitTests und seltene Shape-Formate;
 - exakter Abgleich der Completion-Payloads mit dem ursprünglichen Spielhost.
 
-Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_NATIVE_CALLBACKS.md` und `UI_VIEWER_ASYNC_AUDIO.md`.
+Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_CLASSIC_BUTTON_HITTEST.md`, `UI_VIEWER_NATIVE_CALLBACKS.md`, `UI_VIEWER_ASYNC_AUDIO.md` und `UI_VIEWER_LOCALIZATION.md`.
 
 ## Zusätzliche Dateien
 
@@ -305,10 +303,9 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-MSBT- und Laufzeittext-Stufe:
+Finale Eingabe- und EditText-Stufe:
 
-1. MSBT- und Sprachbundle-Inventar aus aktuellem und requireten PAK;
-2. Zuordnung von Text-IDs aus Data-Value- und Native-Callback-Argumenten;
-3. kontrollierte Sprachumschaltung und Fallback-Kette;
-4. Einspeisung lokalisierter Laufzeittexte in vorhandene und dynamische TextFields;
-5. anschließend pixelgenaue Hit-Tests und klassische `DefineButton`-/`DefineButton2`-Tags.
+1. editierbare `TextField`-Instanzen mit Cursor, Auswahl und begrenzter Texteingabe;
+2. Fokus- und Keyboard-Semantik für Inputfelder einschließlich kontrollierter Passwortdarstellung;
+3. optionales Plattform-Gamepad-Mapping auf die vorhandenen Controller-Events;
+4. danach Scale9-/Graphics-HitTest-Sonderfälle, Morph-Shapes und verbleibende visuelle Formatlücken.
