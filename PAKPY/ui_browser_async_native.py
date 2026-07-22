@@ -173,7 +173,10 @@ def _schedule_completion(context, name, args, result, spec):
 
 def _post_audio(context, name, args):
     movie = context.movie
-    owner = getattr(movie, "_ui_audio_owner", None)
+    owner = (
+        getattr(movie, "_ui_audio_owner", None)
+        or getattr(movie, "_ui_avm2_runtime_owner", None)
+    )
     if owner is None:
         return
     audio.attach_audio_catalog(owner, movie)
