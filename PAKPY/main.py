@@ -21,6 +21,7 @@ from ui_browser_filter_patch import install as install_ui_browser_filter_patch
 from ui_browser_mask_patch import install as install_ui_browser_mask_patch
 from ui_browser_text_patch import install as install_ui_browser_text_patch
 from ui_browser_state_inspector_patch import install as install_ui_browser_state_inspector_patch
+from ui_browser_state_override_patch import install as install_ui_browser_state_override_patch
 from mesh_viewer_uv_diagnostics_patch import install as install_mesh_viewer_uv_diagnostics_patch
 from mesh_viewer_selection_patch import install as install_mesh_viewer_selection_patch
 from mesh_viewer_visibility_patch import install as install_mesh_viewer_visibility_patch
@@ -71,6 +72,7 @@ install_ui_browser_filter_patch()
 install_ui_browser_mask_patch()
 install_ui_browser_text_patch()
 install_ui_browser_state_inspector_patch()
+install_ui_browser_state_override_patch()
 install_mesh_viewer_uv_diagnostics_patch()
 install_mesh_viewer_selection_patch()
 install_mesh_viewer_visibility_patch()
