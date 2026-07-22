@@ -4,7 +4,7 @@ Stand: 2026-07-22
 
 ## Zweck
 
-State-Presets speichern manuell rekonstruierte UI-Zustände und die Timeline-Vorschau. Sie eignen sich für Pause-/Optionsseiten, HUD-Gruppen, alternative MovieClip-Frames, Testtexte, Effektvergleiche und reproduzierbare Screenshots.
+State-Presets speichern manuell rekonstruierte UI-Zustände, Timeline-Wiedergabe und optionale Game-State-Mocks. Sie eignen sich für Pause-/Optionsseiten, HUD-Gruppen, alternative MovieClip-Frames, Testtexte, Effektvergleiche und reproduzierbare Screenshots.
 
 Alle Presets wirken ausschließlich auf die Vorschau.
 
@@ -12,12 +12,12 @@ Alle Presets wirken ausschließlich auf die Vorschau.
 
 1. Einen GFX-Film im UI Browser öffnen.
 2. Root-Frame und optional Timeline-Wiedergabe einstellen.
-3. `State Inspector` oder `F6` öffnen.
-4. Instanzen auswählen und Overrides setzen.
-5. `Override anwenden` anklicken.
+3. Optional ein State-Profil anwenden oder `Mocks…` öffnen.
+4. `State Inspector` oder `F6` öffnen.
+5. Instanzen auswählen und manuelle Overrides setzen.
 6. `Preset speichern` anklicken.
 
-Gespeichert werden Film, Quell-PAK, Root-Frame, Overrides und der aktuelle Playback-Zustand.
+Gespeichert werden Film, Quell-PAK, Root-Frame, manuelle Overrides, Playback-Zustand sowie Profil und Mock-Werte.
 
 ## Preset laden
 
@@ -26,7 +26,7 @@ Gespeichert werden Film, Quell-PAK, Root-Frame, Overrides und der aktuelle Playb
 3. `Preset laden` anklicken.
 4. JSON-Datei auswählen.
 
-Das Laden ersetzt die aktiven Overrides und Timeline-Zustände dieses Films. Root-Frame, Tempo und globaler Play/Pause-Zustand werden wiederhergestellt. Bei einem anderen Filmnamen erscheint eine Warnung; die Pfade werden trotzdem geladen.
+Das Laden ersetzt die aktiven Overrides, Timeline-Zustände und Game-Mocks dieses Films. Root-Frame, Tempo und globaler Play/Pause-Zustand werden wiederhergestellt. Bei einem anderen Filmnamen erscheint eine Warnung; die Pfade werden trotzdem geladen.
 
 ## Unterstützte Overrides
 
@@ -60,7 +60,7 @@ Ein fester Unterframe besitzt Vorrang vor der laufenden Timeline dieses Pfads.
 }
 ```
 
-Fontklasse, Textfeldgröße, Transformation, Filter, Masken und Blend Modes bleiben erhalten.
+Ein manueller Text-Override besitzt Vorrang vor einem automatisch zugeordneten Game-State-Mock. Fontklasse, Textfeldgröße, Transformation, Filter, Masken und Blend Modes bleiben erhalten.
 
 ### Filter oder Blend Mode deaktivieren
 
@@ -93,7 +93,31 @@ Fontklasse, Textfeldgröße, Transformation, Filter, Masken und Blend Modes blei
 - `instances[path].frame`: aktueller Unterframe;
 - `instances[path].playing`: ob diese Instanz bei globaler Wiedergabe mitläuft.
 
-Ältere Presets ohne diesen Block bleiben kompatibel.
+## Game-State-Mocks
+
+```json
+{
+  "game_state": {
+    "enabled": true,
+    "profile": "hud_1p",
+    "roles": ["players", "lives", "banana_coins", "score"],
+    "values": {
+      "players": 1,
+      "lives": 5,
+      "banana_coins": 23,
+      "score": 12500,
+      "timer_seconds": 95.42
+    }
+  }
+}
+```
+
+- `enabled`: globale Mock-Aktivierung für diesen Film;
+- `profile`: ID der mitgelieferten Vorlage oder leer bei benutzerdefinierten Werten;
+- `roles`: tatsächlich aktivierte semantische Textrollen;
+- `values`: Werte aller bekannten Mock-Felder.
+
+Ältere Presets ohne `playback` oder `game_state` bleiben kompatibel.
 
 ## Vollständiges Schema
 
@@ -123,6 +147,24 @@ Fontklasse, Textfeldgröße, Transformation, Filter, Masken und Blend Modes blei
         "playing": false
       }
     }
+  },
+  "game_state": {
+    "enabled": false,
+    "profile": "options",
+    "roles": [],
+    "values": {
+      "players": 1,
+      "lives": 5,
+      "banana_coins": 23,
+      "puzzle_pieces": 4,
+      "puzzle_total": 9,
+      "timer_seconds": 95.42,
+      "score": 12500,
+      "level_name": "Jungle Hijinxs",
+      "bananas": 73,
+      "kong_letters": "KONG",
+      "progress_percent": 42
+    }
   }
 }
 ```
@@ -139,19 +181,17 @@ Ohne Instanznamen werden je nach Objekt SymbolClass, externe Klasse, Textvariabl
 
 ## Verhalten bei Framewechseln
 
-Overrides und Timeline-Zustände werden pro Renderdurchlauf anhand des Pfads angewendet. Nicht vorhandene Pfade bleiben gespeichert und werden wieder aktiv, sobald sie in einem späteren Root- oder Unterframe erneut erscheinen.
-
-Die Analyse zeigt gespeicherte und im aktuellen Frame angewendete Overrides sowie aktive/laufende MovieClips.
+Overrides und Timeline-Zustände werden pro Renderdurchlauf anhand des Pfads angewendet. Game-Mocks werden zusätzlich bei jedem gerenderten EditText anhand von Variable, Instanzname und Pfad zugeordnet. Nicht vorhandene Pfade bleiben gespeichert und werden wieder aktiv, sobald sie in einem späteren Root- oder Unterframe erneut erscheinen.
 
 ## Sitzungsverwaltung
 
-Override- und Timeline-Sätze werden während der Browser-Sitzung pro Film getrennt gehalten. Für dauerhafte Speicherung muss ein JSON-Preset gespeichert werden.
+Override-, Timeline- und Mock-Zustände werden während der Browser-Sitzung pro Film getrennt gehalten. Für dauerhafte Speicherung muss ein JSON-Preset gespeichert werden.
 
 ## Grenzen
 
 - Keine ActionScript-Konstruktoren oder Frame Scripts.
 - Keine dynamisch erzeugten DisplayObjects.
-- Keine automatische MSBT- oder Game-State-Zuordnung.
+- Keine automatische MSBT-Sprachauswahl oder native Callback-Ausführung.
 - Ein manuell rekonstruierter Zustand muss nicht zwingend über den normalen Ingame-Code erreichbar sein.
 
-Details zur Wiedergabe: `UI_VIEWER_TIMELINE_PLAYBACK.md`.
+Details: `UI_VIEWER_TIMELINE_PLAYBACK.md` und `UI_VIEWER_GAME_STATE_MOCKS.md`.
