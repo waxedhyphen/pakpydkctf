@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import ui_browser
 import ui_browser_avm2_dynamic_patch as dynamic
+import ui_browser_avm2_runtime_patch as runtime
 import ui_browser_classic_button as classic
 import ui_browser_hit_geometry_base as base
 import ui_browser_shape_patch as shape_patch
@@ -267,7 +268,17 @@ def _apply_runtime_masks(movie, mapping):
 
 def _apply_hit_areas(movie, mapping, order):
     result = dict(mapping)
-    for path in tuple(result):
+    candidates = set(result)
+    for path, values in runtime._properties(movie).items():
+        if isinstance(values, dict) and "hitArea" in values:
+            candidates.add(str(path))
+    try:
+        for obj in dynamic._state(movie).get("objects", {}).values():
+            if "hitArea" in getattr(obj, "extras", {}):
+                candidates.add(str(obj.path))
+    except Exception:
+        pass
+    for path in tuple(candidates):
         target = _reference_path(_property(movie, path, "hitArea"))
         if not target or target == path or not result.get(target):
             continue
