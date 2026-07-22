@@ -7,6 +7,7 @@ import ui_browser
 import ui_browser_avm2_dynamic_patch as dynamic
 import ui_browser_avm2_runtime_patch as runtime
 import ui_browser_button_navigation_patch as button
+import ui_browser_button_logic_fix_patch as logic
 
 
 _INSTALLED = False
@@ -49,7 +50,7 @@ def _score(movie, node):
         score = max(score, 100)
     if "button" in text or "btn" in text:
         score = max(score, 90)
-    if button._has_button_word(
+    if logic.has_button_word(
         f"{getattr(node, 'label', '')} {node.path} "
         f"{getattr(node, 'class_name', '')} {kind}"
     ):
