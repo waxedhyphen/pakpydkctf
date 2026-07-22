@@ -156,7 +156,7 @@ Noch offen:
 
 - semantische Mock-Zuordnung für erst zur Laufzeit erzeugte, frei benannte TextFields;
 - MSBT-Text-IDs und Sprachauswahl;
-- asynchrone Completion-Events einzelner nativer Operationen.
+- exakter Abgleich einzelner Completion-Eventnamen mit dem ursprünglichen Host.
 
 ### Phase 9 – ActionScript 3
 
@@ -192,6 +192,9 @@ Implementiert:
 - statisches Inventar von `ExternalInterface`-, `Controller`-, `Model`- und Data-Value-Brücken;
 - 134 klassifizierte native Callback-Namen an 6.730 deduplizierten Call-Sites im vollständigen `UIPak.pak`-Scan;
 - sichere Preview-Implementierungen für Data Read/Write/Listen, Navigation, Controller, Save/Profile, Shop, Extras, Leaderboard, Audio-Requests, Telemetrie, Lifecycle und Gameplay-Events;
+- deterministische Completion-Queue für Data-Value-, Save-, Loading-, Leaderboard-, Replay-, Extras- und Audio-Abschlüsse;
+- CAUD-Katalog aus aktuellem und requireten PAK sowie CAUD-zu-CSMP-Auflösung;
+- DSP-ADPCM-Dekodierung nach 16-Bit-PCM/WAV und `soundComplete` anhand der realen Sampledauer;
 - Native-Callback-Inspector über `F11`, JSON-Export und Rückgabe-Overrides;
 - AVM2-Inspector über `F9` und Runtime-Neuausführung über `F10`;
 - Frame-Script-, Runtime-, Lifecycle-, Dynamic-, Input- und Native-Callback-Metadaten im Analysefeld.
@@ -207,6 +210,8 @@ Sicherheitsgrenzen:
 - maximale dynamische Verschachtelungstiefe 64;
 - unbekannte Nicht-Display-Klassen werden nicht als visuelle Objekte konstruiert;
 - höchstens 2.000 Native-Callback-Logeinträge, 500 Einträge pro Ereignispuffer und 256 Rückgabe-Overrides;
+- höchstens 256 ausstehende Completion-Requests und 32 Abschlüsse pro Timeline-Tick;
+- höchstens 4 Audiokanäle, 20.000.000 Samples pro Kanal, 256 MiB PCM pro Sound und 64 MiB WAV-Cache;
 - nicht unterstützte Opcodes brechen nur die betroffene Methode ab;
 - keine beliebigen Host-, Datei-, Prozess-, Netzwerk-, Audio- oder Gamepad-Aufrufe.
 
@@ -218,9 +223,11 @@ Validierung:
 - neun Dynamic-Display-Modelltests für Konstruktion, Containeroperationen, Transform, Text, Fokus und Timeline-Fortschritt;
 - zwei Tests für den genauen Konstruktorzeitpunkt verknüpfter dynamischer AVM2-Klassen;
 - zwölf Tests für Button-Zustände, Owner-Routing und Richtungsnavigation;
-- 13 Native-Callback-Tests für Inventar, Klassifikation, Priorität, Data-Value-Aliase, isolierte Subsysteme und JSON-Sicherheit;
+- 14 Native-Callback-Tests für Inventar, Klassifikation, Priorität, Data-Value-Aliase, isolierte Subsysteme und JSON-Sicherheit;
 - vollständiger Native-Scan: 47 Filmpayloads, 40 eindeutige ABC-Payloads, 0 Parserfehler, 134 Namen, 6.730 Call-Sites;
-- Dry-Run aller 134 Namen mit repräsentativen Argumenten ohne Exception.
+- Dry-Run aller 134 Namen mit repräsentativen Argumenten ohne Exception;
+- 13 Async-/Audio-Tests für DSP-Dekodierung, WAV, Queue, Eventdispatch, Priorität und Presets;
+- Audio-Corpus-Scan: 1.010 CAUD, 1.248 CSMP, 680 Audio-Call-Sites, 67 von 68 normalisierten Namen aufgelöst und 67 von 67 Prüfvarianten ohne Decoderfehler.
 
 Noch offen:
 
@@ -229,15 +236,15 @@ Noch offen:
 - Exception-Handling und vollständige Iteration;
 - vollständiges Event-Bubbling, Capture und Weak-Listener-Semantik;
 - dynamische Vektorzeichenbefehle und editierbare TextFields;
-- hostseitige Completion-Events für asynchrone Save-, Loading-, Leaderboard- und Replay-Operationen;
+- exakter Host-Abgleich der simulierten Completion-Eventnamen und Payloads;
 - exakter Signaturabgleich einzelner nativer Callbacks mit Spielcode;
 - MSBT- und Sprachlogik.
 
-Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md` und `UI_VIEWER_NATIVE_CALLBACKS.md`.
+Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_NATIVE_CALLBACKS.md` und `UI_VIEWER_ASYNC_AUDIO.md`.
 
 ### Phase 10 – Eingabe und Audio
 
-Status: Maus, Tastatur, Fokus, Button-Zustände, Richtungsnavigation und sichere native Host-Simulation umgesetzt; echte Gamepads und Audio offen
+Status: Maus, Tastatur, Fokus, Button-Zustände, Richtungsnavigation, sichere Native-Completion-Events und CAUD/CSMP-Audiovorschau umgesetzt; echte Gamepads und MSBT offen
 
 Implementiert:
 
@@ -253,7 +260,12 @@ Implementiert:
 - controllerartige Ereignisse für Navigate, Accept und Cancel;
 - `mouseChildren = false` und Button-Owner-Routing;
 - abschaltbare Browser-Optionen `Input Events` und `Button States + Navigation`;
-- sichere DKCTF-Callback-Simulation mit isolierten Audio-Requests und Telemetriepuffern.
+- sichere DKCTF-Callback-Simulation mit isolierten Audio-Requests und Telemetriepuffern;
+- timelinebasierte Completion-Events für Save, Loading, Leaderboard, Replay, Extras und Data-Value-Änderungen;
+- gemeinsamer CAUD-Katalog aus aktuellem und requireten PAK;
+- CSMP-DSP-ADPCM-Decoder, WAV-Export und optionale Windows-Wiedergabe;
+- Audio-/Async-Inspector über `F12`, Mute und Lautstärke;
+- Audio-Vorschauoptionen im kompatiblen State-Presetformat.
 
 Noch offen:
 
@@ -262,11 +274,11 @@ Noch offen:
 - vollständige Capture-/Bubbling-Semantik;
 - echte Gamepad-Hardware;
 - TextField-Cursor und Texteingabe;
-- CAUD/CSMP-Auflösung und UI-Soundwiedergabe;
+- dauerhafte Audio-Loops, Mehrstimmen-Mixing und Voice-Prioritäten;
 - MSBT-Sprachtexte;
-- asynchrone native Completion-Events.
+- exakter Abgleich der Completion-Payloads mit dem ursprünglichen Spielhost.
 
-Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md` und `UI_VIEWER_NATIVE_CALLBACKS.md`.
+Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_NATIVE_CALLBACKS.md` und `UI_VIEWER_ASYNC_AUDIO.md`.
 
 ## Zusätzliche Dateien
 
@@ -293,10 +305,10 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-Asynchrone Callback-, Audio- und Sprachstufe:
+MSBT- und Laufzeittext-Stufe:
 
-1. sichere Completion-Event-Queues für Loading, Save, Leaderboard und Replay;
-2. Zuordnung der 676 `playSound`-Call-Sites zu CAUD-/CSMP-Ressourcen;
-3. kontrollierte UI-Soundwiedergabe mit Lautstärke- und Mute-Option;
-4. MSBT-Text-ID-Inventar und Sprachauswahl;
+1. MSBT- und Sprachbundle-Inventar aus aktuellem und requireten PAK;
+2. Zuordnung von Text-IDs aus Data-Value- und Native-Callback-Argumenten;
+3. kontrollierte Sprachumschaltung und Fallback-Kette;
+4. Einspeisung lokalisierter Laufzeittexte in vorhandene und dynamische TextFields;
 5. anschließend pixelgenaue Hit-Tests und klassische `DefineButton`-/`DefineButton2`-Tags.
