@@ -51,6 +51,13 @@ class MsbtDocument:
         return {message.label: message for message in self.messages if message.label}
 
 
+_ENCODING_NAMES = {
+    0: "utf-8",
+    1: "utf-16",
+    2: "utf-32",
+}
+
+
 def _align(value: int, alignment: int = 16) -> int:
     return (int(value) + alignment - 1) & ~(alignment - 1)
 
@@ -82,7 +89,13 @@ def _decode_plain(raw: bytes, encoding: str, unit: int) -> str:
 
 
 def _decode_utf16_message(raw: bytes, byte_order: str, encoding: str) -> str:
-    """Decode UTF-16 and preserve Message Studio control tags diagnostically."""
+    """Decode UTF-16 and preserve Message Studio control tags diagnostically.
+
+    MSBT control tags begin with U+000E, followed by group, type and payload
+    size as 16-bit values. U+000F is the matching end marker. The UI renderer
+    cannot reproduce every game-specific control, so the parser emits stable
+    textual placeholders instead of silently discarding the payload.
+    """
     out: list[str] = []
     plain = bytearray()
     p = 0
@@ -117,8 +130,13 @@ def _decode_utf16_message(raw: bytes, byte_order: str, encoding: str) -> str:
             continue
         if code == 0x000F:
             flush()
-            out.append("</tag>")
-            p += 2
+            if p + 6 > len(raw):
+                out.append("</tag:truncated>")
+                break
+            group = int.from_bytes(raw[p + 2:p + 4], byte_order)
+            kind = int.from_bytes(raw[p + 4:p + 6], byte_order)
+            out.append(f"</tag:{group}:{kind}>")
+            p += 6
             continue
         plain += raw[p:p + 2]
         p += 2
