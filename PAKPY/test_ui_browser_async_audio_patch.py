@@ -138,6 +138,34 @@ class AsyncAudioPatchTests(unittest.TestCase):
         self.assertTrue(any('isSaveDataPopulated' in item['events'] for item in pending))
         self.assertTrue(native._native_data(value)[('mRuntimeData', 'SaveBusy')])
 
+    def test_simple_save_setter_does_not_fake_async_save_completion(self):
+        value = movie(); context = Context(value)
+        old = async_native._BASE_NATIVE
+        def base(*_args):
+            native._callback_state(value)['calls'].append({'source': 'DKCTF-Simulation:save/profile'})
+            return True
+        async_native._BASE_NATIVE = base
+        try:
+            async_native.native_call(context, 'setBalloonCount', (7,))
+        finally:
+            async_native._BASE_NATIVE = old
+        self.assertEqual(audio.async_audio_state(value)['pending'], [])
+
+    def test_audio_setting_callback_is_not_treated_as_sound_name(self):
+        value = movie(); context = Context(value)
+        old_native, old_post = async_native._BASE_NATIVE, async_native._post_audio
+        calls = []
+        def base(*_args):
+            native._callback_state(value)['calls'].append({'source': 'DKCTF-Simulation:audio'})
+            return True
+        async_native._BASE_NATIVE = base
+        async_native._post_audio = lambda *_args: calls.append(True)
+        try:
+            async_native.native_call(context, 'EffectsSetting', (0.5,))
+        finally:
+            async_native._BASE_NATIVE, async_native._post_audio = old_native, old_post
+        self.assertEqual(calls, [])
+
     def test_audio_resolution_queues_real_duration_completion_without_autoplay(self):
         value = movie(); owner = Owner(value); value._ui_audio_owner = owner
         context = Context(value)
