@@ -110,11 +110,12 @@ Status: laufende strukturelle Vorschau umgesetzt; AVM2-Frame-Scripts, Lifecycle-
 - Wiedergabestatus, Geschwindigkeit und Instanzframes werden in JSON-Presets gespeichert;
 - `stop`, `play`, `gotoAndStop` und `gotoAndPlay` werden aus kontrolliert interpretierten Frame Scripts angewendet;
 - `ENTER_FRAME`, Timer und Event-Handler können Root- und Untertimelines verändern;
-- dynamisch erzeugte MovieClips mit verknüpfter SWF-Definition verwenden ihre echte Timeline und laufen mit der UI-Timeline.
+- dynamisch erzeugte MovieClips mit verknüpfter SWF-Definition verwenden ihre echte Timeline und laufen mit der UI-Timeline;
+- Button-MovieClips wechseln automatisch zwischen `up`, `over`, `down` und `disabled`.
 
-Wichtige Grenze: vollständiges Event-Capture/Bubbling, automatische Button-Zustände und Controller-Navigation fehlen weiterhin.
+Wichtige Grenzen: vollständiges Flash-Capture/Bubbling, pixelgenaue Hit-Tests, klassische `DefineButton`-Tags und echte Gamepad-Hardware fehlen weiterhin.
 
-Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_LIFECYCLE.md` und `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`.
+Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md` und `UI_VIEWER_BUTTON_NAVIGATION.md`.
 
 ### Phase 7.5 – Interaktive Performance
 
@@ -132,7 +133,7 @@ Siehe `UI_VIEWER_PERFORMANCE.md`.
 
 ### Phase 8 – Manuelle States, Profile und Game-Mocks
 
-Status: generische Overrides, Playback-Zustände, Profile und Text-Mocks abgeschlossen
+Status: generische Overrides, Playback-Zustände, Profile, Text-Mocks und Callback-Overrides abgeschlossen
 
 Implementiert:
 
@@ -146,19 +147,20 @@ Implementiert:
 - Profile und Mock-Werte werden im JSON-Preset gespeichert;
 - aktive Game-Mocks können über sichere `ExternalInterface.call`- und `GetDataValue`-Stubs gelesen werden;
 - AVM2 kann vorhandene und dynamische TextFields im Vorschauzustand aktualisieren;
+- Rückgabewerte nativer Callbacks können im `F11`-Inspector JSON-basiert überschrieben und im Preset gespeichert werden;
 - Zustände bleiben während der Sitzung pro Film getrennt.
 
-Siehe `UI_VIEWER_STATE_PRESETS.md` und `UI_VIEWER_GAME_STATE_MOCKS.md`.
+Siehe `UI_VIEWER_STATE_PRESETS.md`, `UI_VIEWER_GAME_STATE_MOCKS.md` und `UI_VIEWER_NATIVE_CALLBACKS.md`.
 
 Noch offen:
 
-- vollständige Zuordnung realer nativer Callback-Namen des Spiels;
+- semantische Mock-Zuordnung für erst zur Laufzeit erzeugte, frei benannte TextFields;
 - MSBT-Text-IDs und Sprachauswahl;
-- semantische Mock-Zuordnung für erst zur Laufzeit erzeugte, frei benannte TextFields.
+- asynchrone Completion-Events einzelner nativer Operationen.
 
 ### Phase 9 – ActionScript 3
 
-Status: Strukturparser, Frame-Script-Inventar, kontrollierte Interpreter-Runtime, Lifecycle-/Event-/Timer-Grundlage sowie dynamische Display-List umgesetzt; vollständige AVM2-Semantik offen
+Status: Strukturparser, Frame-Script-Inventar, kontrollierte Interpreter-Runtime, Lifecycle-/Event-/Timer-Grundlage, dynamische Display-List und native Callback-Schicht umgesetzt; vollständige AVM2-Semantik offen
 
 Implementiert:
 
@@ -187,8 +189,12 @@ Implementiert:
 - sichere Konstruktion von MovieClip, Sprite, TextField, Shape, DisplayObject sowie verknüpften SymbolClass-Instanzen;
 - `addChild`, `addChildAt`, `removeChild`, `removeChildAt`, `getChildByName`, `getChildAt`, `contains`, `numChildren`, Child-Reihenfolge und Swap-Operationen;
 - dynamische Objekte im Renderer, State Inspector und Render-Cache;
+- statisches Inventar von `ExternalInterface`-, `Controller`-, `Model`- und Data-Value-Brücken;
+- 134 klassifizierte native Callback-Namen an 6.730 deduplizierten Call-Sites im vollständigen `UIPak.pak`-Scan;
+- sichere Preview-Implementierungen für Data Read/Write/Listen, Navigation, Controller, Save/Profile, Shop, Extras, Leaderboard, Audio-Requests, Telemetrie, Lifecycle und Gameplay-Events;
+- Native-Callback-Inspector über `F11`, JSON-Export und Rückgabe-Overrides;
 - AVM2-Inspector über `F9` und Runtime-Neuausführung über `F10`;
-- Frame-Script-, Runtime-, Lifecycle-, Dynamic- und Input-Metadaten im State Inspector beziehungsweise Analysefeld.
+- Frame-Script-, Runtime-, Lifecycle-, Dynamic-, Input- und Native-Callback-Metadaten im Analysefeld.
 
 Sicherheitsgrenzen:
 
@@ -200,8 +206,9 @@ Sicherheitsgrenzen:
 - höchstens 2048 dynamische DisplayObjects pro Film;
 - maximale dynamische Verschachtelungstiefe 64;
 - unbekannte Nicht-Display-Klassen werden nicht als visuelle Objekte konstruiert;
+- höchstens 2.000 Native-Callback-Logeinträge, 500 Einträge pro Ereignispuffer und 256 Rückgabe-Overrides;
 - nicht unterstützte Opcodes brechen nur die betroffene Methode ab;
-- keine beliebigen Host-, Datei-, Prozess- oder Netzwerkaufrufe.
+- keine beliebigen Host-, Datei-, Prozess-, Netzwerk-, Audio- oder Gamepad-Aufrufe.
 
 Validierung:
 
@@ -209,7 +216,11 @@ Validierung:
 - elf Tests für Property-Zuweisungen, Branches, Callback-Mocks, Corpus-Muster, Timeline-Sprünge und manuellen Override-Vorrang;
 - acht Lifecycle-Tests für Initializer-Reihenfolge, EventDispatcher, Event-Konstanten, Timer, `ENTER_FRAME`, `setTimeout` und verschachtelte Timeline-Zustände;
 - neun Dynamic-Display-Modelltests für Konstruktion, Containeroperationen, Transform, Text, Fokus und Timeline-Fortschritt;
-- zwei Tests für den genauen Konstruktorzeitpunkt verknüpfter dynamischer AVM2-Klassen.
+- zwei Tests für den genauen Konstruktorzeitpunkt verknüpfter dynamischer AVM2-Klassen;
+- zwölf Tests für Button-Zustände, Owner-Routing und Richtungsnavigation;
+- 13 Native-Callback-Tests für Inventar, Klassifikation, Priorität, Data-Value-Aliase, isolierte Subsysteme und JSON-Sicherheit;
+- vollständiger Native-Scan: 47 Filmpayloads, 40 eindeutige ABC-Payloads, 0 Parserfehler, 134 Namen, 6.730 Call-Sites;
+- Dry-Run aller 134 Namen mit repräsentativen Argumenten ohne Exception.
 
 Noch offen:
 
@@ -218,16 +229,15 @@ Noch offen:
 - Exception-Handling und vollständige Iteration;
 - vollständiges Event-Bubbling, Capture und Weak-Listener-Semantik;
 - dynamische Vektorzeichenbefehle und editierbare TextFields;
-- automatische SimpleButton-Zustände;
-- Controller-Navigation und reale Gamepad-Ereignisse;
-- corpus-spezifische native Callback-Implementierungen;
+- hostseitige Completion-Events für asynchrone Save-, Loading-, Leaderboard- und Replay-Operationen;
+- exakter Signaturabgleich einzelner nativer Callbacks mit Spielcode;
 - MSBT- und Sprachlogik.
 
-Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md` und `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`.
+Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md` und `UI_VIEWER_NATIVE_CALLBACKS.md`.
 
 ### Phase 10 – Eingabe und Audio
 
-Status: Maus-, Tastatur-, Fokus- und rechteckige Hit-Test-Grundlage umgesetzt; Controller, Button-Zustände und Audio offen
+Status: Maus, Tastatur, Fokus, Button-Zustände, Richtungsnavigation und sichere native Host-Simulation umgesetzt; echte Gamepads und Audio offen
 
 Implementiert:
 
@@ -238,18 +248,25 @@ Implementiert:
 - Aktivierung des fokussierten Ziels mit Enter oder Leertaste;
 - `keyDown` und `keyUp` mit Keycode, Zeichencode und Tastennamen;
 - direkte Weitergabe entlang stabiler Parent-Pfade bis `root`;
-- abschaltbare Browser-Option `Input Events`.
+- automatische Button-Zustände `up`, `over`, `down` und `disabled`;
+- Richtungsfokus mit Pfeiltasten und WASD;
+- controllerartige Ereignisse für Navigate, Accept und Cancel;
+- `mouseChildren = false` und Button-Owner-Routing;
+- abschaltbare Browser-Optionen `Input Events` und `Button States + Navigation`;
+- sichere DKCTF-Callback-Simulation mit isolierten Audio-Requests und Telemetriepuffern.
 
 Noch offen:
 
-- automatische SimpleButton- und MovieClip-Zustände `up`, `over`, `down` und `hitTest`;
-- pixelgenaue Hit-Tests, `mouseChildren`, Masken- und ScrollRect-Regeln;
-- Richtungsfokus, Controller-Mapping und echte Gamepad-Eingabe;
+- separates Parsing klassischer `DefineButton`-/`DefineButton2`-Tags;
+- pixelgenaue Hit-Tests, Masken- und ScrollRect-Regeln;
+- vollständige Capture-/Bubbling-Semantik;
+- echte Gamepad-Hardware;
 - TextField-Cursor und Texteingabe;
-- CAUD/CSMP und UI-Sounds;
-- vollständige Anbindung kontrollierbarer Game-State-Mocks an reale native DKCTF-Callbacks.
+- CAUD/CSMP-Auflösung und UI-Soundwiedergabe;
+- MSBT-Sprachtexte;
+- asynchrone native Completion-Events.
 
-Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`.
+Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md` und `UI_VIEWER_NATIVE_CALLBACKS.md`.
 
 ## Zusätzliche Dateien
 
@@ -276,10 +293,10 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-Button-, Navigations- und Callback-Stufe:
+Asynchrone Callback-, Audio- und Sprachstufe:
 
-1. automatische SimpleButton-/MovieClip-Zustände `up`, `over`, `down` und `hitTest`;
-2. Richtungsfokus und Controller-Mapping;
-3. präzisere Hit-Test-Regeln einschließlich `mouseChildren`, Masken und ScrollRect;
-4. Inventarisierung und sichere Implementierung realer DKCTF-Callbacks;
-5. anschließend CAUD/CSMP-UI-Audio sowie MSBT-Sprachtexte.
+1. sichere Completion-Event-Queues für Loading, Save, Leaderboard und Replay;
+2. Zuordnung der 676 `playSound`-Call-Sites zu CAUD-/CSMP-Ressourcen;
+3. kontrollierte UI-Soundwiedergabe mit Lautstärke- und Mute-Option;
+4. MSBT-Text-ID-Inventar und Sprachauswahl;
+5. anschließend pixelgenaue Hit-Tests und klassische `DefineButton`-/`DefineButton2`-Tags.
