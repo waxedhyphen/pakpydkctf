@@ -1,15 +1,5 @@
-import sys
-import types
 import unittest
 from types import SimpleNamespace
-
-# Minimal pak_core contract required by the catalog module when this test is run alone.
-if 'pak_core' not in sys.modules:
-    pak_core = types.ModuleType('pak_core')
-    pak_core.get_entry_asset = lambda parsed, entry: parsed['data'][entry['offset']:entry['offset'] + entry['size']]
-    pak_core.get_entry_payload = lambda asset: asset[32:] if asset[:4] == b'RFRM' else asset
-    pak_core.parse_segmented_payload = lambda _raw: None
-    sys.modules['pak_core'] = pak_core
 
 import msbt_codec
 import ui_browser_localization as loc
