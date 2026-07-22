@@ -1,6 +1,6 @@
 # UI Viewer – Timeline und Roadmap
 
-Stand: 2026-07-22
+Stand: 2026-07-23
 
 ## Ziel
 
@@ -60,7 +60,7 @@ Status: für den bereitgestellten UI-Corpus abgeschlossen
 - Solid-Fills, lineare Gradients, Linien, Löcher und ColorTransform.
 - 625 von 625 Shapes ohne Parserfehler.
 
-Offen bleiben generische Bitmap-/Radial-Fills, pixelgenaue Linien-Sonderfälle und Morph-Shapes.
+Offen bleiben generische Bitmap-/Radial-Fills, pixelgenaue Linien-Sonderfälle, Morph-Shapes und dynamische `Graphics`-Befehle.
 
 ### Phase 5 – Masken, Scale9 und Effekte
 
@@ -76,13 +76,15 @@ Corpus: 13 ClipDepth-Tags, 56 Scaling-Grids, 53 Blend-Placements und 460 Filterd
 
 ### Phase 6 – Fonts und Texte
 
-Status: eingebettete Fonts und initiale `DefineEditText`-Inhalte abgeschlossen
+Status: eingebettete Fonts, Laufzeittexte und kontrollierte Eingabe umgesetzt
 
 - Vier importierte `DefineFont3`-Outline-Fonts.
 - Unicode-Glyphen, Scaleform-HTML, Größe, Farbe, Ausrichtung und `letterSpacing`.
-- 648 EditText-Felder und 647 HTML-Textfelder.
+- 648 EditText-Felder und 647 HTML-Textfelder im bekannten UI-Corpus.
+- MSBT-Zuordnung, Sprachumschaltung und dynamische Laufzeittexte.
+- editierbare statische und dynamische TextFields mit Caret, Auswahl, Passwortdarstellung und begrenzter Zwischenablage.
 
-MSBT-Zuordnung und Laufzeittexte sind umgesetzt. Offen bleibt ein pixelgenauer Font-Rasterizer-Abgleich für alle Sprachzeichensätze.
+Offen bleiben pixelgenauer Font-Rasterizer-Abgleich, IME-Komposition, komplexe Graphemcluster und vollständige Scaleform-Wortumbruchidentität.
 
 ### Phase 6.5 – Display-List-/State-Inspector
 
@@ -92,9 +94,10 @@ Status: abgeschlossen
 - Character-ID, Klasse, Sichtbarkeit, Matrix, ColorTransform, ClipDepth, Scale9, Filter und Blend Mode.
 - MovieClip-Frames/Labels sowie Fontklasse und Text.
 - Dynamisch erzeugte MovieClips, TextFields, Shapes und Container erscheinen mit Parent-, Transform-, Fokus- und Eingabemetadaten.
+- EditText-Metadaten enthalten Editierbarkeit, Selektion, Caret, `maxChars`, `restrict` und Passwortstatus.
 - Suche, Sichtbarkeitsfilter, Pfadkopie und JSON-Snapshot.
 
-Siehe `UI_VIEWER_STATE_INSPECTOR.md` und `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`.
+Siehe `UI_VIEWER_STATE_INSPECTOR.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md` und `UI_VIEWER_EDIT_TEXT_INPUT.md`.
 
 ### Phase 7 – Verschachtelte Timelines
 
@@ -113,9 +116,9 @@ Status: laufende strukturelle Vorschau umgesetzt; AVM2-Frame-Scripts, Lifecycle-
 - dynamisch erzeugte MovieClips mit verknüpfter SWF-Definition verwenden ihre echte Timeline und laufen mit der UI-Timeline;
 - Button-MovieClips wechseln automatisch zwischen `up`, `over`, `down` und `disabled`.
 
-Wichtige Grenzen: vollständiges Flash-Capture/Bubbling, editierbare TextFields und echte Gamepad-Hardware fehlen weiterhin. Klassische Buttons sowie Shape-/Alpha-/Masken-HitTests sind umgesetzt.
+Wichtige Grenzen: vollständiges Flash-Capture/Bubbling und echte Gamepad-Hardware fehlen weiterhin. Klassische Buttons, EditText-Eingabe sowie Shape-/Alpha-/Masken-HitTests sind umgesetzt.
 
-Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md` und `UI_VIEWER_BUTTON_NAVIGATION.md`.
+Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md` und `UI_VIEWER_EDIT_TEXT_INPUT.md`.
 
 ### Phase 7.5 – Interaktive Performance
 
@@ -126,7 +129,7 @@ Status: umgesetzt
 - gedrosselte Inspector-Aktualisierung;
 - adaptive Vorschauauflösung von 35 bis 75 Prozent während Play/Scrubbing;
 - volle native Auflösung nach Pause und beim PNG-Export;
-- AVM2- und Dynamic-State-Revisionsnummern im Frame-Cache-Schlüssel;
+- AVM2-, Dynamic- und Eingaberevisionen im Frame-Cache-Schlüssel;
 - gecachte SymbolClass- und AVM2-Klassenauflösung für dynamische Konstruktionen.
 
 Siehe `UI_VIEWER_PERFORMANCE.md`.
@@ -143,7 +146,7 @@ Implementiert:
 - Mock-Werte für Spielerzahl, Leben, Banana Coins, Puzzle Pieces, Timer, Punkte, Levelname, Bananen, KONG-Buchstaben und Fortschritt;
 - automatische EditText-Zuordnung anhand `variable_name`, Instanzname und stabilen Elternpfaden;
 - Mock-Editor mit Zuordnungsübersicht und `F8`;
-- manuelle Text-Overrides besitzen Vorrang vor AVM2-Runtime und Mocks;
+- manuelle Text-Overrides besitzen Vorrang vor AVM2-Runtime, Benutzereingabe und Mocks;
 - Profile und Mock-Werte werden im JSON-Preset gespeichert;
 - aktive Game-Mocks können über sichere `ExternalInterface.call`- und `GetDataValue`-Stubs gelesen werden;
 - AVM2 kann vorhandene und dynamische TextFields im Vorschauzustand aktualisieren;
@@ -159,7 +162,7 @@ Noch offen:
 
 ### Phase 9 – ActionScript 3
 
-Status: Strukturparser, Frame-Script-Inventar, kontrollierte Interpreter-Runtime, Lifecycle-/Event-/Timer-Grundlage, dynamische Display-List und native Callback-Schicht umgesetzt; vollständige AVM2-Semantik offen
+Status: Strukturparser, Frame-Script-Inventar, kontrollierte Interpreter-Runtime, Lifecycle-/Event-/Timer-Grundlage, dynamische Display-List, Native-Callback-Schicht und TextField-Eingabe umgesetzt; vollständige AVM2-Semantik offen
 
 Implementiert:
 
@@ -176,6 +179,8 @@ Implementiert:
 - `stop`, `play`, `gotoAndStop` und `gotoAndPlay` für Root-, Unter- und dynamische Timelines;
 - Property-Lesen und -Schreiben auf vorhandenen und dynamischen Instanzen;
 - `visible`, `alpha`, `text`, `htmlText`, `x`, `y`, `scaleX`, `scaleY`, `rotation`, `enabled`, `mouseEnabled`, `tabEnabled` und Fokusstatus;
+- TextField-Properties `type`, `selectable`, `maxChars`, `restrict`, `displayAsPassword`, `multiline`, `wordWrap`, Auswahl- und Caret-Indizes;
+- TextField-Methoden `setSelection`, `replaceSelectedText`, `replaceText` und `appendText`;
 - Whitelist-Registry für sichere native Callback-Stubs;
 - lesende Anbindung vorhandener Game-State-Mocks an `ExternalInterface.call` und corpus-typische Datenfelder;
 - Script-, Klassen- und Instanz-Initializer für Root-, Timeline- und verknüpfte dynamische Instanzen;
@@ -196,7 +201,7 @@ Implementiert:
 - DSP-ADPCM-Dekodierung nach 16-Bit-PCM/WAV und `soundComplete` anhand der realen Sampledauer;
 - Native-Callback-Inspector über `F11`, JSON-Export und Rückgabe-Overrides;
 - AVM2-Inspector über `F9` und Runtime-Neuausführung über `F10`;
-- Frame-Script-, Runtime-, Lifecycle-, Dynamic-, Input- und Native-Callback-Metadaten im Analysefeld.
+- Frame-Script-, Runtime-, Lifecycle-, Dynamic-, Input-, EditText- und Native-Callback-Metadaten im Analysefeld.
 
 Sicherheitsgrenzen:
 
@@ -211,6 +216,7 @@ Sicherheitsgrenzen:
 - höchstens 2.000 Native-Callback-Logeinträge, 500 Einträge pro Ereignispuffer und 256 Rückgabe-Overrides;
 - höchstens 256 ausstehende Completion-Requests und 32 Abschlüsse pro Timeline-Tick;
 - höchstens 4 Audiokanäle, 20.000.000 Samples pro Kanal, 256 MiB PCM pro Sound und 64 MiB WAV-Cache;
+- höchstens 1.000.000 Zeichen pro TextField, 65.536 Clipboard-Zeichen pro Aktion, 100 Undo-Schritte und 1.024 Zeichen pro `restrict`-Muster;
 - nicht unterstützte Opcodes brechen nur die betroffene Methode ab;
 - keine beliebigen Host-, Datei-, Prozess-, Netzwerk-, Audio- oder Gamepad-Aufrufe.
 
@@ -229,7 +235,11 @@ Validierung:
 - Audio-Corpus-Scan: 1.010 CAUD, 1.248 CSMP, 680 Audio-Call-Sites, 67 von 68 normalisierten Namen aufgelöst und 67 von 67 Prüfvarianten ohne Decoderfehler;
 - elf MSBT-/Lokalisierungstests sowie Corpus-Scan mit 36 Sprachdateien, 7.641 Nachrichtensätzen, neun Sprachen und null Parserfehlern;
 - acht Tests für klassische SWF-Buttons, AVM1-Sicherheitsgrenzen, Alpha-/Clip-HitTests und ClipDepth-Erkennung;
-- Button-/HitTest-Corpus-Scan: 60 eingebettete Filmpayloads, null klassische Button-Tags, 13 ClipDepth-Placements und null Scannerfehler.
+- Button-/HitTest-Corpus-Scan: 60 eingebettete Filmpayloads, null klassische Button-Tags, 13 ClipDepth-Placements und null Scannerfehler;
+- 14 neue EditText-Modelltests für Einfügen, Auswahl, Limits, `restrict`, Bewegung, Löschen, Undo/Redo, Passwortdarstellung und Clipboard-Normalisierung;
+- reproduzierbarer, read-only `DefineEditText`-Scanner für lokale PAK-/SWF-Corpusauswertungen.
+
+Die neuen EditText-Tests und das vollständige Tk-Fenster konnten in dieser Umgebung nicht ausgeführt werden; für diese Stufe liegen deshalb keine erfundenen Corpus- oder Erfolgszahlen vor.
 
 Noch offen:
 
@@ -237,16 +247,17 @@ Noch offen:
 - Initializer und Vererbung über ABC-Modulgrenzen hinweg;
 - Exception-Handling und vollständige Iteration;
 - vollständiges Event-Bubbling, Capture und Weak-Listener-Semantik;
-- dynamische Vektorzeichenbefehle und editierbare TextFields;
+- dynamische Vektorzeichenbefehle;
+- IME-Komposition und vollständige TextField-Scroll-/Graphemsemantik;
 - exakter Host-Abgleich der simulierten Completion-Eventnamen und Payloads;
 - exakter Signaturabgleich einzelner nativer Callbacks mit Spielcode;
 - vollständige Message-Studio-Parameter- und Kontrolltagsemantik.
 
-Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_CLASSIC_BUTTON_HITTEST.md`, `UI_VIEWER_NATIVE_CALLBACKS.md`, `UI_VIEWER_ASYNC_AUDIO.md` und `UI_VIEWER_LOCALIZATION.md`.
+Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_CLASSIC_BUTTON_HITTEST.md`, `UI_VIEWER_EDIT_TEXT_INPUT.md`, `UI_VIEWER_NATIVE_CALLBACKS.md`, `UI_VIEWER_ASYNC_AUDIO.md` und `UI_VIEWER_LOCALIZATION.md`.
 
 ### Phase 10 – Eingabe, Audio und Lokalisierung
 
-Status: Maus, Tastatur, Fokus, MovieClip- und klassische Buttonzustände, Richtungsnavigation, präzise HitTests, sichere Native-Completion-Events, CAUD/CSMP-Audio und MSBT-Laufzeittexte umgesetzt; echte Gamepads und editierbare TextFields offen
+Status: Maus, Tastatur, Fokus, MovieClip- und klassische Buttonzustände, Richtungsnavigation, präzise HitTests, editierbare TextFields, sichere Native-Completion-Events, CAUD/CSMP-Audio und MSBT-Laufzeittexte umgesetzt; echte Gamepads und IME offen
 
 Implementiert:
 
@@ -259,10 +270,14 @@ Implementiert:
 - Vektor- und TXTR-Alpha-HitTests in nativen Stage-Koordinaten;
 - ClipDepth-, `scrollRect`-, Runtime-`mask`- und `hitArea`-bewusste Treffer;
 - controllerartige Ereignisse für Navigate, Accept und Cancel;
+- statische und dynamische TextField-Eingabe mit transformiertem Caret und Mausauswahl;
+- Zeichen-, Wort-, Zeilen- und Mehrzeilennavigation, Auswahl, Löschen und Undo/Redo;
+- begrenzte Klartext-Zwischenablage, Passwortmaskierung, `maxChars` und konservatives `restrict`;
+- cancelbares `textInput` sowie `change`- und `select`-Events;
 - sichere DKCTF-Callback-Simulation und timelinebasierte Completion-Events;
 - gemeinsamer CAUD-Katalog, CSMP-DSP-ADPCM-Decoder, WAV-Export und optionale Windows-Wiedergabe;
 - MSBT-Katalog mit neun Sprachcodes, exakter Text-ID-Auflösung, Fallback und dynamischen Laufzeittexten;
-- Audio-/Async-, Localization- und Button-/HitTest-Inspector;
+- Audio-/Async-, Localization-, Button-/HitTest- und EditText-Inspector;
 - Audio- und Lokalisierungsoptionen im kompatiblen State-Presetformat.
 
 Noch offen:
@@ -270,13 +285,13 @@ Noch offen:
 - vollständige Capture-/Bubbling- und Weak-Listener-Semantik;
 - vollständige AVM1-Ausführung außerhalb der sicheren Timeline-Aktionen;
 - echte Gamepad-Hardware;
-- TextField-Cursor, Auswahl, Texteingabe und IME;
+- IME-Komposition, bidirektionaler Text und interne TextField-Scrollposition;
 - dauerhafte Audio-Loops, Mehrstimmen-Mixing und Voice-Prioritäten;
 - Message-Studio-Parameterformatierung;
 - Scale9-spezifische Hit-Flächen, dynamische Graphics-HitTests und seltene Shape-Formate;
 - exakter Abgleich der Completion-Payloads mit dem ursprünglichen Spielhost.
 
-Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_CLASSIC_BUTTON_HITTEST.md`, `UI_VIEWER_NATIVE_CALLBACKS.md`, `UI_VIEWER_ASYNC_AUDIO.md` und `UI_VIEWER_LOCALIZATION.md`.
+Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_CLASSIC_BUTTON_HITTEST.md`, `UI_VIEWER_EDIT_TEXT_INPUT.md`, `UI_VIEWER_NATIVE_CALLBACKS.md`, `UI_VIEWER_ASYNC_AUDIO.md` und `UI_VIEWER_LOCALIZATION.md`.
 
 ## Zusätzliche Dateien
 
@@ -296,16 +311,18 @@ Visuell vollständig:
 Funktional vollständig:
 
 - ActionScript-Zustände laufen.
-- Maus/Controller-Navigation funktioniert.
+- Maus-/Controller-Navigation funktioniert.
+- Textfelder können im Vorschauzustand bearbeitet werden.
 - Spielwerte können über Mocks und Callback-Stubs eingespeist werden.
 - Native Callbacks werden sicher simuliert.
 - UI-Audio kann abgespielt werden.
 
 ## Nächster Arbeitsblock
 
-Finale Eingabe- und EditText-Stufe:
+Verbleibende visuelle Format- und Rendervergleichsstufe:
 
-1. editierbare `TextField`-Instanzen mit Cursor, Auswahl und begrenzter Texteingabe;
-2. Fokus- und Keyboard-Semantik für Inputfelder einschließlich kontrollierter Passwortdarstellung;
-3. optionales Plattform-Gamepad-Mapping auf die vorhandenen Controller-Events;
-4. danach Scale9-/Graphics-HitTest-Sonderfälle, Morph-Shapes und verbleibende visuelle Formatlücken.
+1. `DefineMorphShape`/`DefineMorphShape2` und Morph-Ratio-Auswertung;
+2. Bitmap-, radial-gradient- und fokale Fill-Sonderfälle;
+3. Scale9-spezifische HitTest-Rücktransformation und dynamische `Graphics`-Geometrie;
+4. reproduzierbare Referenzbild-/Pixelvergleichswerkzeuge für ausgewählte UI-Frames;
+5. anschließend optionales Plattform-Gamepad-Mapping und IME-Unterstützung.
