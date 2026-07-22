@@ -194,10 +194,39 @@ Noch offen innerhalb von Phase 5:
 
 ### Phase 6 – Fonts, Texte und MSBT
 
-- Eingebettete Fonts und Glyphen.
-- `DefineText`, `DefineText2` und vollständiges `DefineEditText`.
-- `gfxfontlib.swf`-Imports.
-- MSBT-Text-IDs und Sprachauswahl.
+Status: eingebettete Fonts und die statischen/initialen `DefineEditText`-Inhalte des bereitgestellten UI-Corpus werden gerendert; Laufzeittexte und MSBT-Zustände bleiben offen
+
+Implementiert – Fontbibliothek:
+
+- `gfxfontlib.gfx` beziehungsweise der eingebettete Film `gfxfontlib.swf` wird aus dem aktuellen oder requireten PAK geladen.
+- `DefineFont3`, `DefineFontName` und `SymbolClass` verbinden die vier Outline-Fonts mit `$DialogFont`, `$SubTitleFont`, `$TitleFont` und `$NormalFont`.
+- Glyphen werden anhand der Wide-Code- und Wide-Offset-Tabellen lazy dekodiert, damit nicht beim Öffnen sofort alle rund 37.000 Outlines rasterisiert werden.
+- Gerade und quadratische Glyphenkanten, Innenkonturen und Löcher werden aus den eingebetteten Vektorformen gerendert.
+- Unicode-Glyphen einschließlich der im Font enthaltenen japanischen Zeichen können dargestellt werden.
+
+Implementiert – `DefineEditText`:
+
+- Die Scaleform-Variante mit `FontClass` liest `FontHeight` jetzt an der korrekten Position. Zuvor waren Layout, Variablenname und HTML-Text dadurch um zwei Bytes verschoben.
+- HTML-Absätze und `<font>`-Runs unterstützen Ausrichtung, Größe, Farbe, `letterSpacing`, Mehrzeiligkeit und HTML-Entities.
+- Text wird als lokale Outline-Ebene gerendert und anschließend durch ColorTransform, Filter, ClipDepth-Masken und Blend Modes geleitet.
+- Leere spätere Laufzeitfelder bleiben über ihren Variablennamen als untersuchbare Platzhalter sichtbar.
+- Die Analyse zeigt geladene Fonts, Fontklassen, gezeichnete Glyphen, Platzhalter und fehlende Glyphen.
+
+Validierung am bereitgestellten UI-Corpus:
+
+- 4 × `DefineFont3` mit 9.237, 9.239, 9.242 und 9.239 Unicode-Glyphen.
+- 648 × `DefineEditText`; alle 648 verwenden eine importierte Fontklasse und enthalten Initialtext.
+- Fontklassen: 348 × `$SubTitleFont`, 189 × `$NormalFont`, 111 × `$TitleFont`.
+- 647 Textfelder verwenden Scaleform-HTML; insgesamt wurden 885 initiale Absätze erkannt.
+- Im untersuchten Corpus gibt es keine `DefineText`-/`DefineText2`-Tags; diese generische SWF-Unterstützung ist deshalb noch nicht erforderlich.
+- Repräsentative Frames aller 49 GFX-Filme wurden mit den eingebetteten Fonts ohne Renderfehler verarbeitet.
+
+Noch offen innerhalb von Phase 6:
+
+- MSBT-Text-IDs, Sprachauswahl und die Zuordnung dynamischer Laufzeitwerte.
+- ActionScript-Änderungen an `text`, `htmlText`, Sichtbarkeit und Formatierung.
+- Pixelgenauer Abgleich von Hinting/CSMTextSettings und Scaleforms Font-Rasterizer.
+- Generische `DefineText`-/`DefineText2`-Unterstützung für fremde SWF-Dateien außerhalb des vorhandenen Spielmaterials.
 
 ### Phase 7 – Verschachtelte Timelines
 
@@ -245,4 +274,4 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-Phase 6 beginnt mit eingebetteten Fonts und statischen Text-Tags. Danach folgt ein Display-List-/State-Inspector, mit dem Instanznamen, Sichtbarkeit, Frames, Filter, Blend Modes und Textwerte pro UI-Zustand untersucht und manuell überschrieben werden können, bevor eine vollständige AVM2-Laufzeit vorhanden ist.
+Ein Display-List-/State-Inspector wird in den UI Browser eingebaut. Er soll den aktuell gewählten Root-Frame und alle verschachtelten Instanzen als Tiefenbaum zeigen, inklusive Instanzname, Character-ID/Klasse, Sichtbarkeit, Matrix, ColorTransform, ClipDepth, Filter, Blend Mode, Fontklasse und aktuellem Text. Danach folgen manuelle Overrides und speicherbare Presets, damit konkrete Ingame-Zustände bereits vor einer vollständigen AVM2-Laufzeit untersucht und nachgestellt werden können.
