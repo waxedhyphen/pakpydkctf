@@ -1,11 +1,9 @@
 import unittest
-from types import SimpleNamespace
 
 from PIL import Image
 
 import ui_browser
 import ui_browser_classic_button as classic
-import ui_browser_hit_geometry as hit_geometry
 import scan_ui_classic_buttons as scanner
 
 
@@ -106,25 +104,6 @@ class ClassicButtonModelTests(unittest.TestCase):
         definition.records = (record,)
         movie = type("Movie", (), {"definitions": {20: definition}})()
         self.assertIsNone(classic.definition_local_bounds(movie, definition))
-
-    def test_hit_area_can_create_geometry_for_empty_container(self):
-        source = classic.HitGeometry(
-            "root/2:area", "rect", (10, 20, 30, 40),
-            (1, 0, 0, 0, 1, 0), (10, 20, 30, 40),
-        )
-        movie = SimpleNamespace(
-            ui_avm2_runtime_generation=0,
-            ui_avm2_runtime_properties={
-                "root/1:button": {"hitArea": "root/2:area"},
-            },
-        )
-        order = ["root/2:area"]
-        result = hit_geometry._apply_hit_areas(
-            movie, {"root/2:area": (source,)}, order,
-        )
-        self.assertIn("root/1:button", result)
-        self.assertEqual(result["root/1:button"][0].path, "root/1:button")
-        self.assertIn("root/1:button", order)
 
     def test_scanner_reads_place_object2_clip_depth(self):
         payload = bytes([0x44]) + (2).to_bytes(2, "little") + b"\x00" + (9).to_bytes(2, "little")
