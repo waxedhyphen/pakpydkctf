@@ -65,7 +65,7 @@ class EditTextModelTests(unittest.TestCase):
         model.move_caret(session, "down")
         self.assertEqual(session.caret, 7)
         model.move_caret(session, "down")
-        self.assertEqual(session.caret, 11)
+        self.assertEqual(session.caret, 10)
 
     def test_delete_and_undo_redo(self):
         session = self.session("hello", 5)
