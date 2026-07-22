@@ -6,6 +6,7 @@ import ui_browser_avm2_dynamic_patch as dynamic
 import ui_browser_avm2_runtime_patch as runtime
 import ui_browser_state_inspector_patch as inspector
 import ui_browser_button_navigation_patch as patch
+import ui_browser_button_logic_fix_patch as logic
 
 
 class Owner:
@@ -63,16 +64,16 @@ class ButtonNavigationTests(unittest.TestCase):
         self.assertEqual(patch.infer_button_frame(descriptor, "disabled"), 4)
 
     def test_button_detection_uses_labels_flags_and_names(self):
-        self.assertTrue(patch.is_button_descriptor(
+        self.assertTrue(logic.is_button_descriptor(
             patch.ButtonDescriptor("root/1:item", "item", 2, (("highlighted", 2),)),
         ))
-        self.assertTrue(patch.is_button_descriptor(
+        self.assertTrue(logic.is_button_descriptor(
             patch.ButtonDescriptor("root/1:any", "any", button_mode=True),
         ))
-        self.assertTrue(patch.is_button_descriptor(
+        self.assertTrue(logic.is_button_descriptor(
             patch.ButtonDescriptor("root/1:btnBack", "btnBack"),
         ))
-        self.assertFalse(patch.is_button_descriptor(
+        self.assertFalse(logic.is_button_descriptor(
             patch.ButtonDescriptor("root/1:background", "background"),
         ))
 
@@ -84,15 +85,15 @@ class ButtonNavigationTests(unittest.TestCase):
             dynamic.HitRegion("far_down", (60, 180, 80, 200)),
         ]
         self.assertEqual(
-            patch.directional_target(regions, "center", "right").path,
+            logic.directional_target(regions, "center", "right").path,
             "right",
         )
         self.assertEqual(
-            patch.directional_target(regions, "center", "left").path,
+            logic.directional_target(regions, "center", "left").path,
             "left",
         )
         self.assertEqual(
-            patch.directional_target(regions, "center", "down").path,
+            logic.directional_target(regions, "center", "down").path,
             "far_down",
         )
 
