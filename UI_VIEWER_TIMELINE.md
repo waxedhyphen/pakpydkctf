@@ -121,30 +121,58 @@ Noch offen innerhalb der generischen Shape-Unterstützung:
 
 ### Phase 5 – Masken und Effekte
 
-Status: `clip_depth`-Masken abgeschlossen; Filter, Blend Modes und Scale9 bleiben offen
+Status: Masken, Scale9 und die im Corpus verwendeten Blend Modes abgeschlossen; Filter bleiben offen
 
-Implementiert:
+Implementiert – ClipDepth:
 
 - Ein Placement mit `clip_depth` wird als unsichtbare Alpha-Maske behandelt.
 - Die Maske gilt für alle höheren Tiefen bis einschließlich `clip_depth`.
 - Gleichzeitig aktive Masken werden miteinander multipliziert und dadurch korrekt geschnitten.
 - Masken in verschachtelten Sprites werden rekursiv ausgewertet; äußere Masken schneiden das komplette Sprite-Ergebnis.
-- Debug-Bounds und Platzhalter werden beim Aufbau der Masken-Alphaebene unterdrückt, damit sie die Maske nicht verfälschen.
+- Debug-Bounds und Platzhalter werden beim Aufbau der Masken-Alphaebene unterdrückt.
 - Die Analyse zeigt Anzahl der Masken, maskierte Placements und leere Masken.
 
-Validierung am bereitgestellten UI-Corpus:
+Validierung – ClipDepth:
 
 - 13 echte ClipDepth-Placement-Tags in 11 eingebetteten GFX-Filmen.
 - Unter Einbezug aller Timeline-Frames ergeben sich 381 aktive Masken-Vorkommen.
 - Vorkommen unter anderem in `LoadingScreen_Common.swf`, `HUD_Bonus.swf`, `HUD_Characters.swf`, `DeathScreen/Source` und `Transition/Source`.
-- Alle 11 maskenhaltigen Testfilme konnten mit dem neuen Renderer ohne Maskenfehler gerendert werden.
+
+Implementiert – Scale9/`DefineScalingGrid`:
+
+- `DefineScalingGrid` (Tag 78) wird gelesen und an die jeweilige Sprite-Definition gebunden.
+- Skalierte Sprites werden als Nine-slice-Fläche aufgebaut: Ecken behalten ihre Größe, Kanten werden nur auf einer Achse und das Zentrum auf beiden Achsen skaliert.
+- Negative X/Y-Skalierung bleibt als Spiegelung erhalten.
+- Nicht unterstützte oder beschädigte Sonderfälle fallen auf das normale affine Rendering zurück und werden gezählt.
+- Die Analyse zeigt Scale9-Placements und Fallbacks.
+
+Validierung – Scale9:
+
+- 56 `DefineScalingGrid`-Definitionen; alle 56 verweisen auf `SpriteDef`-Symbole.
+- 558 Grid-Placements über die untersuchten Timeline-Frames.
+- Alle 558 Placements sind achsenparallel; 527 davon verwenden eine tatsächliche X- oder Y-Skalierung.
+- Repräsentative Frames aller 49 GFX-Filme wurden mit Dummy-Ressourcen ohne Scale9-Fallback oder Renderfehler verarbeitet.
+
+Implementiert – PlaceObject3 und Blend Modes:
+
+- Filterlisten werden vollständig übersprungen und als strukturierte Datensätze für die nächste Phase behalten.
+- Explizite `visible`-Werte aus `PlaceObject3` werden angewendet.
+- `Layer`, `Multiply` und `Alpha` werden als isolierte Ebenen beziehungsweise Zielkomposition gerendert.
+- Die generischen Modi `Screen`, `Lighten`, `Darken`, `Difference`, `Add`, `Subtract`, `Invert`, `Erase`, `Overlay` und `HardLight` sind ebenfalls implementiert.
+- Blend-Komposition erfolgt nach ClipDepth-Masking, damit maskierte Blend-Ebenen korrekt mit dem Zielbild verrechnet werden.
+- Die Analyse listet verwendete Blend Modes und ihre Placement-Anzahl.
+
+Validierung – PlaceObject3:
+
+- 53 BlendMode-Placements: 27 × `Layer`, 17 × `Multiply`, 7 × `Alpha`, 2 × explizites `Normal`.
+- 37 Placements mit explizitem Sichtbarkeitsfeld.
+- 460 einzelne Filterdatensätze konnten ohne Parsefehler gelesen werden; ihre visuelle Anwendung folgt als nächster Arbeitsblock.
 
 Noch offen innerhalb von Phase 5:
 
-- Blend Modes aus `PlaceObject3`.
-- Blur, Glow, Drop Shadow, Bevel und ColorMatrix.
-- Scale9/`DefineScalingGrid`.
-- Pixelgenaue Sonderfälle bei animierten Masken hängen zusätzlich von Phase 7 ab.
+- Blur, Glow, Drop Shadow, Bevel, GradientGlow/GradientBevel, Convolution und ColorMatrix tatsächlich rendern.
+- Exakte SWF-Gruppen-/Isolationsecken bei komplex verschachtelten Blend-Ebenen pixelgenau abgleichen.
+- Pixelgenaue Sonderfälle bei animierten Scale9-Sprites und Masken hängen zusätzlich von Phase 7 ab.
 
 ### Phase 6 – Fonts, Texte und MSBT
 
@@ -199,4 +227,4 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-`DefineScalingGrid`/Scale9 und anschließend die in `PlaceObject3` gespeicherten Blend Modes umsetzen. Damit können skalierte Dialogfelder und Buttons ihre Randstärken behalten und additive beziehungsweise multiplizierte UI-Ebenen näher am Spiel dargestellt werden.
+Die bereits geparsten `PlaceObject3`-Filter rendern. Der Corpus enthält 460 Filterdatensätze; besonders Blur, Glow, Drop Shadow und ColorMatrix beeinflussen HUD-Glows, Auswahlzustände, Schatten und Übergangsebenen sichtbar. Danach folgt Phase 6 mit eingebetteten Fonts, `DefineText1/2`, vollständigem `DefineEditText` und MSBT-Zuordnung.
