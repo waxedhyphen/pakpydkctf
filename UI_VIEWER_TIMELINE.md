@@ -121,7 +121,7 @@ Noch offen innerhalb der generischen Shape-Unterstützung:
 
 ### Phase 5 – Masken und Effekte
 
-Status: Masken, Scale9 und die im Corpus verwendeten Blend Modes abgeschlossen; Filter bleiben offen
+Status: für die im bereitgestellten UI-Corpus verwendeten Masken, Scale9-Grids, Blend Modes und Filter visuell umgesetzt; pixelgenaue Scaleform-Sonderfälle bleiben offen
 
 Implementiert – ClipDepth:
 
@@ -155,7 +155,7 @@ Validierung – Scale9:
 
 Implementiert – PlaceObject3 und Blend Modes:
 
-- Filterlisten werden vollständig übersprungen und als strukturierte Datensätze für die nächste Phase behalten.
+- Filterlisten werden strukturiert gelesen und am jeweiligen Placement behalten.
 - Explizite `visible`-Werte aus `PlaceObject3` werden angewendet.
 - `Layer`, `Multiply` und `Alpha` werden als isolierte Ebenen beziehungsweise Zielkomposition gerendert.
 - Die generischen Modi `Screen`, `Lighten`, `Darken`, `Difference`, `Add`, `Subtract`, `Invert`, `Erase`, `Overlay` und `HardLight` sind ebenfalls implementiert.
@@ -166,13 +166,31 @@ Validierung – PlaceObject3:
 
 - 53 BlendMode-Placements: 27 × `Layer`, 17 × `Multiply`, 7 × `Alpha`, 2 × explizites `Normal`.
 - 37 Placements mit explizitem Sichtbarkeitsfeld.
-- 460 einzelne Filterdatensätze konnten ohne Parsefehler gelesen werden; ihre visuelle Anwendung folgt als nächster Arbeitsblock.
+- 460 einzelne Filterdatensätze konnten ohne Parsefehler gelesen werden.
+
+Implementiert – im Spielmaterial verwendete Filter:
+
+- `Glow`, `DropShadow`, `Blur` und `Bevel` werden aus ihren FIXED-/FIXED8-Parametern dekodiert.
+- Farbe, Alpha, Blur-Ausdehnung, Stärke, Winkel, Distanz, Passes sowie Inner-/Knockout-/CompositeSource-/OnTop-Flags werden berücksichtigt.
+- Filter werden in Dateireihenfolge auf eine isolierte Placement-Ebene angewendet.
+- Die Reihenfolge ist Objekt → Filter → ClipDepth-Maske → Blend Mode.
+- Filterberechnungen werden auf den sichtbaren Objektbereich samt Effekt-Rand zugeschnitten, damit große Stage-Flächen nicht unnötig vollständig weichgezeichnet werden.
+- Die Analyse zeigt gefilterte Placements, angewendete Filtertypen und nicht unterstützte Datensätze.
+
+Filter-Inventar im bereitgestellten UI-Corpus:
+
+- 258 × `Glow`
+- 186 × `DropShadow`
+- 14 × `Blur`
+- 2 × `Bevel`
+- 0 × `ColorMatrix`, `Convolution`, `GradientGlow` oder `GradientBevel`
 
 Noch offen innerhalb von Phase 5:
 
-- Blur, Glow, Drop Shadow, Bevel, GradientGlow/GradientBevel, Convolution und ColorMatrix tatsächlich rendern.
-- Exakte SWF-Gruppen-/Isolationsecken bei komplex verschachtelten Blend-Ebenen pixelgenau abgleichen.
-- Pixelgenaue Sonderfälle bei animierten Scale9-Sprites und Masken hängen zusätzlich von Phase 7 ab.
+- Die Pillow-GaussianBlur-Approximation muss für pixelgenaue Vergleiche noch gegen Scaleforms anisotropen Blur-Kernel abgeglichen werden.
+- Bevel-Caps und komplexe innere/äußere Knockout-Kombinationen sind funktional vorhanden, aber noch nicht pixelgenau validiert.
+- Exakte SWF-Gruppen-/Isolationsecken bei komplex verschachtelten Blend-Ebenen müssen noch abgeglichen werden.
+- Pixelgenaue Sonderfälle bei animierten Scale9-Sprites, Masken und Filtern hängen zusätzlich von Phase 7 ab.
 
 ### Phase 6 – Fonts, Texte und MSBT
 
@@ -227,4 +245,4 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-Die bereits geparsten `PlaceObject3`-Filter rendern. Der Corpus enthält 460 Filterdatensätze; besonders Blur, Glow, Drop Shadow und ColorMatrix beeinflussen HUD-Glows, Auswahlzustände, Schatten und Übergangsebenen sichtbar. Danach folgt Phase 6 mit eingebetteten Fonts, `DefineText1/2`, vollständigem `DefineEditText` und MSBT-Zuordnung.
+Phase 6 beginnt mit eingebetteten Fonts und statischen Text-Tags. Danach folgt ein Display-List-/State-Inspector, mit dem Instanznamen, Sichtbarkeit, Frames, Filter, Blend Modes und Textwerte pro UI-Zustand untersucht und manuell überschrieben werden können, bevor eine vollständige AVM2-Laufzeit vorhanden ist.
