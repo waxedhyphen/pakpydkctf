@@ -45,8 +45,9 @@ Status: abgeschlossen
 
 Status: abgeschlossen
 
-- Zlib-TXTR-Vorschauen werden nur zur Anzeige um 180 Grad gedreht.
-- CWS-UI-Filme werden nach dem vollständigen Frame-Rendering gedreht.
+- Zlib-TXTR-Vorschauen werden nur zur Anzeige vertikal gespiegelt.
+- CWS-UI-Filme erhalten dieselbe vertikale Ursprungskorrektur nach dem vollständigen Frame-Rendering.
+- Die frühere 180-Grad-Korrektur wurde ersetzt, weil sie links und rechts vertauschte.
 - Rohdaten und Repacking bleiben unverändert.
 
 ### Phase 3 – GFXL-Library-Symbole
@@ -93,9 +94,30 @@ Validierung am bereitgestellten `UIPak.pak`:
 
 ### Phase 4 – Vektor-Shapes
 
-- `DefineShape1-4` vollständig dekodieren.
-- Kanten, Kurven, Linien, Solid-, Gradient- und Bitmap-Fills rendern.
-- Aktuelle Bounds-Platzhalter ersetzen.
+Status: für den bereitgestellten UI-Corpus abgeschlossen; generische SWF-Sonderfälle bleiben offen
+
+Implementiert:
+
+- `DefineShape1`, `DefineShape2`, `DefineShape3` und `DefineShape4` werden aus den Shape Records dekodiert.
+- Gerade Kanten und quadratische Kurven werden zu verbundenen Konturen zusammengesetzt.
+- `StateMoveTo`, FillStyle0/1, LineStyle und `StateNewStyles` werden berücksichtigt.
+- Solid-Fills, RGBA, padded lineare Gradients und solide Linien werden gerendert.
+- Even/Odd-Konturen, Löcher, Alpha und der Display-List-`ColorTransform` werden angewendet.
+- Die Vektor-Shapes ersetzen im normalen UI-Frame die früheren Bounds-Platzhalter.
+
+Validierung am bereitgestellten UI-Corpus:
+
+- 625 Shape-Definitionen aus 55 GFX/GFXL-Filmen.
+- 203 × `DefineShape1`, 47 × `DefineShape2`, 28 × `DefineShape3`, 347 × `DefineShape4`.
+- 883 Solid-Fills, 96 lineare Gradients und 381 LineStyles.
+- 39.986 gerade und 43.333 gekrümmte Kanten.
+- 625 von 625 Shapes ohne Parserfehler dekodiert.
+
+Noch offen innerhalb der generischen Shape-Unterstützung:
+
+- Radial-/Focal-Gradients und Bitmap-Fills werden geparst, sind im untersuchten UI-Corpus aber nicht vorhanden und besitzen vorerst nur einen Fallback.
+- Exakte SWF-Caps, Miter- und Spezial-Joins müssen noch pixelgenau nachgebildet werden.
+- Morph-Shapes gehören weiterhin zur Timeline-/Animationsphase.
 
 ### Phase 5 – Masken und Effekte
 
@@ -157,4 +179,4 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-`DefineShape1-4` vollständig dekodieren und rendern. Nach der vollständigen Bildsymbolauflösung bringt dieser Schritt den größten sichtbaren Fortschritt.
+`clip_depth` als echte Maske umsetzen. Nach Bildern und Vektor-Shapes sind Masken der nächste größte sichtbare Unterschied: Scrollbereiche, Übergänge und ausgeschnittene UI-Flächen werden derzeit noch ungeclippt dargestellt.
