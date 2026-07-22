@@ -99,56 +99,65 @@ Siehe `UI_VIEWER_STATE_INSPECTOR.md`.
 
 Status: laufende strukturelle Vorschau umgesetzt; ActionScript-gesteuerte Wiedergabe bleibt offen
 
-Implementiert:
-
 - eigener Framezustand pro stabilem MovieClip-Instanzpfad;
 - globale Play-/Pause-Steuerung und `F7`;
 - Vorwärts-/Rückwärts-Einzelschritt und Reset;
 - Looping anhand der jeweiligen Root- und Sprite-Frameanzahl;
 - Wiedergabe mit der SWF-Framerate und Tempo `0.25×` bis `4×`;
-- Root-Label-Sprünge im Browser;
-- Frame-, Play/Pause-, Reset- und Label-Steuerung für die ausgewählte MovieClip-Instanz im Inspector;
-- manueller `sprite_frame`-Override besitzt weiterhin Vorrang;
-- Scale9-Caches werden bei laufenden Unterframes invalidiert;
+- Root- und Sprite-Label-Sprünge;
+- manueller `sprite_frame`-Override besitzt Vorrang;
 - Wiedergabestatus, Geschwindigkeit und Instanzframes werden in JSON-Presets gespeichert.
 
-Validierung:
-
-- 39 UI-Tests liefen lokal erfolgreich.
-- `Options.swf` Frame 20 enthielt 70 verschachtelte MovieClips mit mehr als einem Frame.
-- `btnHandheld` wurde strukturell von Frame 1 auf Frame 2 geschaltet und der komplette 1280×720-Frame ohne Renderfehler verarbeitet.
-
-Wichtige Grenze:
-
-- Die Vorschau lässt Timelines strukturell loopen, führt aber noch keine `DoABC`-Frame-Scripts, `gotoAndPlay`, `stop()` oder nativen Spielcallbacks aus.
-- Morph-Shapes und skriptgesteuerte Übergänge bleiben offen.
+Wichtige Grenze: Die Vorschau lässt Timelines strukturell loopen, führt aber noch keine `DoABC`-Frame-Scripts, `gotoAndPlay`, `stop()` oder nativen Spielcallbacks aus.
 
 Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`.
 
-### Phase 8 – Manuelle States und Presets
+### Phase 7.5 – Interaktive Performance
 
-Status: generische Overrides, Playback-Zustände und JSON-Presets abgeschlossen; vorgefertigte Spielprofile und Game-Mocks bleiben offen
+Status: umgesetzt
 
-- Sichtbarkeit, MovieClip-Frame, Text/HTML, Filter und Blend Mode pro Instanzpfad überschreibbar.
-- Presets speichern Root-Frame, Overrides, Wiedergabegeschwindigkeit, globalen Play/Pause-Zustand sowie Frame/Play-Zustand jeder bekannten MovieClip-Instanz.
+- Display-List-, Stage-Frame- und pfadspezifische Scale9-Caches;
+- leichter MovieClip-Pfad-Scan statt vollständigem Inspector-Aufbau pro Tick;
+- gedrosselte Inspector-Aktualisierung;
+- adaptive Vorschauauflösung von 35 bis 75 Prozent während Play/Scrubbing;
+- volle native Auflösung nach Pause und beim PNG-Export.
+
+Siehe `UI_VIEWER_PERFORMANCE.md`.
+
+### Phase 8 – Manuelle States, Profile und Game-Mocks
+
+Status: generische Overrides, Playback-Zustände, Profile und Text-Mocks abgeschlossen
+
+Implementiert:
+
+- Sichtbarkeit, MovieClip-Frame, Text/HTML, Filter und Blend Mode pro Instanzpfad überschreibbar;
+- Presets speichern Root-Frame, Overrides, Wiedergabe und MovieClip-Instanzzustände;
+- acht mitgelieferte Analyseprofile für HUD, Time Attack, Pause, Optionen, Frontend, Shop und Charakterwahl;
+- Mock-Werte für Spielerzahl, Leben, Banana Coins, Puzzle Pieces, Timer, Punkte, Levelname, Bananen, KONG-Buchstaben und Fortschritt;
+- automatische EditText-Zuordnung anhand `variable_name`, Instanzname und stabilen Elternpfaden;
+- Mock-Editor mit Zuordnungsübersicht und `F8`;
+- manuelle Text-Overrides besitzen Vorrang vor Mocks;
+- Profile und Mock-Werte werden im JSON-Preset gespeichert;
 - Zustände bleiben während der Sitzung pro Film getrennt.
 
-Siehe `UI_VIEWER_STATE_PRESETS.md`.
+Siehe `UI_VIEWER_STATE_PRESETS.md` und `UI_VIEWER_GAME_STATE_MOCKS.md`.
 
 Noch offen:
 
-- mitgelieferte Profile für Pause, Optionen, Frontend, Charakterwahl und HUD;
-- Mock-Werte für Spielerzahl, Leben, Inventar, Fortschritt und Leveldaten;
-- Zuordnung dieser Mocks zu Textfeldern und nativen Callback-Namen.
+- Zuordnung der semantischen Mock-Rollen zu nativen Callback- und ActionScript-Namen;
+- MSBT-Text-IDs und Sprachauswahl;
+- dynamisch erst durch AVM2 erzeugte Textfelder und DisplayObjects.
 
 ### Phase 9 – ActionScript 3
 
 Status: offen
 
-- `DoABC` und AVM2-Laufzeit.
-- Konstruktoren, Frame Scripts, Events und Timer.
-- `gotoAndPlay`, `gotoAndStop`, `play`, `stop`, dynamische DisplayObjects und Textupdates.
-- Sichere Stubs für native Spielcallbacks.
+- `DoABC`- und ABC-Strukturparser;
+- Constant Pools, Namespaces, Multinames, Methoden, Traits, Klassen und Scripts;
+- Konstruktoren und Frame Scripts;
+- `gotoAndPlay`, `gotoAndStop`, `play`, `stop`, Events und Timer;
+- dynamische DisplayObjects und Textupdates;
+- sichere Stubs für native Spielcallbacks.
 
 ### Phase 10 – Eingabe und Audio
 
@@ -157,7 +166,7 @@ Status: offen
 - Maus-, Tastatur- und Controller-Fokus.
 - Hit-Testing und Button-Zustände.
 - CAUD/CSMP und UI-Sounds.
-- Kontrollierbare Game-State-Mocks.
+- Anbindung kontrollierbarer Game-State-Mocks an native Callbacks.
 
 ## Zusätzliche Dateien
 
@@ -178,16 +187,16 @@ Funktional vollständig:
 
 - ActionScript-Zustände laufen.
 - Maus/Controller-Navigation funktioniert.
-- Spielwerte können über Mocks eingespeist werden.
+- Spielwerte können über Mocks und Callback-Stubs eingespeist werden.
 - Native Callbacks werden sicher simuliert.
 - UI-Audio kann abgespielt werden.
 
 ## Nächster Arbeitsblock
 
-Erste mitgelieferte State-Profile und Game-State-Mocks für Pause, Optionen, Frontend und HUD:
+Vorbereitung der minimalen AVM2-/Frame-Script-Laufzeit:
 
-1. wiederverwendbare Profile aus stabilen Inspector-Pfaden;
-2. benannte Mock-Werte für Leben, Spielerzahl, Banana Coins, Puzzle Pieces und Timer;
-3. automatische Textfeldzuordnung anhand Variablen- und Instanznamen;
-4. Profil-Auswahl direkt im UI Browser;
-5. anschließend Vorbereitung der minimalen AVM2-/Frame-Script-Laufzeit.
+1. `DoABC`-Blöcke inventarisieren und benannte ABC-Module im Inspector anzeigen;
+2. ABC-Constant-Pools, Multinames, Methoden, Traits, Klassen und Scripts parsen;
+3. Frame-Script-Zuordnungen zu MovieClips und Root-Timelines herstellen;
+4. zunächst `stop`, `play`, `gotoAndStop` und `gotoAndPlay` sicher ausführen;
+5. Registry für native Callback-Stubs und die vorhandenen Game-Mock-Rollen vorbereiten.
