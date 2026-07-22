@@ -226,7 +226,7 @@ Validierung:
 - 14 Native-Callback-Tests für Inventar, Klassifikation, Priorität, Data-Value-Aliase, isolierte Subsysteme und JSON-Sicherheit;
 - vollständiger Native-Scan: 47 Filmpayloads, 40 eindeutige ABC-Payloads, 0 Parserfehler, 134 Namen, 6.730 Call-Sites;
 - Dry-Run aller 134 Namen mit repräsentativen Argumenten ohne Exception;
-- 13 Async-/Audio-Tests für DSP-Dekodierung, WAV, Queue, Eventdispatch, Priorität und Presets;
+- 15 Async-/Audio-Tests für DSP-Dekodierung, WAV, Queue, Eventdispatch, Priorität, konservative Callback-Auswahl und Presets;
 - Audio-Corpus-Scan: 1.010 CAUD, 1.248 CSMP, 680 Audio-Call-Sites, 67 von 68 normalisierten Namen aufgelöst und 67 von 67 Prüfvarianten ohne Decoderfehler.
 
 Noch offen:
