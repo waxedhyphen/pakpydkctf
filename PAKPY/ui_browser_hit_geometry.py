@@ -205,7 +205,7 @@ class GeometryCollector:
             object_clips = _scroll_clip(self.movie, obj.path, matrix, clips)
             if len(object_clips) > len(clips):
                 self.scroll_paths.add(str(obj.path))
-            definition = dynamic._dynamic_definition(obj)
+            definition = getattr(obj, "definition", None)
             if isinstance(definition, ui_browser.SpriteDef):
                 frame = max(1, min(int(getattr(definition, "frame_count", 1) or 1),
                                    int(getattr(obj, "current_frame", 1) or 1)))
