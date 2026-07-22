@@ -5,7 +5,9 @@ final frame; instead, its rendered alpha clips subsequent display-list objects a
 depths greater than the mask depth and up to the inclusive clip depth. Multiple
 active masks intersect, and masks inside sprites are handled recursively.
 
-The patch is display-only. GFX/SWF data, exports and repacking are unchanged.
+Placement filters are applied to isolated layers before clip-depth masking and
+blend-mode composition. The patch is display-only; GFX/SWF data and repacking are
+unchanged.
 """
 from __future__ import annotations
 
@@ -64,6 +66,19 @@ def active_masks_at_depth(masks, depth):
     return [mask for mask in masks if depth <= mask.end_depth]
 
 
+def _apply_item_filters(renderer, layer, item):
+    filters = tuple(getattr(item, "filters", ()) or ())
+    if not filters:
+        return layer
+    applier = getattr(renderer, "_apply_ui_filters", None)
+    if applier is None:
+        renderer.stats.unrendered_filter_placements = getattr(
+            renderer.stats, "unrendered_filter_placements", 0,
+        ) + 1
+        return layer
+    return applier(layer, filters)
+
+
 def _render_mask_source(renderer, draw_unmasked, canvas, item, parent_matrix, parent_color, stack, level):
     layer = _new_layer(canvas)
     old_bounds = renderer.show_bounds
@@ -75,7 +90,7 @@ def _render_mask_source(renderer, draw_unmasked, canvas, item, parent_matrix, pa
     finally:
         renderer.show_bounds = old_bounds
         renderer.show_placeholders = old_placeholders
-    return layer
+    return _apply_item_filters(renderer, layer, item)
 
 
 def install():
@@ -115,12 +130,15 @@ def install():
                 continue
 
             blend_mode = int(getattr(item, "blend_mode", 0) or 0)
-            if active_masks or blend_mode not in (0, 1):
+            filters = tuple(getattr(item, "filters", ()) or ())
+            if active_masks or blend_mode not in (0, 1) or filters:
                 layer = _new_layer(canvas)
                 draw_unmasked(
                     self, layer, {depth: item},
                     parent_matrix, parent_color, stack, level,
                 )
+                if filters:
+                    layer = _apply_item_filters(self, layer, item)
                 if active_masks:
                     apply_clip_masks(layer, active_masks)
                     self.stats.masked_placements = getattr(self.stats, "masked_placements", 0) + 1
@@ -143,7 +161,8 @@ def install():
         scale9 = getattr(stats, "scale9_placements", 0)
         fallbacks = getattr(stats, "scale9_fallbacks", 0)
         blend_modes = getattr(stats, "blend_modes", {})
-        if not masks and not masked and not empty and not scale9 and not fallbacks and not blend_modes:
+        unavailable_filters = getattr(stats, "unrendered_filter_placements", 0)
+        if not masks and not masked and not empty and not scale9 and not fallbacks and not blend_modes and not unavailable_filters:
             return text
         lines = []
         if masks or masked or empty:
@@ -163,6 +182,8 @@ def install():
             names = getattr(ui_browser, "BLEND_NAMES", {})
             for mode, count in sorted(blend_modes.items()):
                 lines.append(f"- {names.get(mode, mode)}: {count}")
+        if unavailable_filters:
+            lines.extend(["", "Filter:", f"- Renderer nicht installiert: {unavailable_filters}"])
         return text + "\n" + "\n".join(lines)
 
     ui_browser.UIRenderer._draw_display = draw_display
