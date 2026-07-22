@@ -4,7 +4,7 @@ Stand: 2026-07-22
 
 ## Zweck
 
-State-Presets speichern manuell rekonstruierte UI-Zustände, Timeline-Wiedergabe, optionale Game-State-Mocks und Native-Callback-Rückgabe-Overrides. Sie eignen sich für Pause-/Optionsseiten, HUD-Gruppen, alternative MovieClip-Frames, Testtexte, Effektvergleiche, Callback-gesteuerte Zustände und reproduzierbare Screenshots.
+State-Presets speichern manuell rekonstruierte UI-Zustände, Timeline-Wiedergabe, optionale Game-State-Mocks, Native-Callback-Rückgabe-Overrides und Audio-Vorschauoptionen. Sie eignen sich für Pause-/Optionsseiten, HUD-Gruppen, alternative MovieClip-Frames, Testtexte, Effektvergleiche, Callback-gesteuerte Zustände und reproduzierbare Screenshots.
 
 Alle Presets wirken ausschließlich auf die Vorschau.
 
@@ -14,11 +14,12 @@ Alle Presets wirken ausschließlich auf die Vorschau.
 2. Root-Frame und optional Timeline-Wiedergabe einstellen.
 3. Optional ein State-Profil anwenden oder `Mocks…` öffnen.
 4. Optional `Native Callbacks` oder `F11` öffnen und Rückgabewerte überschreiben.
-5. `State Inspector` oder `F6` öffnen.
-6. Instanzen auswählen und manuelle Overrides setzen.
-7. `Preset speichern` anklicken.
+5. Optional UI-Soundwiedergabe, Mute und Lautstärke einstellen.
+6. `State Inspector` oder `F6` öffnen.
+7. Instanzen auswählen und manuelle Overrides setzen.
+8. `Preset speichern` anklicken.
 
-Gespeichert werden Film, Quell-PAK, Root-Frame, manuelle Overrides, Playback-Zustand, Profil und Mock-Werte sowie Native-Callback-Modus und Rückgabe-Overrides.
+Gespeichert werden Film, Quell-PAK, Root-Frame, manuelle Overrides, Playback-Zustand, Profil und Mock-Werte, Native-Callback-Modus und Rückgabe-Overrides sowie die Audio-Vorschauoptionen.
 
 Transiente Runtime-Logs, Vorschau-Save-Slots, Audio-Requests, Telemetrie und Navigationseinträge werden bewusst nicht gespeichert.
 
@@ -29,7 +30,7 @@ Transiente Runtime-Logs, Vorschau-Save-Slots, Audio-Requests, Telemetrie und Nav
 3. `Preset laden` anklicken.
 4. JSON-Datei auswählen.
 
-Das Laden ersetzt die aktiven Overrides, Timeline-Zustände, Game-Mocks und Native-Callback-Overrides dieses Films. Root-Frame, Tempo und globaler Play/Pause-Zustand werden wiederhergestellt. Bei einem anderen Filmnamen erscheint eine Warnung; die Pfade werden trotzdem geladen.
+Das Laden ersetzt die aktiven Overrides, Timeline-Zustände, Game-Mocks und Native-Callback-Overrides dieses Films und stellt die Audio-Vorschauoptionen wieder her. Root-Frame, Tempo und globaler Play/Pause-Zustand werden wiederhergestellt. Bei einem anderen Filmnamen erscheint eine Warnung; die Pfade werden trotzdem geladen.
 
 ## Unterstützte Overrides
 
@@ -162,7 +163,25 @@ Native-Callback-Override
 → konservativer Default oder undefined
 ```
 
-Ältere Presets ohne `playback`, `game_state` oder `native_callbacks` bleiben kompatibel.
+## Audio-Vorschau
+
+```json
+{
+  "audio_preview": {
+    "enabled": false,
+    "muted": false,
+    "volume": 0.65
+  }
+}
+```
+
+- `enabled`: automatische lokale Ausgabe aufgelöster UI-Sounds; standardmäßig `false`;
+- `muted`: unterdrückt die direkte Ausgabe, ohne Katalog, Dekodierung und Completion-Events abzuschalten;
+- `volume`: Viewer-Lautstärke von `0.0` bis `1.0`.
+
+Ausstehende Completion-Requests, fertige WAV-Daten, Audio-Requests und abgespielte Stimmen sind transient und werden nicht serialisiert.
+
+Ältere Presets ohne `playback`, `game_state`, `native_callbacks` oder `audio_preview` bleiben kompatibel.
 
 ## Vollständiges Schema
 
@@ -217,6 +236,11 @@ Native-Callback-Override
       "GetExtrasUnlockState": true,
       "IsDynamicControllerModeActive": false
     }
+  },
+  "audio_preview": {
+    "enabled": false,
+    "muted": false,
+    "volume": 0.65
   }
 }
 ```
@@ -239,14 +263,15 @@ Native-Callback-Overrides sind nicht pfadgebunden. Sie gelten für den jeweilige
 
 ## Sitzungsverwaltung
 
-Override-, Timeline-, Mock- und Callback-Konfigurationen werden während der Browser-Sitzung pro Film getrennt gehalten. Für dauerhafte Speicherung muss ein JSON-Preset gespeichert werden.
+Override-, Timeline-, Mock-, Callback- und Audio-Konfigurationen werden während der Browser-Sitzung pro Film getrennt gehalten. Für dauerhafte Speicherung muss ein JSON-Preset gespeichert werden.
 
 ## Grenzen
 
 - Transiente AVM2-, Event-, Timer-, Callback-, Audio- und Telemetrie-Logs werden nicht im Preset gespeichert.
 - Dynamisch erzeugte DisplayObjects werden nach einem Runtime-Reset neu konstruiert und nicht als Objektgraph serialisiert.
 - Keine automatische MSBT-Sprachauswahl.
-- Asynchrone native Completion-Events sind noch nicht vollständig modelliert.
+- Ausstehende asynchrone Completion-Requests werden bewusst nicht gespeichert und nach einem Runtime-Reset neu erzeugt.
+- Direkte Audiowiedergabe verwendet unter Windows `winsound`; auf anderen Plattformen bleibt WAV-Export verfügbar.
 - Ein manuell rekonstruierter Zustand muss nicht zwingend über den normalen Ingame-Code erreichbar sein.
 
-Details: `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_GAME_STATE_MOCKS.md` und `UI_VIEWER_NATIVE_CALLBACKS.md`.
+Details: `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_GAME_STATE_MOCKS.md`, `UI_VIEWER_NATIVE_CALLBACKS.md` und `UI_VIEWER_ASYNC_AUDIO.md`.
