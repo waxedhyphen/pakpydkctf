@@ -1,12 +1,12 @@
 """Classic SWF button records, bounded AVM1 action inventory and hit geometry helpers.
 
-This module contains the format-facing part of the UI Browser classic-button stage.  It
-is intentionally independent from Tk.  The integration patch installs the definitions,
+This module contains the format-facing part of the UI Browser classic-button stage. It
+is intentionally independent from Tk. The integration patch installs the definitions,
 input routing and inspector controls without mutating source GFX/SWF data.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
 
 import ui_browser
@@ -15,7 +15,6 @@ try:
     import ui_browser_scale9_blend_patch as scale9
 except Exception:  # model tests and reduced tooling can run without the renderer patch
     scale9 = None
-
 
 TAG_DEFINE_BUTTON = 7
 TAG_DEFINE_BUTTON2 = 34
@@ -70,7 +69,7 @@ _CONDITION_BITS = (
     (0x0400, "over_up_to_over_down"),
     (0x0200, "over_up_to_idle"),
     (0x0100, "idle_to_over_up"),
-    (0x0080, "over_down_to_idle"),
+    (0x0001, "over_down_to_idle"),
 )
 
 
@@ -110,7 +109,7 @@ class ButtonRecord:
 class ClassicButtonTags:
     """Iterable synthetic timeline consumed by every existing display-list builder.
 
-    The four frames are up, over, down and hit.  Using ordinary PlaceObject/RemoveObject
+    The four frames are up, over, down and hit. Using ordinary PlaceObject/RemoveObject
     records keeps compatibility with cached builder references captured by older patches.
     """
 
@@ -175,7 +174,7 @@ class ClassicButtonDef(ui_browser.SpriteDef):
                  track_as_menu: bool = False, parse_errors=()):
         super().__init__(
             int(character_id), 4, [],
-            {"up": 1, "over": 2, "down": 3, "hit": 4},
+            {"up": 1, "over": 2, "down": 3, "hit": 4, "disabled": 1},
         )
         self.button_version = int(version)
         self.records = tuple(records)
@@ -320,7 +319,7 @@ def _parse_cond_actions(payload: bytes, start: int):
             raise ButtonParseError("ButtonCondAction besitzt ungültige Grenzen")
         actions, _ = parse_avm1_actions(payload, p, block_end)
         result.append(ButtonActionBinding(
-            _condition_names(flags), flags & 0x7F, actions, flags,
+            _condition_names(flags), (flags >> 1) & 0x7F, actions, flags,
         ))
         if size == 0:
             break
@@ -482,8 +481,8 @@ class HitGeometry:
             return False
         lx, ly = self.local_point(point)
         if self.local_bounds is not None:
-            l, t, r, b = self.local_bounds
-            if not (l <= lx <= r and t <= ly <= b):
+            left, top, right, bottom = self.local_bounds
+            if not (left <= lx <= right and top <= ly <= bottom):
                 return False
         if self.alpha is not None:
             ox, oy = self.alpha_origin
