@@ -14,6 +14,7 @@ from blend_model_repack_patch import install as install_blend_model_repack_patch
 from mesh_viewer_gui_patch import install as install_mesh_viewer_gui_patch
 from ui_browser_gui_patch import install as install_ui_browser_gui_patch
 from preview_orientation_patch import install as install_preview_orientation_patch
+from ui_browser_library_patch import install as install_ui_browser_library_patch
 from mesh_viewer_uv_diagnostics_patch import install as install_mesh_viewer_uv_diagnostics_patch
 from mesh_viewer_selection_patch import install as install_mesh_viewer_selection_patch
 from mesh_viewer_visibility_patch import install as install_mesh_viewer_visibility_patch
@@ -57,6 +58,7 @@ install_missing_txtr_export_error(App)
 install_mesh_viewer_gui_patch(App)
 install_ui_browser_gui_patch(App)
 install_preview_orientation_patch()
+install_ui_browser_library_patch()
 install_mesh_viewer_uv_diagnostics_patch()
 install_mesh_viewer_selection_patch()
 install_mesh_viewer_visibility_patch()
