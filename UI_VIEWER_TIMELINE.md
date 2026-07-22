@@ -121,10 +121,30 @@ Noch offen innerhalb der generischen Shape-Unterstützung:
 
 ### Phase 5 – Masken und Effekte
 
-- `clip_depth` als echte Maske.
-- Scrollbereiche und verschachtelte Masken.
-- Blend Modes, Blur, Glow, Drop Shadow und ColorMatrix.
+Status: `clip_depth`-Masken abgeschlossen; Filter, Blend Modes und Scale9 bleiben offen
+
+Implementiert:
+
+- Ein Placement mit `clip_depth` wird als unsichtbare Alpha-Maske behandelt.
+- Die Maske gilt für alle höheren Tiefen bis einschließlich `clip_depth`.
+- Gleichzeitig aktive Masken werden miteinander multipliziert und dadurch korrekt geschnitten.
+- Masken in verschachtelten Sprites werden rekursiv ausgewertet; äußere Masken schneiden das komplette Sprite-Ergebnis.
+- Debug-Bounds und Platzhalter werden beim Aufbau der Masken-Alphaebene unterdrückt, damit sie die Maske nicht verfälschen.
+- Die Analyse zeigt Anzahl der Masken, maskierte Placements und leere Masken.
+
+Validierung am bereitgestellten UI-Corpus:
+
+- 13 echte ClipDepth-Placement-Tags in 11 eingebetteten GFX-Filmen.
+- Unter Einbezug aller Timeline-Frames ergeben sich 381 aktive Masken-Vorkommen.
+- Vorkommen unter anderem in `LoadingScreen_Common.swf`, `HUD_Bonus.swf`, `HUD_Characters.swf`, `DeathScreen/Source` und `Transition/Source`.
+- Alle 11 maskenhaltigen Testfilme konnten mit dem neuen Renderer ohne Maskenfehler gerendert werden.
+
+Noch offen innerhalb von Phase 5:
+
+- Blend Modes aus `PlaceObject3`.
+- Blur, Glow, Drop Shadow, Bevel und ColorMatrix.
 - Scale9/`DefineScalingGrid`.
+- Pixelgenaue Sonderfälle bei animierten Masken hängen zusätzlich von Phase 7 ab.
 
 ### Phase 6 – Fonts, Texte und MSBT
 
@@ -179,4 +199,4 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-`clip_depth` als echte Maske umsetzen. Nach Bildern und Vektor-Shapes sind Masken der nächste größte sichtbare Unterschied: Scrollbereiche, Übergänge und ausgeschnittene UI-Flächen werden derzeit noch ungeclippt dargestellt.
+`DefineScalingGrid`/Scale9 und anschließend die in `PlaceObject3` gespeicherten Blend Modes umsetzen. Damit können skalierte Dialogfelder und Buttons ihre Randstärken behalten und additive beziehungsweise multiplizierte UI-Ebenen näher am Spiel dargestellt werden.
