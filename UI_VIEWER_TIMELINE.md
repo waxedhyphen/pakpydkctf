@@ -4,7 +4,7 @@ Stand: 2026-07-22
 
 ## Ziel
 
-Der Viewer soll die Scaleform-UIs aus `GFX`, `GFXL`, `TXTR`, `MSBT` und requireten PAKs zunächst visuell vollständig und danach interaktiv darstellen. Die Vorschau bleibt frei skalierbar und erhält das native Stage-Seitenverhältnis.
+Der Viewer soll die Scaleform-UIs aus `GFX`, `GFXL`, `TXTR`, `MSBT` und requireten PAKs darstellen und konkrete Ingame-Zustände untersuchbar machen. Die Vorschau bleibt frei skalierbar, die native Stage-Proportion wird beibehalten und alle manuellen Änderungen bleiben reine Preview-Overrides.
 
 ## Verifizierter Ressourcenpfad
 
@@ -19,7 +19,7 @@ GFX-Film
   -> TXTR im aktuellen oder requireten PAK
 ```
 
-Die Bild-Libraries benutzen Scaleform-Tag `1009` statt normaler SWF-`DefineBits`-Tags. Der Tag enthält Character-ID, Format-ID, vorgesehene Breite/Höhe, Symbolname und ursprünglichen TGA-Dateinamen.
+Die Bild-Libraries benutzen Scaleform-Tag `1009` statt normaler SWF-`DefineBits`-Tags. Der Tag enthält Character-ID, Format-ID, vorgesehene Breite/Höhe, Symbolname und ursprünglichen TGA-Dateinamen. `SymbolClass` verbindet die Character-ID mit dem exportierten Klassennamen.
 
 ## Entwicklungs-Timeline
 
@@ -35,8 +35,8 @@ Status: abgeschlossen
 Status: abgeschlossen
 
 - GFX-Dateien und eingebettete Filme auswählbar.
-- Root-Timeline, Frames und Frame-Labels.
 - Skalierbare Stage mit beibehaltenem Seitenverhältnis.
+- Root-Timeline, Frames und Frame-Labels.
 - TXTR-Auflösung aus aktuellem und requiretem PAK.
 - Position, Skalierung, Rotation, Alpha und ColorTransform.
 - PNG-Export, Bounds und Platzhalter.
@@ -47,7 +47,7 @@ Status: abgeschlossen
 
 - Zlib-TXTR-Vorschauen werden nur zur Anzeige vertikal gespiegelt.
 - CWS-UI-Filme erhalten dieselbe vertikale Ursprungskorrektur nach dem vollständigen Frame-Rendering.
-- Die frühere 180-Grad-Korrektur wurde ersetzt, weil sie links und rechts vertauschte.
+- Die frühere 180-Grad-Korrektur wurde ersetzt, da sie links und rechts vertauschte.
 - Rohdaten und Repacking bleiben unverändert.
 
 ### Phase 3 – GFXL-Library-Symbole
@@ -57,7 +57,7 @@ Status: abgeschlossen
 - Parser für Scaleform-Tag `1009`.
 - Verknüpfung mit `SymbolClass` und GFXL-UUID-Mapping.
 - Scaleform-Anzeigemaße werden beim Rendern verwendet.
-- GFXL-Library-Baum mit Einzelvorschau und Metadaten.
+- GFXL-Library-Baum mit Symbol-, UUID-, Größen-, Codec- und Quellinformationen.
 
 Validierung am bereitgestellten `UIPak.pak`:
 
@@ -71,29 +71,32 @@ Validierung am bereitgestellten `UIPak.pak`:
 | **Gesamt** | **1446** |
 
 - 1446 von 1446 Bildsymbolen wurden mit UUIDs verbunden.
-- 803 unterschiedliche externe Klassen in 1895 `PlaceObject3`-Vorkommen.
-- Alle 803 Klassen werden vom Library-Index aufgelöst.
+- 803 unterschiedliche externe Klassen in 1895 `PlaceObject3`-Vorkommen werden aufgelöst.
 - `AudioUI.swf` enthält 120 Audio-Zuordnungen, aber keine Tag-1009-Bildsymbole.
 
 ### Phase 4 – Vektor-Shapes
 
-Status: für den bereitgestellten UI-Corpus abgeschlossen
+Status: für den bereitgestellten UI-Corpus abgeschlossen; generische SWF-Sonderfälle bleiben offen
 
-- `DefineShape1` bis `DefineShape4`.
+Implementiert:
+
+- `DefineShape1`, `DefineShape2`, `DefineShape3` und `DefineShape4`.
 - Gerade Kanten und quadratische Kurven.
-- `StateMoveTo`, FillStyle0/1, LineStyle und `StateNewStyles`.
+- FillStyle0/1, LineStyle und `StateNewStyles`.
 - Solid-Fills, RGBA, lineare Gradients und Linien.
-- Konturen, Löcher, Alpha und ColorTransform.
+- Even/Odd-Konturen, Löcher, Alpha und ColorTransform.
 
-Validierung:
+Corpus:
 
-- 625 Shape-Definitionen.
-- 203 × `DefineShape1`, 47 × `DefineShape2`, 28 × `DefineShape3`, 347 × `DefineShape4`.
+- 625 Shape-Definitionen aus 55 GFX/GFXL-Filmen.
 - 883 Solid-Fills, 96 lineare Gradients und 381 LineStyles.
-- 39.986 gerade und 43.333 gekrümmte Kanten.
 - 625 von 625 Shapes ohne Parserfehler.
 
-Offen bleiben generische SWF-Sonderfälle wie Radial-/Focal-Gradients, Bitmap-Fills, exakte Caps/Joins und Morph-Shapes.
+Offen:
+
+- Radial-/Focal-Gradients und Bitmap-Fills außerhalb des vorhandenen Corpus.
+- Pixelgenaue Caps, Miter und Spezial-Joins.
+- Morph-Shapes.
 
 ### Phase 5 – Masken, Scale9 und Effekte
 
@@ -101,106 +104,109 @@ Status: für die im bereitgestellten UI-Corpus verwendeten Funktionen visuell um
 
 Implementiert:
 
-- `clip_depth`-Masken mit verschachtelten und gleichzeitig aktiven Masken.
-- `DefineScalingGrid`/Scale9-Nine-slice.
-- `PlaceObject3`-Sichtbarkeit, Ratio, CacheAsBitmap und OpaqueBackground-Metadaten.
-- Blend Modes einschließlich Layer, Multiply, Alpha, Screen, Add, Erase, Overlay und HardLight.
-- Filterreihenfolge: Objekt → Filter → ClipDepth → Blend Mode.
-- `Glow`, `DropShadow`, `Blur` und `Bevel`.
+- inklusive `clip_depth`-Masken und Schnitt mehrerer aktiver Masken;
+- rekursive Masken in verschachtelten Sprites;
+- `DefineScalingGrid` und Nine-slice-Rendering;
+- explizite `PlaceObject3`-Sichtbarkeit;
+- Layer, Multiply, Screen, Lighten, Darken, Difference, Add, Subtract, Invert, Alpha, Erase, Overlay und HardLight;
+- Glow, DropShadow, Blur und Bevel;
+- Reihenfolge Objekt → Filter → ClipDepth → Blend Mode.
 
-Validierung:
+Corpus:
 
-- 13 ClipDepth-Tags in 11 Filmen; 381 Maskenvorkommen über die Frames.
-- 56 Scaling-Grids; 558 Grid-Placements, davon 527 tatsächlich skaliert.
-- 53 BlendMode-Placements: 27 Layer, 17 Multiply, 7 Alpha, 2 Normal.
-- 37 Placements mit expliziter Sichtbarkeit.
-- 460 Filterdatensätze:
-  - 258 Glow
-  - 186 DropShadow
-  - 14 Blur
-  - 2 Bevel
-
-Offen bleiben pixelgenaue Scaleform-Abgleiche für anisotropen Blur, Bevel-Sonderfälle und komplexe Gruppenisolation.
-
-### Phase 6 – Fonts und Texte
-
-Status: eingebettete Fonts und statische/initiale `DefineEditText`-Inhalte abgeschlossen
-
-Implementiert:
-
-- `gfxfontlib.gfx`/`gfxfontlib.swf` aus aktuellem oder requiretem PAK.
-- `DefineFont3`, `DefineFontName` und `SymbolClass`.
-- `$DialogFont`, `$SubTitleFont`, `$TitleFont` und `$NormalFont`.
-- Lazy-Dekodierung eingebetteter Outline-Glyphen.
-- Unicode-Glyphen, Konturen und Löcher.
-- Korrektes `FontClass`-Layout mit `FontHeight`.
-- Scaleform-HTML, Ausrichtung, Farbe, Größe, `letterSpacing`, Absätze und HTML-Entities.
-- Text durchläuft ColorTransform, Filter, Masken und Blend Modes.
-- Leere dynamische Felder bleiben als Variablenplatzhalter sichtbar.
-
-Validierung:
-
-- 4 `DefineFont3`-Fonts mit jeweils ungefähr 9.200 Unicode-Glyphen.
-- 648 `DefineEditText`-Felder.
-- 348 × `$SubTitleFont`, 189 × `$NormalFont`, 111 × `$TitleFont`.
-- 647 HTML-Textfelder und 885 initiale Absätze.
-- Keine `DefineText`-/`DefineText2`-Tags im untersuchten Spielmaterial.
+- 13 ClipDepth-Placement-Tags in 11 Filmen;
+- 56 Scaling-Grids und 558 Grid-Placements;
+- 53 BlendMode-Placements;
+- 258 Glow-, 186 DropShadow-, 14 Blur- und 2 Bevel-Filter.
 
 Offen:
 
-- MSBT-Text-IDs und Sprachauswahl.
-- ActionScript-Änderungen an Text, Sichtbarkeit und Formatierung.
-- Pixelgenauer Font-Rasterizer-Abgleich.
+- pixelgenauer Abgleich des Scaleform-Blur-Kernels;
+- seltene Bevel-/Knockout-Sonderfälle;
+- komplexe Gruppen-Isolation bei stark verschachtelten Blend-Ebenen.
+
+### Phase 6 – Fonts und Texte
+
+Status: eingebettete Fonts und initiale `DefineEditText`-Inhalte abgeschlossen; MSBT- und Laufzeittexte bleiben offen
+
+Implementiert:
+
+- `gfxfontlib.swf`, `DefineFont3`, `DefineFontName` und `SymbolClass`;
+- `$DialogFont`, `$SubTitleFont`, `$TitleFont` und `$NormalFont`;
+- lazy dekodierte Unicode-Outline-Glyphen;
+- korrekte Scaleform-`FontClass`-/`FontHeight`-Anordnung;
+- HTML-Absätze, Farbe, Größe, Ausrichtung, `letterSpacing` und Entities;
+- Text durch ColorTransform, Filter, Masken und Blend Modes;
+- Platzhalter für spätere dynamische Textfelder.
+
+Corpus:
+
+- vier `DefineFont3`-Fonts mit jeweils rund 9.200 Unicode-Glyphen;
+- 648 `DefineEditText`-Felder;
+- 647 HTML-Textfelder und 885 initiale Absätze;
+- keine `DefineText`-/`DefineText2`-Tags im untersuchten Material.
+
+Offen:
+
+- MSBT-Text-IDs und Sprachauswahl;
+- ActionScript-Änderungen an `text`, `htmlText` und Formatierung;
+- pixelgenauer Font-Rasterizer-Abgleich.
 
 ### Phase 6.5 – Display-List-/State-Inspector
 
 Status: read-only Inspector abgeschlossen
 
-Implementiert:
-
 - Öffnen über `State Inspector` oder `F6`.
 - Root-Frame und rekursive MovieClip-Display-Lists als Tiefenbaum.
-- Stabiler Instanzpfad aus Tiefe und Instanzname.
-- Character-ID, SymbolClass, externe Klasse und Sichtbarkeit.
-- Matrix und vollständiger ColorTransform.
+- Stabiler Pfad aus Tiefe und Instanzname.
+- Character-ID, Klasse, Sichtbarkeit, Matrix und ColorTransform.
 - ClipDepth, Scale9, Filter und Blend Mode.
-- MovieClip-Frameanzahl und Frame-Labels.
-- Fontklasse, Textvariable, Initialtext und HTML-Status.
-- Lazy TXTR-Auflösung für ausgewählte externe Klassen.
-- Suche über Pfade, Namen, IDs, Klassen, Texte und Metadaten.
-- Filter für sichtbare Instanzen.
-- Öffnen/Schließen des gesamten Tiefenbaums.
-- Kopierbarer Instanzpfad.
-- Vollständiger JSON-State-Snapshot pro Root-Frame.
-- Automatische Aktualisierung beim Film- oder Framewechsel.
+- MovieClip-Frames, Labels, Fontklasse und Text.
+- Suche, Sichtbarkeitsfilter, Pfadkopie und JSON-Snapshot.
+- Automatische Aktualisierung bei Film- oder Framewechsel.
 
-Wichtige Grenze:
-
-- Der Root-Frame entspricht dem Viewer-Regler.
-- Verschachtelte MovieClips stehen wie im aktuellen statischen Renderer noch auf Frame 1.
-- ActionScript und dynamisch erzeugte DisplayObjects werden noch nicht ausgeführt.
-
-Siehe auch `UI_VIEWER_STATE_INSPECTOR.md`.
+Siehe `UI_VIEWER_STATE_INSPECTOR.md`.
 
 ### Phase 7 – Verschachtelte Timelines
 
-Status: offen
+Status: manueller Framezugriff vorhanden; automatische Laufzeit offen
 
-- Eigener Framezustand pro MovieClip-Instanz.
-- Play, Stop, Loop, Labels und echte Framerate.
-- Morphs und Übergangsanimationen.
+Bereits möglich:
+
+- MovieClip-Frame pro stabilem Instanzpfad manuell auswählen.
+- Der Inspector rekonstruiert den gewählten Unterframe und dessen Kinder.
+
+Noch offen:
+
+- eigener laufender Framezustand pro MovieClip-Instanz;
+- Play, Stop, Loop und echte Framerate;
+- automatische Label- und Übergangssteuerung;
+- Morphs und zeitabhängige Filter-/Masken-/Scale9-Zustände.
 
 ### Phase 8 – Manuelle States und Presets
 
-Status: Inspector-Grundlage abgeschlossen; Overrides und Presets offen
+Status: generische Overrides und JSON-Presets abgeschlossen; vorgefertigte Spielprofile und Game-Mocks bleiben offen
 
-- Sichtbarkeit pro Instanzpfad überschreiben.
+Implementiert:
+
+- Sichtbarkeit pro stabilem Instanzpfad auf Original, sichtbar oder versteckt setzen.
 - MovieClip-Frame pro Instanz auswählen.
-- Text und HTML-Text ersetzen.
-- Filter und Blend Modes testweise deaktivieren.
-- Presets als JSON speichern und laden.
-- Presets für Pause, Optionen, Frontend, Charakterwahl und HUD.
-- Mock-Werte für Spielerzahl, Leben, Inventar und Fortschritt.
+- EditText als Plaintext oder Scaleform-HTML ersetzen.
+- Filter und Blend Mode pro Placement testweise deaktivieren.
+- Overrides werden direkt im Inspector angezeigt und bei Framewechseln neu angewendet.
+- Overrides bleiben beim Wechsel zwischen Filmen innerhalb der laufenden Browser-Sitzung getrennt gespeichert.
+- Presets speichern Root-Frame, Filmname, Quell-PAK und alle Pfad-Overrides als JSON.
+- Presets können geladen, ersetzt und vollständig gelöscht werden.
+- Scale9-Caches werden nach Änderungen invalidiert, damit pfadspezifische Unterzustände nicht aus einem alten Frame übernommen werden.
+- Keine GFX-, GFXL-, TXTR- oder MSBT-Daten werden verändert.
+
+Bedienung und Preset-Schema: `UI_VIEWER_STATE_PRESETS.md`.
+
+Noch offen:
+
+- mitgelieferte Profile für Pause, Optionen, Frontend, Charakterwahl und HUD;
+- Mock-Werte für Spielerzahl, Leben, Inventar, Fortschritt und Leveldaten;
+- Zuordnung dieser Mocks zu Textfeldern und nativen Callback-Namen.
 
 ### Phase 9 – ActionScript 3
 
@@ -226,6 +232,12 @@ Status: offen
 - `MiscData.pak`: 13 Assets mit unter anderem MSBT, Audio und Metadaten.
 - `MaterialArchive.arc`: RFRM-MTRL-Archiv, kein PACK/TOCC-PAK.
 
+## Validierung des aktuellen Stands
+
+- 38 UI-Parser-, Renderer-, Font-, Inspector- und Override-Tests liefen lokal erfolgreich.
+- Ein realer `Options.swf`-Frame wurde mit Text- und verschachteltem MovieClip-Frame-Override ohne Renderfehler verarbeitet.
+- Der vollständige Tk-Dialog kann in der headless Entwicklungsumgebung nicht visuell gegen das laufende Spiel verglichen werden.
+
 ## Endprodukt-Kriterien
 
 Visuell vollständig:
@@ -245,12 +257,12 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-Manuelle State-Overrides und speicherbare Presets auf Basis der stabilen Inspector-Pfade:
+Phase 7 wird als laufende Vorschau umgesetzt:
 
-1. Sichtbarkeit überschreiben.
-2. MovieClip-Frame pro Instanz wählen.
-3. Text und HTML-Text ersetzen.
-4. Presets als JSON speichern und laden.
-5. Erste Zustandsprofile für Pause, Optionen, Frontend und HUD erstellen.
+1. eigener Framezähler pro MovieClip-Instanzpfad;
+2. Play/Pause und Einzelschritt im UI Browser;
+3. Looping anhand der jeweiligen Sprite-Frameanzahl;
+4. Frame-Labels im Inspector und als direkte Sprungziele;
+5. Preset-Optionen für Startframe, Wiedergabestatus und Geschwindigkeit.
 
-Die Overrides werden ausschließlich auf die Vorschau-Display-List angewendet und verändern keine GFX-, GFXL-, TXTR- oder MSBT-Daten.
+Danach folgen erste mitgelieferte State-Profile und Game-State-Mocks für Pause, Optionen, Frontend und HUD.
