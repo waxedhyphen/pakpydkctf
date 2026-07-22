@@ -4,7 +4,7 @@ Stand: 2026-07-22
 
 ## Zweck
 
-State-Presets speichern manuell rekonstruierte UI-Zustände, Timeline-Wiedergabe und optionale Game-State-Mocks. Sie eignen sich für Pause-/Optionsseiten, HUD-Gruppen, alternative MovieClip-Frames, Testtexte, Effektvergleiche und reproduzierbare Screenshots.
+State-Presets speichern manuell rekonstruierte UI-Zustände, Timeline-Wiedergabe, optionale Game-State-Mocks und Native-Callback-Rückgabe-Overrides. Sie eignen sich für Pause-/Optionsseiten, HUD-Gruppen, alternative MovieClip-Frames, Testtexte, Effektvergleiche, Callback-gesteuerte Zustände und reproduzierbare Screenshots.
 
 Alle Presets wirken ausschließlich auf die Vorschau.
 
@@ -13,11 +13,14 @@ Alle Presets wirken ausschließlich auf die Vorschau.
 1. Einen GFX-Film im UI Browser öffnen.
 2. Root-Frame und optional Timeline-Wiedergabe einstellen.
 3. Optional ein State-Profil anwenden oder `Mocks…` öffnen.
-4. `State Inspector` oder `F6` öffnen.
-5. Instanzen auswählen und manuelle Overrides setzen.
-6. `Preset speichern` anklicken.
+4. Optional `Native Callbacks` oder `F11` öffnen und Rückgabewerte überschreiben.
+5. `State Inspector` oder `F6` öffnen.
+6. Instanzen auswählen und manuelle Overrides setzen.
+7. `Preset speichern` anklicken.
 
-Gespeichert werden Film, Quell-PAK, Root-Frame, manuelle Overrides, Playback-Zustand sowie Profil und Mock-Werte.
+Gespeichert werden Film, Quell-PAK, Root-Frame, manuelle Overrides, Playback-Zustand, Profil und Mock-Werte sowie Native-Callback-Modus und Rückgabe-Overrides.
+
+Transiente Runtime-Logs, Vorschau-Save-Slots, Audio-Requests, Telemetrie und Navigationseinträge werden bewusst nicht gespeichert.
 
 ## Preset laden
 
@@ -26,7 +29,7 @@ Gespeichert werden Film, Quell-PAK, Root-Frame, manuelle Overrides, Playback-Zus
 3. `Preset laden` anklicken.
 4. JSON-Datei auswählen.
 
-Das Laden ersetzt die aktiven Overrides, Timeline-Zustände und Game-Mocks dieses Films. Root-Frame, Tempo und globaler Play/Pause-Zustand werden wiederhergestellt. Bei einem anderen Filmnamen erscheint eine Warnung; die Pfade werden trotzdem geladen.
+Das Laden ersetzt die aktiven Overrides, Timeline-Zustände, Game-Mocks und Native-Callback-Overrides dieses Films. Root-Frame, Tempo und globaler Play/Pause-Zustand werden wiederhergestellt. Bei einem anderen Filmnamen erscheint eine Warnung; die Pfade werden trotzdem geladen.
 
 ## Unterstützte Overrides
 
@@ -42,7 +45,7 @@ Das Laden ersetzt die aktiven Overrides, Timeline-Zustände und Game-Mocks diese
 {"sprite_frame": 12}
 ```
 
-Ein fester Unterframe besitzt Vorrang vor der laufenden Timeline dieses Pfads.
+Ein fester Unterframe besitzt Vorrang vor der laufenden Timeline, automatischen Button-Zuständen und AVM2-Framewechseln dieses Pfads.
 
 ### Text oder HTML
 
@@ -60,7 +63,7 @@ Ein fester Unterframe besitzt Vorrang vor der laufenden Timeline dieses Pfads.
 }
 ```
 
-Ein manueller Text-Override besitzt Vorrang vor einem automatisch zugeordneten Game-State-Mock. Fontklasse, Textfeldgröße, Transformation, Filter, Masken und Blend Modes bleiben erhalten.
+Ein manueller Text-Override besitzt Vorrang vor AVM2-Runtime und automatisch zugeordneten Game-State-Mocks. Fontklasse, Textfeldgröße, Transformation, Filter, Masken und Blend Modes bleiben erhalten.
 
 ### Filter oder Blend Mode deaktivieren
 
@@ -114,10 +117,52 @@ Ein manueller Text-Override besitzt Vorrang vor einem automatisch zugeordneten G
 
 - `enabled`: globale Mock-Aktivierung für diesen Film;
 - `profile`: ID der mitgelieferten Vorlage oder leer bei benutzerdefinierten Werten;
-- `roles`: tatsächlich aktivierte semantische Textrollen;
+- `roles`: tatsächlich aktivierte semantische Text- und Datenrollen;
 - `values`: Werte aller bekannten Mock-Felder.
 
-Ältere Presets ohne `playback` oder `game_state` bleiben kompatibel.
+## Native Callbacks
+
+```json
+{
+  "native_callbacks": {
+    "mode": "simulate",
+    "overrides": {
+      "GetExtrasUnlockState": true,
+      "IsDynamicControllerModeActive": false,
+      "GetShopText": "Nicht genug Banana Coins"
+    }
+  }
+}
+```
+
+### `mode`
+
+- `simulate`: sichere DKCTF-spezifische Vorschauimplementierungen sind aktiv;
+- `observe`: nur die bestehende sichere Registry, Data-Value-Grundlage und Game-State-Mocks laufen; weitere DKCTF-Aufrufe werden protokolliert.
+
+### `overrides`
+
+Jeder Eintrag überschreibt den Rückgabewert eines Callback-Namens. Die Namensauflösung ignoriert Groß-/Kleinschreibung. Erlaubt sind JSON-Werte:
+
+- `null`;
+- Boolean;
+- Zahl;
+- String;
+- Liste;
+- Objekt.
+
+Maximal 256 Native-Callback-Overrides werden aus einem Preset übernommen.
+
+Priorität:
+
+```text
+Native-Callback-Override
+→ sichere Callback-Registry / Runtime-Daten / Game-State-Mock
+→ DKCTF-Vorschauimplementierung
+→ konservativer Default oder undefined
+```
+
+Ältere Presets ohne `playback`, `game_state` oder `native_callbacks` bleiben kompatibel.
 
 ## Vollständiges Schema
 
@@ -165,6 +210,13 @@ Ein manueller Text-Override besitzt Vorrang vor einem automatisch zugeordneten G
       "kong_letters": "KONG",
       "progress_percent": 42
     }
+  },
+  "native_callbacks": {
+    "mode": "simulate",
+    "overrides": {
+      "GetExtrasUnlockState": true,
+      "IsDynamicControllerModeActive": false
+    }
   }
 }
 ```
@@ -183,15 +235,18 @@ Ohne Instanznamen werden je nach Objekt SymbolClass, externe Klasse, Textvariabl
 
 Overrides und Timeline-Zustände werden pro Renderdurchlauf anhand des Pfads angewendet. Game-Mocks werden zusätzlich bei jedem gerenderten EditText anhand von Variable, Instanzname und Pfad zugeordnet. Nicht vorhandene Pfade bleiben gespeichert und werden wieder aktiv, sobald sie in einem späteren Root- oder Unterframe erneut erscheinen.
 
+Native-Callback-Overrides sind nicht pfadgebunden. Sie gelten für den jeweiligen Callback-Namen im aktuell geöffneten Film.
+
 ## Sitzungsverwaltung
 
-Override-, Timeline- und Mock-Zustände werden während der Browser-Sitzung pro Film getrennt gehalten. Für dauerhafte Speicherung muss ein JSON-Preset gespeichert werden.
+Override-, Timeline-, Mock- und Callback-Konfigurationen werden während der Browser-Sitzung pro Film getrennt gehalten. Für dauerhafte Speicherung muss ein JSON-Preset gespeichert werden.
 
 ## Grenzen
 
-- Keine ActionScript-Konstruktoren oder Frame Scripts.
-- Keine dynamisch erzeugten DisplayObjects.
-- Keine automatische MSBT-Sprachauswahl oder native Callback-Ausführung.
+- Transiente AVM2-, Event-, Timer-, Callback-, Audio- und Telemetrie-Logs werden nicht im Preset gespeichert.
+- Dynamisch erzeugte DisplayObjects werden nach einem Runtime-Reset neu konstruiert und nicht als Objektgraph serialisiert.
+- Keine automatische MSBT-Sprachauswahl.
+- Asynchrone native Completion-Events sind noch nicht vollständig modelliert.
 - Ein manuell rekonstruierter Zustand muss nicht zwingend über den normalen Ingame-Code erreichbar sein.
 
-Details: `UI_VIEWER_TIMELINE_PLAYBACK.md` und `UI_VIEWER_GAME_STATE_MOCKS.md`.
+Details: `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_GAME_STATE_MOCKS.md` und `UI_VIEWER_NATIVE_CALLBACKS.md`.
