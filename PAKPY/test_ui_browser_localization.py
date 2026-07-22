@@ -83,6 +83,24 @@ class MsbtCodecTests(unittest.TestCase):
         self.assertEqual(doc.byte_order, 'big')
         self.assertEqual(doc.messages[0].text, 'Grüße')
 
+    def test_preserves_open_and_close_control_tags(self):
+        raw = (
+            "A".encode("utf-16-le")
+            + (0x000E).to_bytes(2, "little")
+            + (1).to_bytes(2, "little")
+            + (2).to_bytes(2, "little")
+            + (2).to_bytes(2, "little")
+            + b"\x34\x12"
+            + "B".encode("utf-16-le")
+            + (0x000F).to_bytes(2, "little")
+            + (1).to_bytes(2, "little")
+            + (2).to_bytes(2, "little")
+        )
+        self.assertEqual(
+            msbt_codec._decode_utf16_message(raw, "little", "utf-16-le"),
+            "A<tag:1:2:3412>B</tag:1:2>",
+        )
+
     def test_rejects_truncated_section(self):
         with self.assertRaises(msbt_codec.MsbtError):
             msbt_codec.parse_msbt(make_msbt([('A', 'B')])[:-5])
