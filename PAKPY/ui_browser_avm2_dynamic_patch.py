@@ -118,16 +118,19 @@ def _segment(obj):
 
 
 def _definition_for_class(movie, class_name):
+    cache = getattr(movie, "_ui_dynamic_symbol_cache", None)
+    token = (id(getattr(movie, "symbol_classes", None)), id(getattr(movie, "definitions", None)))
+    if not isinstance(cache, dict) or cache.get("token") != token:
+        exact, short_names = {}, {}
+        for character_id, name in (getattr(movie, "symbol_classes", {}) or {}).items():
+            canonical = avm2._canonical_name(name)
+            value = (movie.definitions.get(character_id), int(character_id), str(name))
+            exact[canonical] = value
+            short_names.setdefault(_short(canonical), value)
+        cache = {"token": token, "exact": exact, "short": short_names}
+        movie._ui_dynamic_symbol_cache = cache
     wanted = avm2._canonical_name(class_name)
-    short = _short(class_name)
-    fallback = None
-    for character_id, name in (getattr(movie, "symbol_classes", {}) or {}).items():
-        canonical = avm2._canonical_name(name)
-        if canonical == wanted:
-            return movie.definitions.get(character_id), int(character_id), str(name)
-        if fallback is None and _short(canonical) == short:
-            fallback = (movie.definitions.get(character_id), int(character_id), str(name))
-    return fallback
+    return cache["exact"].get(wanted) or cache["short"].get(_short(wanted))
 
 
 def _kind_for(class_name, definition):
@@ -142,8 +145,19 @@ def _kind_for(class_name, definition):
 
 
 def _avm2_class_kind(movie, class_name):
+    generation = int(getattr(movie, "ui_avm2_runtime_generation", 0))
+    cache = getattr(movie, "_ui_dynamic_class_kind_cache", None)
+    if not isinstance(cache, dict) or cache.get("generation") != generation:
+        cache = {"generation": generation, "values": {}}
+        movie._ui_dynamic_class_kind_cache = cache
+    wanted = avm2._canonical_name(class_name)
+    short_wanted = _short(wanted)
+    key = (wanted, short_wanted)
+    if key in cache["values"]:
+        return cache["values"][key]
     found = lifecycle._find_class(movie, class_name)
     if found is None:
+        cache["values"][key] = None
         return None
     module, index = found
     seen = set()
@@ -152,6 +166,7 @@ def _avm2_class_kind(movie, class_name):
         avm2._canonical_name(module.abc.class_name(i)): i
         for i in range(len(module.abc.instances))
     }
+    result = None
     while current not in seen and 0 <= current < len(module.abc.instances):
         seen.add(current)
         instance = module.abc.instances[current]
@@ -160,15 +175,22 @@ def _avm2_class_kind(movie, class_name):
         parent = _short(parent_name).lower()
         for value in (own, parent):
             if value in ("textfield", "edittext"):
-                return "TextField"
+                result = "TextField"
+                break
             if value in ("movieclip", "sprite", "simplebutton", "displayobjectcontainer"):
-                return "MovieClip"
+                result = "MovieClip"
+                break
             if value == "shape":
-                return "Shape"
+                result = "Shape"
+                break
             if value == "displayobject":
-                return "DisplayObject"
+                result = "DisplayObject"
+                break
+        if result is not None:
+            break
         current = by_name.get(parent_name, -1)
-    return "MovieClip"
+    cache["values"][key] = result
+    return result
 
 
 def _register_object(movie, obj, parent_path):
@@ -613,6 +635,9 @@ def _draw_dynamic(renderer, canvas, obj, parent_matrix, parent_color, stack, lev
     matrix = parent_matrix.then(local)
     color = parent_color.combine(ui_browser.ColorTransform(a_mult=max(0.0, min(1.0, obj.alpha))))
     definition = _dynamic_definition(obj)
+    bounds = _definition_bounds(definition) or (0.0, 0.0, max(1.0, obj.width), max(1.0, obj.height))
+    _record_hit(renderer, obj.path, matrix, bounds, obj.name, obj.enabled and obj.mouse_enabled,
+                obj.tab_enabled, True)
     old_current = getattr(renderer, "_ui_current_path", "")
     old_parent = getattr(renderer, "_ui_state_parent_path", "root")
     renderer._ui_current_path = obj.path
@@ -632,9 +657,8 @@ def _draw_dynamic(renderer, canvas, obj, parent_matrix, parent_color, stack, lev
             renderer._draw_shape(canvas, definition, matrix)
         elif renderer.show_placeholders:
             renderer._draw_placeholder(canvas, matrix, obj.name or obj.kind, (70, 120, 165, 150))
-        bounds = _definition_bounds(definition) or (0.0, 0.0, max(1.0, obj.width), max(1.0, obj.height))
-        _record_hit(renderer, obj.path, matrix, bounds, obj.name, obj.enabled and obj.mouse_enabled,
-                    obj.tab_enabled, True)
+        if _state(renderer.movie).get("focus_path") == obj.path and ImageDraw is not None:
+            renderer._draw_transformed_box(canvas, bounds, matrix, "Fokus")
         if not isinstance(definition, ui_browser.SpriteDef):
             for child_obj in _children(renderer.movie, obj.path):
                 _draw_dynamic(renderer, canvas, child_obj, matrix, color, stack | {id(obj)}, level + 1)
