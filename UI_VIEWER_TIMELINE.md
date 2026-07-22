@@ -97,7 +97,7 @@ Siehe `UI_VIEWER_STATE_INSPECTOR.md`.
 
 ### Phase 7 – Verschachtelte Timelines
 
-Status: laufende strukturelle Vorschau umgesetzt; direkte AVM2-Timeline-Befehle werden inzwischen berücksichtigt
+Status: laufende strukturelle Vorschau umgesetzt; AVM2-Frame-Scripts steuern inzwischen einen sicheren Teilumfang
 
 - eigener Framezustand pro stabilem MovieClip-Instanzpfad;
 - globale Play-/Pause-Steuerung und `F7`;
@@ -107,11 +107,11 @@ Status: laufende strukturelle Vorschau umgesetzt; direkte AVM2-Timeline-Befehle 
 - Root- und Sprite-Label-Sprünge;
 - manueller `sprite_frame`-Override besitzt Vorrang;
 - Wiedergabestatus, Geschwindigkeit und Instanzframes werden in JSON-Presets gespeichert;
-- direkt erkannte `stop`, `play`, `gotoAndStop` und `gotoAndPlay`-Frame-Scripts steuern Root- und Untertimelines.
+- `stop`, `play`, `gotoAndStop` und `gotoAndPlay` werden aus kontrolliert interpretierten Frame Scripts angewendet.
 
-Wichtige Grenze: Allgemeine ActionScript-Bedingungen, Property-Zuweisungen, Events, Timer und native Spielcallbacks werden noch nicht ausgeführt.
+Wichtige Grenze: Events, Timer, dynamisch erzeugte DisplayObjects und allgemeine Konstruktorlogik fehlen weiterhin.
 
-Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md` und `UI_VIEWER_AVM2.md`.
+Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_AVM2.md` und `UI_VIEWER_AVM2_RUNTIME.md`.
 
 ### Phase 7.5 – Interaktive Performance
 
@@ -121,7 +121,8 @@ Status: umgesetzt
 - leichter MovieClip-Pfad-Scan statt vollständigem Inspector-Aufbau pro Tick;
 - gedrosselte Inspector-Aktualisierung;
 - adaptive Vorschauauflösung von 35 bis 75 Prozent während Play/Scrubbing;
-- volle native Auflösung nach Pause und beim PNG-Export.
+- volle native Auflösung nach Pause und beim PNG-Export;
+- AVM2-Runtime-Revisionsnummer im Frame-Cache-Schlüssel.
 
 Siehe `UI_VIEWER_PERFORMANCE.md`.
 
@@ -137,21 +138,22 @@ Implementiert:
 - Mock-Werte für Spielerzahl, Leben, Banana Coins, Puzzle Pieces, Timer, Punkte, Levelname, Bananen, KONG-Buchstaben und Fortschritt;
 - automatische EditText-Zuordnung anhand `variable_name`, Instanzname und stabilen Elternpfaden;
 - Mock-Editor mit Zuordnungsübersicht und `F8`;
-- manuelle Text-Overrides besitzen Vorrang vor Mocks;
+- manuelle Text-Overrides besitzen Vorrang vor AVM2-Runtime und Mocks;
 - Profile und Mock-Werte werden im JSON-Preset gespeichert;
+- aktive Game-Mocks können über sichere `ExternalInterface.call`-Stubs gelesen werden;
 - Zustände bleiben während der Sitzung pro Film getrennt.
 
 Siehe `UI_VIEWER_STATE_PRESETS.md` und `UI_VIEWER_GAME_STATE_MOCKS.md`.
 
 Noch offen:
 
-- Zuordnung der semantischen Mock-Rollen zu nativen Callback- und ActionScript-Namen;
+- vollständige Zuordnung realer nativer Callback-Namen des Spiels;
 - MSBT-Text-IDs und Sprachauswahl;
 - dynamisch erst durch AVM2 erzeugte Textfelder und DisplayObjects.
 
 ### Phase 9 – ActionScript 3
 
-Status: ABC-Strukturparser, Inventar und sicherer Timeline-Teilumfang umgesetzt; allgemeine AVM2-Laufzeit offen
+Status: Strukturparser, Frame-Script-Inventar und kontrollierte Interpreter-Runtime umgesetzt; vollständige AVM2-Semantik offen
 
 Implementiert:
 
@@ -161,25 +163,42 @@ Implementiert:
 - AVM2-Disassembly mit aufgelösten Constant-Pool-Referenzen;
 - `addFrameScript`-Erkennung in Instance-Initializern;
 - Zuordnung zu Dokumentklasse und exportierten MovieClip-Klassen;
-- sichere direkte Ausführung von `stop`, `play`, `gotoAndStop` und `gotoAndPlay` mit numerischen Frames oder Labels;
-- AVM2-Inspector und JSON-Inventar über `F9`;
-- Frame-Script-Metadaten im State Inspector.
+- Operand-Stack und lokale Variablen;
+- direkte Konstanten, einfache Konvertierungen, Arithmetik und Vergleiche;
+- `jump`, bedingte Sprünge und `lookupswitch`;
+- direkte Hilfsmethoden-Aufrufe derselben Klasse;
+- `stop`, `play`, `gotoAndStop` und `gotoAndPlay` für Root- und Untertimelines;
+- Property-Lesen und -Schreiben auf vorhandenen Instanzen;
+- `visible`, `alpha`, `text` und `htmlText`;
+- Whitelist-Registry für sichere native Callback-Stubs;
+- lesende Anbindung vorhandener Game-State-Mocks an `ExternalInterface.call`;
+- AVM2-Inspector über `F9` und Runtime-Neuausführung über `F10`;
+- Frame-Script- und Runtime-Metadaten im State Inspector.
+
+Sicherheitsgrenzen:
+
+- höchstens 8192 Instruktionen pro Ausführung;
+- maximale Aufruftiefe 16;
+- höchstens acht direkt verkettete Frame-Sprünge;
+- nicht unterstützte Opcodes brechen nur die betroffene Methode ab;
+- keine beliebigen Host-, Datei-, Prozess- oder Netzwerkaufrufe.
 
 Validierung:
 
-- fünf synthetische ABC-/Frame-Script-Tests prüfen Strukturparser, DoABC, Disassembly, `addFrameScript`, Timeline-Aktionen und JSON-Inventar.
+- fünf synthetische ABC-/Frame-Script-Tests für Strukturparser, DoABC, Disassembly, `addFrameScript`, Timeline-Aktionen und JSON-Inventar;
+- fünf Runtime-Tests für Property-Zuweisungen, Branches, Callback-Mocks, Timeline-Sprünge und manuellen Override-Vorrang.
 
 Noch offen:
 
-- allgemeiner Operand-Stack und lokale Variablen;
-- Verzweigungen, Bedingungen, Schleifen und Exceptions;
-- Property-Lesen und -Schreiben auf DisplayObjects;
-- Konstruktor- und Script-Ausführung außerhalb der statischen Frame-Script-Erkennung;
+- vollständige AVM2-Objekt-, Prototyp- und Klassen-Semantik;
+- Konstruktor- und Script-Initializer-Ausführung außerhalb der Frame-Script-Zuordnung;
+- Exception-Handling und komplexe Iteration;
 - Events und Timer;
-- dynamische DisplayObjects und Laufzeittextupdates;
-- sichere Stubs für native Scaleform- und Spielcallbacks.
+- dynamische DisplayObjects;
+- corpus-spezifische native Callback-Implementierungen;
+- MSBT- und Sprachlogik.
 
-Siehe `UI_VIEWER_AVM2.md`.
+Siehe `UI_VIEWER_AVM2.md` und `UI_VIEWER_AVM2_RUNTIME.md`.
 
 ### Phase 10 – Eingabe und Audio
 
@@ -215,10 +234,10 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-Kontrollierte AVM2-Interpreter-Laufzeit:
+AVM2-Objekt- und Event-Grundlagen:
 
-1. Operand-Stack, lokale Variablen, Scope und einfache Verzweigungen;
-2. vorhandene DisplayObjects als sichere Script-Objekte abbilden;
-3. `visible`, `alpha`, `text`, `htmlText` und einfache Property-Zuweisungen ausführen;
-4. native Callback-Registry mit Whitelist und Diagnoseprotokoll;
-5. vorhandene Game-State-Mocks an erkannte Callback-Namen anbinden.
+1. kontrollierte Ausführung ausgewählter Konstruktor- und Script-Initializer;
+2. zusätzliche DisplayObject-Properties und einfache Objekt-/Array-Semantik;
+3. EventDispatcher-Grundfunktionen für Frame-, Button- und Fokusereignisse;
+4. corpus-spezifische Inventarisierung realer `ExternalInterface`- und nativer Callback-Namen;
+5. sichere Callback-Implementierungen für die vorhandenen Game-State-Rollen.
