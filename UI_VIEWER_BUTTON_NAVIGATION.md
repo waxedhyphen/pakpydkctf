@@ -4,9 +4,11 @@ Stand: 2026-07-22
 
 ## Zweck
 
-Diese Stufe erweitert die Eingabegrundlage um automatisch verwaltete Button-Zustände und eine controllerartige Richtungsnavigation. Alle Änderungen bleiben im isolierten Vorschauzustand des aktuell geöffneten Films. SWF/GFX-, GFXL-, TXTR-, MSBT-, PAK- und Repacking-Daten werden nicht verändert.
+Diese Stufe verwaltet MovieClip- und klassische SWF-Buttonzustände, verbindet Maus und Tastatur mit dem isolierten AVM2-/AVM1-Ereignispfad und bietet controllerartige Richtungsnavigation. Alle Änderungen bleiben im Vorschauzustand; SWF/GFX-, GFXL-, TXTR-, MSBT- und PAK-Daten werden nicht verändert.
 
-## Erkennung von Button-Zielen
+## Unterstützte Buttonarten
+
+### MovieClip-/AVM2-Buttons
 
 Ein vorhandener oder dynamisch erzeugter MovieClip wird als Button behandelt, wenn mindestens eines der folgenden Merkmale vorliegt:
 
@@ -15,9 +17,33 @@ Ein vorhandener oder dynamisch erzeugter MovieClip wird als Button behandelt, we
 - Klasse, Instanzname oder stabiler Pfad enthält ein eindeutiges Button-Merkmal wie `btn`, `button`, `toggle`, `checkbox`, `radio`, `arrow`, `confirm` oder `cancel`;
 - eine dynamische Instanz basiert auf einer SimpleButton-artigen DisplayObject-Klasse.
 
-Die Namenserkennung zerlegt CamelCase, Unterstriche und Pfadsegmente. Dadurch wird beispielsweise `btnBack` erkannt, während `background` nicht wegen des Teilstrings `back` fälschlich als Button gilt.
+Die Namenserkennung zerlegt CamelCase, Unterstriche und Pfadsegmente. `btnBack` wird erkannt; `background` wird nicht wegen des enthaltenen Wortteils `back` als Button klassifiziert.
 
-Hit-Regionen von Texten oder Shapes innerhalb eines Buttons werden dem nächsten passenden Eltern-MovieClip zugeordnet. Mehrere sichtbare Kinder desselben Buttons ergeben dadurch nur ein Navigationsziel und einen gemeinsamen Zustandsautomaten.
+### Klassische SWF-Buttons
+
+`DefineButton` und `DefineButton2` werden als Sprite-kompatible Definitionen mit vier Zuständen eingebunden:
+
+```text
+up = Frame 1
+over = Frame 2
+down = Frame 3
+hit = Frame 4
+```
+
+ButtonRecords, HitTest-Records, TrackAsMenu, Tastencodes und AVM1-ActionRecords werden inventarisiert. Automatisch ausgeführt werden ausschließlich `NextFrame`, `PreviousFrame`, `Play`, `Stop`, `GotoFrame` und `GotoLabel`. Alle anderen AVM1-Aktionen bleiben Diagnoseeinträge.
+
+Details: `UI_VIEWER_CLASSIC_BUTTON_HITTEST.md`.
+
+## Button-Owner-Routing
+
+Hit-Geometrien von Texten, Shapes und Bildern innerhalb eines Buttons werden dem nächsten passenden Eltern-Button zugeordnet. Mehrere sichtbare Kinder desselben Buttons ergeben dadurch:
+
+- ein Eventziel;
+- einen Fokuspunkt;
+- einen gemeinsamen Zustandsautomaten;
+- eine gemeinsame Button-Timeline.
+
+`mouseChildren = false` leitet Treffer ebenfalls an den entsprechenden Elterncontainer weiter.
 
 ## Automatische Zustände
 
@@ -25,47 +51,53 @@ Die Vorschau verwaltet pro stabilem Button-Pfad:
 
 - `up` – normaler Ruhezustand;
 - `over` – Maus darüber oder Fokus aktiv;
-- `down` – gedrückt beziehungsweise per Tastatur aktiviert;
+- `down` – gedrückt oder per Tastatur aktiviert;
 - `disabled` – nicht aktivierbar;
-- `hit` – semantisches Hit-Area-Label, sofern vorhanden.
+- `hit` – HitTest-Zustand klassischer Buttons beziehungsweise semantisches Hit-Area-Label.
 
-Die Zuordnung zu Timeline-Frames erfolgt zuerst über Frame-Labels. Unterstützte Bezeichnungen umfassen unter anderem:
+Bei MovieClip-Buttons erfolgt die Framezuordnung zuerst über Labels:
 
 ```text
 up / default / normal / unpressed
-hover / over / highlighted / selected / focused
+over / hover / highlighted / selected / focused
 down / pressed / startPressed
 disabled / inactive / locked
 hit / hitTest / hitArea
 ```
 
-Fehlen Labels, verwendet ein als Button erkanntes MovieClip mit mehreren Frames den sicheren Fallback:
-
-```text
-Frame 1 = up
-Frame 2 = over
-Frame 3 = down
-Frame 4 = disabled
-```
-
-Nicht vorhandene Fallback-Frames werden nicht erzwungen. Ein manueller `sprite_frame`-Override im State Inspector besitzt weiterhin den höchsten visuellen Vorrang. Der semantische `buttonState` bleibt trotzdem für AVM2 lesbar.
+Fehlen Labels, gilt für erkannte mehrteilige MovieClips der Fallback Frame 1 bis 4. Nicht vorhandene Frames werden nicht erzwungen. Ein manueller `sprite_frame`-Override besitzt den höchsten visuellen Vorrang.
 
 ## Maus und Fokus
 
-Die vorhandenen Mausereignisse steuern nun zusätzlich die Button-Timeline:
+Die Eingabe steuert Timeline und Ereignisse gemeinsam:
 
 - `mouseOver` setzt `over`;
-- `mouseOut` setzt `up`, sofern der Button nicht fokussiert oder gedrückt ist;
+- `mouseOut` setzt den passenden Ruhe- oder OutDown-Zustand;
 - `mouseDown` setzt `down`;
-- `mouseUp` setzt `over` oder `up`;
+- `mouseUp` setzt `over` oder `up` und kann `click` auslösen;
 - Fokus setzt `over`;
-- Enter oder Leertaste erzeugen kurz `down` und danach wieder den passenden Ruhezustand.
+- Enter oder Leertaste zeigen kurz `down` und aktivieren das Ziel.
 
-`mouseChildren = false` wird für vorhandene und dynamische Container berücksichtigt. Ein Treffer auf einem Unterobjekt wird dann an den entsprechenden Elternpfad weitergeleitet, auch wenn der Container keine eigene rechteckige Hit-Region besitzt.
+Klassische ButtonCondActions erhalten daraus die entsprechenden Flash-Zustandsübergänge. Die Events laufen weiterhin durch die isolierte EventDispatcher-Schicht.
+
+## Präzise HitTests
+
+Die Navigation verwendet nicht mehr ausschließlich transformierte Rechtecke. Der präzise Pfad unterstützt:
+
+- Alpha-Test der gerasterten Vektor-Shapes;
+- Alpha-Test externer TXTR-Symbole;
+- verschachtelte Transformationen;
+- ClipDepth-Masken;
+- AVM2-`scrollRect`;
+- Runtime-`mask`;
+- Runtime-`hitArea`;
+- volle Stage-Koordinaten auch bei reduzierter Vorschauauflösung.
+
+TextFields und Definitionen ohne genauere Alpha-Geometrie bleiben auf transformierte lokale Bounds begrenzt. Der Aufbau wird pro sichtbarem Filmzustand gecacht.
 
 ## Richtungsnavigation
 
-Bei fokussierter Stage stehen folgende Eingaben zur Verfügung:
+Bei fokussierter Stage gelten:
 
 | Eingabe | Aktion |
 |---|---|
@@ -74,13 +106,11 @@ Bei fokussierter Stage stehen folgende Eingaben zur Verfügung:
 | Enter oder Leertaste | akzeptieren / klicken |
 | Escape oder Backspace | abbrechen / zurück |
 
-Das nächste Ziel wird anhand der Mittelpunkte der aktuellen Hit-Regionen gewählt. Kandidaten außerhalb eines Richtungssektors werden verworfen; danach werden Hauptdistanz, seitliche Abweichung und Gesamtdistanz gewichtet. Dadurch wird ein nur minimal tiefer liegendes Element rechts vom Fokus nicht fälschlich als `down`-Ziel gewählt.
-
-Button-Ziele werden gegenüber allgemeinen Hit-Regionen bevorzugt. Existieren keine erkannten Buttons, bleibt die allgemeine Fokusnavigation als Fallback verfügbar.
+Das nächste Ziel wird anhand der Mittelpunkte der resultierenden, bereits geclippten Hit-Regionen gewählt. Kandidaten außerhalb des Richtungssektors werden verworfen; anschließend werden Hauptdistanz, seitliche Abweichung und Gesamtdistanz gewichtet. Erkannte Buttons werden allgemeinen Hit-Regionen vorgezogen.
 
 ## Controllerartige Events
 
-Zusätzlich zu den vorhandenen Mouse-, Key- und Focus-Events werden sichere Vorschauereignisse erzeugt:
+Die sichere Vorschau erzeugt zusätzlich:
 
 ```text
 controllerNavigate
@@ -90,69 +120,33 @@ controllerAccept
 controllerCancel
 ```
 
-Die Eventdaten enthalten:
-
-- `action`, beispielsweise `left`, `right`, `accept` oder `cancel`;
-- den auslösenden Tastennamen;
-- `controller = "keyboard"` als Herkunft.
-
-Diese Ereignisse laufen ausschließlich durch den vorhandenen isolierten EventDispatcher. Es erfolgt kein Zugriff auf ein Gamepad-Gerät, Betriebssystem-APIs oder native Spielprozesse.
+Eventdaten enthalten Aktion, auslösende Taste und `controller = "keyboard"`. Es erfolgt noch kein Zugriff auf physische Gamepads oder Plattform-Controller-APIs.
 
 ## Bedienung
 
-Im UI Browser gibt es die Option `Button States + Navigation`. Ist sie aktiv, werden automatische Zustände und Richtungsnavigation angewendet. Die ältere Option `Input Events` steuert weiterhin, ob Browser-Eingaben grundsätzlich an die AVM2-Eventebene weitergegeben werden.
+Im UI Browser stehen zur Verfügung:
 
-Im Analysefeld erscheinen zusätzlich:
+- `Input Events` – Browser-Eingaben an die Runtime weitergeben;
+- `Button States + Navigation` – Zustände und Richtungsfokus aktivieren;
+- `Buttons / HitTests` – klassische Definitionen und Geometrien untersuchen;
+- `Präzise HitTests` – Shape-/Alpha-/Clip-Prüfung aktivieren;
+- `Ctrl+B` – Button-/HitTest-Inspector öffnen.
 
-```text
-Button / Navigation:
-- Erkannte Button-Ziele
-- Aktive Zustände
-- Zustandswechsel
-- Richtungs-Fokuswechsel
-- Controller-Listener
-- Letzte Richtung
-```
-
-Der State Inspector zeigt bei bereits aktivierten Button-Pfaden den semantischen Zustand und den zugeordneten Ziel-Frame.
+Analysefeld und State Inspector zeigen Buttonzustand, Ziel-Frame, klassische Definition, Actioninventar, Hit-Geometrien, Masken und Trefferdiagnosen.
 
 ## Tests
 
-Zwölf fokussierte Modelltests prüfen:
+Die ursprünglichen zwölf Modelltests prüfen Labelzuordnung, Frame-Fallback, tokenisierte Namenserkennung, Richtungsgeometrie, `mouseChildren`, statische und dynamische Zustände, manuellen Override-Vorrang und Button-Owner-Deduplizierung.
 
-- Label-Zuordnung für `up`, `over`, `down` und `disabled`;
-- sicheren Frame-Fallback ohne Labels;
-- Button-Erkennung über Labels, Flags und tokenisierte Namen;
-- Ausschluss des Fehlers `background` → `back`;
-- Richtungswahl mit geometrischem Sektor;
-- `mouseChildren = false`;
-- statische und dynamische MovieClip-Zustände;
-- Vorrang manueller Frame-Overrides;
-- Inspector-Metadaten;
-- Zuordnung von Child-Hit-Regionen zum Button-Owner;
-- schwache Container-Fallbacks;
-- Deduplizierung mehrerer Kinder desselben Buttons.
+Acht weitere Repository-Tests prüfen klassische Buttonformate, AVM1-Sicherheitsgrenzen, Alpha-/Clip-Treffer, Rectangle-Normalisierung und ClipDepth-Erkennung. Sechs isolierte Parser-/Geometriemodelltests liefen lokal erfolgreich; das vollständige Tk-Fenster konnte in der Headless-Umgebung nicht visuell end-to-end geprüft werden.
 
-Die zwölf Tests liefen gegen ein minimales lokales Runtime-Modell erfolgreich. Die neuen Dateien wurden außerdem syntaktisch kompiliert. Eine vollständige visuelle Tk-End-to-End-Prüfung aller Filme ist in der headless Entwicklungsumgebung nicht möglich.
+## Verbleibende Grenzen
 
-## Grenzen
+- vollständiges Flash-Capture/Bubbling und Weak-Listener-Semantik;
+- manuell rekonstruierte Nachbarschaftsgraphen aus beliebigem ActionScript;
+- vollständige AVM1-Ausführung;
+- editierbare TextFields und IME;
+- echte Gamepad-Hardware;
+- Scale9-spezifische Hit-Flächen und dynamische Graphics-Zeichenbefehle.
 
-Noch nicht enthalten sind:
-
-- separates Parsen und Rendern klassischer SWF-Tags `DefineButton` und `DefineButton2`;
-- die vollständige Flash-SimpleButton-Zustandsmaschine mit eigener HitTest-Display-List;
-- pixelgenaue Shape-, Masken- und ScrollRect-HitTests;
-- `mouseChildren` zusammen mit allen Flash-Capture- und Bubbling-Sonderfällen;
-- manuell definierte Nachbarschaftsgraphen aus ActionScript;
-- echte Gamepad-Hardware und Plattform-Controller-APIs;
-- native DKCTF-Callback-Implementierungen;
-- UI-Audio sowie MSBT- und Sprachlogik.
-
-## Nächster Schritt
-
-Als nächster Arbeitsblock folgt das native Callback-Inventar:
-
-1. alle über `ExternalInterface`, `Controller` und ähnliche Brücken verwendeten Callback-Namen erfassen;
-2. Aufrufe nach Lesen, Schreiben, Navigation, Audio und Telemetrie klassifizieren;
-3. sichere DKCTF-spezifische Implementierungen mit Game-State-Mocks verbinden;
-4. anschließend CAUD/CSMP-UI-Audio und MSBT-Sprachtexte anbinden.
+Nächster Arbeitsblock: editierbare TextFields, Cursor/Selektion und optionales Plattform-Gamepad-Mapping.
