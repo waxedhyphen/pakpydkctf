@@ -29,6 +29,7 @@ from ui_browser_performance_followup_patch import install as install_ui_browser_
 from ui_browser_game_state_patch import install as install_ui_browser_game_state_patch
 from ui_browser_game_state_corpus_patch import install as install_ui_browser_game_state_corpus_patch
 from ui_browser_avm2_patch import install as install_ui_browser_avm2_patch
+from ui_browser_avm2_runtime_patch import install as install_ui_browser_avm2_runtime_patch
 from mesh_viewer_uv_diagnostics_patch import install as install_mesh_viewer_uv_diagnostics_patch
 from mesh_viewer_selection_patch import install as install_mesh_viewer_selection_patch
 from mesh_viewer_visibility_patch import install as install_mesh_viewer_visibility_patch
@@ -87,6 +88,7 @@ install_ui_browser_performance_followup_patch()
 install_ui_browser_game_state_patch()
 install_ui_browser_game_state_corpus_patch()
 install_ui_browser_avm2_patch()
+install_ui_browser_avm2_runtime_patch()
 install_mesh_viewer_uv_diagnostics_patch()
 install_mesh_viewer_selection_patch()
 install_mesh_viewer_visibility_patch()
