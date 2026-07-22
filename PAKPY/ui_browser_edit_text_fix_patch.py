@@ -9,7 +9,6 @@ import ui_browser_avm2_runtime_patch as runtime
 import ui_browser_edit_text_model as model
 import ui_browser_edit_text_patch as edit
 import ui_browser_state_inspector_patch as inspector
-import ui_browser_state_override_patch as overrides_patch
 
 
 _INSTALLED = False
@@ -133,6 +132,26 @@ def draw_edit_text(renderer, canvas, definition, matrix, color):
     return result
 
 
+def _text_receiver(context, receiver):
+    owner = getattr(context.movie, "_ui_avm2_runtime_owner", None)
+    path = edit._receiver_path(receiver)
+    return target(owner, path, False) if owner is not None and path else None
+
+
+def set_property(context, reference, name, value):
+    short = edit._short(name)
+    if short in edit._TEXT_PROPERTIES and _text_receiver(context, reference) is None:
+        return edit._BASE["set"](context, reference, name, value)
+    return edit.set_property(context, reference, name, value)
+
+
+def get_property(context, receiver, name):
+    short = edit._short(name)
+    if short in edit._TEXT_PROPERTIES | {"selectedText"} and _text_receiver(context, receiver) is None:
+        return edit._BASE["get"](context, receiver, name)
+    return edit.get_property(context, receiver, name)
+
+
 def install():
     global _INSTALLED
     if _INSTALLED:
@@ -142,3 +161,5 @@ def install():
     edit._decorate_nodes = decorate_nodes
     edit.draw_edit_text = draw_edit_text
     ui_browser.UIRenderer._draw_edit_text = draw_edit_text
+    runtime._set_property = set_property
+    runtime._get_property = get_property
