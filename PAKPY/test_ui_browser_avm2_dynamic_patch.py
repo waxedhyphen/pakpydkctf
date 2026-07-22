@@ -98,6 +98,17 @@ class DynamicDisplayPatchTests(unittest.TestCase):
         self.assertIs(patch.call_value(self.context, root, "getChildAt", (0,)), left)
         self.assertEqual(self.movie.root_tags, [])
 
+    def test_linked_symbol_class_constructs_with_definition(self):
+        definition = ui_browser.SpriteDef(9, 4, [])
+        self.movie.definitions[9] = definition
+        self.movie.symbol_classes[9] = "pkg.LinkedButton"
+        child = patch.construct_dynamic(self.context, "pkg.LinkedButton")
+        self.assertIs(child.definition, definition)
+        self.assertEqual(child.kind, "MovieClip")
+
+    def test_unknown_non_display_class_is_not_constructed(self):
+        self.assertIs(patch.construct_dynamic(self.context, "Event"), runtime._UNDEFINED)
+
     def test_dynamic_objects_use_path_event_dispatcher_keys(self):
         child = patch.construct_dynamic(self.context, "MovieClip")
         self.assertEqual(patch._key(child), ("path", child.path))
