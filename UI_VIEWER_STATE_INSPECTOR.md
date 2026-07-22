@@ -4,78 +4,91 @@ Stand: 2026-07-22
 
 ## Status
 
-Der Display-List-/State-Inspector zeigt den vom Viewer verwendeten Root-Frame und rekonstruiert alle verschachtelten MovieClip-Display-Lists rekursiv. Zusätzlich können ausgewählte Instanzen jetzt direkt für die Vorschau überschrieben und als Preset gespeichert werden.
+Der State Inspector zeigt den tatsächlich resultierenden Vorschauzustand: Root- und Untertimelines, manuelle Overrides, AVM2-Runtimewerte, dynamische DisplayObjects, Buttonzustände, Game-Mocks, MSBT-Lokalisierung sowie klassische SWF-Button- und HitTest-Metadaten.
+
+Alle Änderungen bleiben Preview-Zustand. Quelldaten und Repacking werden nicht verändert.
 
 ## Öffnen
 
-1. `UIPak.pak` laden.
-2. Einen GFX-Film im UI Browser auswählen.
-3. `State Inspector` anklicken oder `F6` drücken.
-4. Mit dem normalen Frame-Regler durch Root-Frames wechseln. Der Inspector aktualisiert sich automatisch.
+1. Einen GFX-Film im UI Browser auswählen.
+2. `State Inspector` anklicken oder `F6` drücken.
+3. Root-Frame, Wiedergabe, Profile, Sprache oder Runtimezustand ändern.
+4. Der Inspector aktualisiert sich automatisch; während Play wird die Aktualisierung zur Performance gedrosselt.
 
 ## Angezeigte Daten
 
-Für jedes Placement werden angezeigt:
+Für jedes Placement beziehungsweise dynamische Objekt werden je nach Typ angezeigt:
 
 - stabiler Instanzpfad aus Tiefe und Instanzname;
-- Tiefe, Character-ID, SymbolClass und externe Klasse;
-- aktuelle Sichtbarkeit;
-- Matrix mit Skalierung, Rotation/Schrägung und Translation;
-- vollständiger ColorTransform;
-- ClipDepth und Scale9-Grid;
-- Filterliste und Blend Mode;
-- Sprite-Frameanzahl, aktuell gewählter Unterframe und Frame-Labels;
-- Fontklasse, Fontgröße, Textvariable, aktueller Text und HTML-Status;
-- für externe Bilder bei Auswahl: TXTR-UUID, Quell-PAK und Bildgröße;
-- vorhandene manuelle Overrides und deren Abweichung vom Originalzustand.
+- Character-ID, SymbolClass, externe Klasse und Definitionstyp;
+- Sichtbarkeit, Parent und Kindanzahl;
+- Matrix, ColorTransform, Alpha und Laufzeit-Properties;
+- ClipDepth, Scale9, Filter, Blend Mode und Maskendiagnosen;
+- Root-/MovieClip-Frame, Labels, Play/Pause und manueller Framevorrang;
+- Font, Textvariable, Text/HTML und MSBT-Quelle;
+- Game-State-Mock-Rolle und resultierender Wert;
+- AVM2-Frame-Scripts, Runtimewrites, Events, Timer und native Callbackdaten;
+- dynamische Fokus-, Maus-, Tab- und Buttoninformationen;
+- klassische `DefineButton`-/`DefineButton2`-Version, Records, HitRecords, Actionblöcke und TrackAsMenu;
+- präzise HitTest-Geometrie, soweit für den Pfad vorhanden.
 
 ## Suche und Navigation
 
-- Die Freitextsuche durchsucht Pfad, Name, Typ, Klasse, IDs, Text und Metadaten.
-- `Nur sichtbare` filtert anhand des aktuell gerenderten Zustands einschließlich Sichtbarkeits-Overrides.
-- `Alles öffnen` und `Alles schließen` steuern den Tiefenbaum.
-- Doppelklick oder `Pfad kopieren` kopiert den stabilen Instanzpfad.
-- `JSON speichern` exportiert einen vollständigen Snapshot des aktuell resultierenden Zustands.
+- Freitextsuche über Pfad, Name, Typ, Klasse, IDs, Texte und Metadaten;
+- `Nur sichtbare` berücksichtigt den resultierenden Zustand;
+- Baum vollständig öffnen oder schließen;
+- stabilen Pfad kopieren;
+- vollständigen JSON-Snapshot speichern.
 
-## Manueller State-Override
+## Manuelle Overrides
 
-Nach Auswahl eines Knotens stehen unten folgende Felder bereit:
+Ausgewählte Knoten unterstützen:
 
-- `Sichtbarkeit`: Original, sichtbar oder versteckt;
-- `MovieClip-Frame`: `0` verwendet den ursprünglichen Frame 1, jeder positive Wert wählt einen konkreten Unterframe;
-- `Text überschreiben`: ersetzt ein `EditText`-Feld als Plaintext oder HTML;
-- `Filter deaktivieren`: entfernt für dieses Placement testweise Glow, DropShadow, Blur oder Bevel;
-- `Blend Mode deaktivieren`: setzt das Placement für die Vorschau auf normalen Source-over-Modus.
+- Sichtbarkeit;
+- festen MovieClip-Unterframe;
+- Plaintext oder HTML für EditText;
+- Filter deaktivieren;
+- Blend Mode deaktivieren.
 
-`Override anwenden` rendert den Zustand neu. `Ausgewählten löschen` entfernt nur den markierten Pfad. `Alle löschen` setzt den aktuellen Film vollständig auf den Originalzustand zurück.
+Priorität bei Texten:
 
-Die Werte werden auf flache Kopien der DisplayObjects und Textdefinitionen angewendet. GFX-, GFXL-, TXTR- und MSBT-Daten bleiben unverändert.
+```text
+manueller Textoverride
+-> direkter AVM2-Text/htmlText
+-> Game-State-Mock
+-> exakte MSBT-Auflösung
+-> ursprünglicher DefineEditText-Inhalt
+```
 
-## MovieClip-Unterframes
+Ein manueller MovieClip-Frame besitzt Vorrang vor Timeline, Buttonzustand und AVM2-Sprüngen dieses Pfads.
 
-Ein Frame-Override rekonstruiert die Display-List des gewählten Unterframes. Dadurch zeigt der Inspector auch dessen tatsächliche Kinder, Texte, Filter und Klassen. Scale9-Sprites werden nach einer Änderung ohne veraltetes Cache-Bild neu aufgebaut.
+## Laufende und dynamische Zustände
 
-Dies ist noch keine automatische Timeline-Laufzeit: Der Unterframe bleibt auf dem manuell gewählten Wert, bis der Override geändert oder gelöscht wird.
+Untertimelines besitzen einen eigenen Frame- und Play/Pause-Zustand. Dynamisch erzeugte MovieClips, Sprites, TextFields, Shapes und Container erscheinen im selben Baum. Konstruktoren, Eventhandler, Timer, Native-Callbacks und Eingaben können den angezeigten Zustand verändern.
+
+Klassische Buttons erscheinen Sprite-kompatibel als MovieClips mit `up`, `over`, `down` und `hit`. Der Inspector weist zusätzlich aus, dass die Definition aus Tag 7 oder 34 stammt.
 
 ## Presets
 
-`Preset speichern` exportiert:
+`Preset speichern` beziehungsweise `Preset laden` umfasst derzeit:
 
-- Quell-PAK und Filmname;
-- aktuellen Root-Frame;
-- alle stabilen Instanzpfade;
-- Sichtbarkeits-, MovieClip-Frame-, Text-, Filter- und Blend-Overrides.
+- Quell-PAK, Film und Root-Frame;
+- manuelle Overrides;
+- globales und pfadspezifisches Playback;
+- Game-State-Profil und Mock-Werte;
+- Native-Callback-Modus und Rückgabe-Overrides;
+- Audio-Vorschauoptionen;
+- MSBT-Aktivierung, Sprache und Fallback.
 
-`Preset laden` ersetzt die Overrides des aktuell geöffneten Films und stellt den gespeicherten Root-Frame wieder her. Bei einem abweichenden Filmnamen wird gewarnt; das Laden ist trotzdem möglich, da passende Pfade weiterhin angewendet werden können.
+Transiente Objektgraphen, Logs, Eventqueues, WAV-Caches und präzise Hit-Geometrien werden nicht serialisiert, sondern aus dem Filmzustand neu aufgebaut.
 
-Das genaue JSON-Schema und Beispiele stehen in `UI_VIEWER_STATE_PRESETS.md`.
+## Verbleibende Grenzen
 
-## Wichtige Grenzen
+- vollständige Flash-Capture-/Bubbling-Semantik;
+- vollständige AVM1- und AVM2-Semantik;
+- editierbare TextFields mit Cursor, Auswahl und IME;
+- pixelgenaue Glyphen-HitTests;
+- echte Gamepad-Hardware;
+- Morph-Shapes und verbleibende seltene Fills.
 
-- Der Root-Frame entspricht weiterhin dem normalen Frame-Regler.
-- MovieClips laufen noch nicht automatisch mit eigener Zeitbasis.
-- ActionScript wird noch nicht ausgeführt.
-- Dynamisch durch ActionScript erzeugte DisplayObjects existieren noch nicht.
-- Initialtexte und manuelle Text-Overrides sind verfügbar; MSBT- und native Laufzeitwerte folgen später.
-
-Der Inspector ist damit für Struktur-, Asset-, Effekt-, Layout- und manuell rekonstruierte Zustandsanalyse geeignet. Automatisch ausgeführte Ingame-Zustände benötigen die nächste Timeline- und spätere AVM2-Phase.
+Weitere Details: `UI_VIEWER_STATE_PRESETS.md`, `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`, `UI_VIEWER_BUTTON_NAVIGATION.md`, `UI_VIEWER_CLASSIC_BUTTON_HITTEST.md`, `UI_VIEWER_NATIVE_CALLBACKS.md`, `UI_VIEWER_ASYNC_AUDIO.md` und `UI_VIEWER_LOCALIZATION.md`.
