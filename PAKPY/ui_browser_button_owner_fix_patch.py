@@ -49,7 +49,10 @@ def _score(movie, node):
         score = max(score, 100)
     if "button" in text or "btn" in text:
         score = max(score, 90)
-    if any(button._compact(word) in text for word in button._BUTTON_WORDS):
+    if button._has_button_word(
+        f"{getattr(node, 'label', '')} {node.path} "
+        f"{getattr(node, 'class_name', '')} {kind}"
+    ):
         score = max(score, 35)
     return score
 
