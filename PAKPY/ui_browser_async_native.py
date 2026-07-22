@@ -20,6 +20,25 @@ _BASE_NATIVE = None
 _BASE_CLOCK = None
 _BASE_RESET = None
 
+_SAVE_COMPLETION_NAMES = {
+    "newsavegame", "selectsavegame", "copysavegame", "deletesavegame",
+    "populatesavedata", "initslotdata",
+}
+_LEADERBOARD_COMPLETION_NAMES = {
+    "startfillingleaderboard", "fillleaderboard", "posttoleaderboard",
+    "internetposttime", "fetchreplay", "inittransitiontoreplay",
+}
+_NAVIGATION_COMPLETION_NAMES = {
+    "preparefortransition", "transitionstate", "activatetransition",
+    "activatelevelload", "initleveltransition", "initgametransition",
+    "initfrontendtransition", "initworldtransition", "initareatransition",
+    "activatehud", "activateshell", "activatemastershell", "activatemap",
+    "activateinventoryselect", "activateextrasviewer", "activatedeathscreen",
+    "enterpause", "exitpause", "quittofrontend", "continuelevel",
+    "retrylevel", "replaylevel", "gameoverretry", "gameoverquit",
+}
+_SOUND_CALLBACK_NAMES = {"playsound", "debugsoundplay"}
+
 
 def set_preview_data(movie, dictionary, field_name, value):
     clean = native._json_safe(value)
@@ -140,7 +159,7 @@ def _queue_data_notification(context, name, args, result):
 def _schedule_completion(context, name, args, result, spec):
     movie = context.movie
     key = compact_name(name)
-    if spec.category == "save/profile":
+    if key in _SAVE_COMPLETION_NAMES:
         set_preview_data(movie, "mRuntimeData", "SaveBusy", True)
         queue_completion(
             movie, name, args, True, context.path, 0.0, ("SaveBusy",),
@@ -152,12 +171,12 @@ def _schedule_completion(context, name, args, result, spec):
             (("mRuntimeData", "SaveBusy", False),
              ("mRuntimeData", "isSaveDataPopulated", True)),
         )
-    elif spec.category == "leaderboard":
+    elif key in _LEADERBOARD_COMPLETION_NAMES:
         queue_completion(
             movie, name, args, result, context.path, 180.0,
             (f"{name}Complete", "LeaderboardComplete", "nativeComplete"),
         )
-    elif spec.category == "navigation":
+    elif key in _NAVIGATION_COMPLETION_NAMES:
         set_preview_data(movie, "mRuntimeData", "isLoadingIn", True)
         queue_completion(
             movie, name, args, result, context.path, 80.0,
@@ -229,7 +248,7 @@ def native_call(context, name, args):
     }:
         _queue_data_notification(context, name, tuple(args), result)
     _schedule_completion(context, name, tuple(args), result, spec)
-    if spec.category == "audio":
+    if key in _SOUND_CALLBACK_NAMES:
         _post_audio(context, name, tuple(args))
     return result
 
