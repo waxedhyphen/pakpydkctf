@@ -33,6 +33,25 @@ def _restore_geometry(movie, cached):
     movie.ui_precise_hit_diagnostics = dict(diagnostics)
 
 
+def _region_metadata(movie, path, previous, meta):
+    values = dict(runtime._properties(movie).get(path, {}) or {})
+    try:
+        obj = dynamic._dynamic_for_path(movie, path)
+    except Exception:
+        obj = None
+    if previous is not None:
+        return (
+            bool(previous.enabled), bool(previous.tab_enabled), bool(previous.dynamic),
+            str(previous.name or meta.get("name", path.rsplit(":", 1)[-1])),
+        )
+    base_enabled = bool(values.get("enabled", getattr(obj, "enabled", meta.get("enabled", True))))
+    mouse_enabled = bool(values.get("mouseEnabled", getattr(obj, "mouse_enabled", True)))
+    tab_enabled = bool(values.get("tabEnabled", getattr(obj, "tab_enabled", meta.get("tab_enabled", False))))
+    dynamic_flag = bool(obj is not None or meta.get("dynamic", False))
+    name = str(getattr(obj, "name", "") or meta.get("name", path.rsplit(":", 1)[-1]))
+    return base_enabled and mouse_enabled, tab_enabled, dynamic_flag, name
+
+
 def build_precise_hit_map(renderer, frame):
     key = _geometry_key(renderer, frame)
     cached = _GEOMETRY_CACHE.get(key)
@@ -62,12 +81,9 @@ def build_precise_hit_map(renderer, frame):
         bounds = geometry._union_bounds(value.bounds for value in geoms)
         if bounds is None:
             continue
-        previous = old_meta.get(path)
-        meta = collector.meta.get(path, {})
-        enabled = bool(getattr(previous, "enabled", meta.get("enabled", True)))
-        tab_enabled = bool(getattr(previous, "tab_enabled", meta.get("tab_enabled", False)))
-        dynamic_flag = bool(getattr(previous, "dynamic", meta.get("dynamic", False)))
-        name = str(getattr(previous, "name", "") or meta.get("name", path.rsplit(":", 1)[-1]))
+        enabled, tab_enabled, dynamic_flag, name = _region_metadata(
+            renderer.movie, path, old_meta.get(path), collector.meta.get(path, {}),
+        )
         regions.append(dynamic.HitRegion(path, bounds, name, enabled, tab_enabled, dynamic_flag))
 
     diagnostics = {
