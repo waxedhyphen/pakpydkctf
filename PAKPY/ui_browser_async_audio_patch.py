@@ -36,6 +36,8 @@ def install():
     base_normalize = override_patch.normalize_preset
 
     async_native.install_hooks(base_native, base_clock, base_reset)
+    native.native_call = async_native.native_call
+    ui_browser.call_ui_native_callback = async_native.native_call
     gui.install_hooks(
         base_init, base_select, base_info, base_close, base_make, base_normalize,
     )
