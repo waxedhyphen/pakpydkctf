@@ -4,7 +4,7 @@ Stand: 2026-07-22
 
 ## Zweck
 
-Diese Stufe liest die ActionScript-3-Struktur aus Scaleform-`DoABC`-Tags und verbindet direkt erkennbare Frame Scripts mit den Root- und MovieClip-Timelines. Sie ist bewusst keine allgemeine ActionScript-VM.
+Diese Stufe liest die ActionScript-3-Struktur aus Scaleform-`DoABC`-Tags, verbindet `addFrameScript`-Methoden mit Root- und MovieClip-Timelines und führt einen begrenzten sicheren Bytecode-Teilumfang aus. Sie ist bewusst keine allgemeine ActionScript-VM.
 
 Alle ausgeführten Aktionen wirken ausschließlich auf die Vorschau. SWF/GFX-, PAK- und Repacking-Daten werden nicht verändert.
 
@@ -44,8 +44,6 @@ ActionScript-Compiler registrieren Timeline-Skripte üblicherweise über `addFra
 
 Der ActionScript-Frameindex ist nullbasiert; im Viewer wird er als normaler SWF-Frame ab 1 dargestellt.
 
-Beispiel:
-
 ```text
 addFrameScript(0, frame1, 9, frame10)
 ```
@@ -57,39 +55,65 @@ Frame 1  → frame1
 Frame 10 → frame10
 ```
 
-## Sicher ausgeführter Teilumfang
+## Kontrollierte Runtime
 
-Nur folgende direkte Timeline-Aufrufe werden ausgeführt:
+Die neue Runtime führt Frame-Script-Methoden mit einem begrenzten Interpreter aus. Unterstützt sind:
 
-- `stop()`;
-- `play()`;
-- `gotoAndStop(frameOderLabel)`;
-- `gotoAndPlay(frameOderLabel)`.
+- Operand-Stack und lokale Variablen;
+- direkte Konstanten und einfache Konvertierungen;
+- arithmetische Operationen und Vergleiche;
+- `jump`, bedingte Sprünge und `lookupswitch`;
+- direkte Aufrufe von Hilfsmethoden derselben Klasse;
+- `stop`, `play`, `gotoAndStop` und `gotoAndPlay`;
+- Lesen und Schreiben vorhandener DisplayObject-Properties;
+- eine explizite Registry für sichere native Callback-Stubs.
 
-Die Argumente von `gotoAndStop` und `gotoAndPlay` müssen im Bytecode als direkte Zahl oder direkter String erkennbar sein. Berechnete Werte, Variablen, Bedingungen und Rückgabewerte nativer Funktionen werden nicht geraten.
+Die Runtime kann im Browser mit `AVM2 Runtime` deaktiviert werden. `Runtime neu ausführen` beziehungsweise `F10` verwirft den erzeugten Runtime-Zustand und führt die aktuellen Frame Scripts erneut aus.
 
-Die Aktionen gelten für:
+Details: `UI_VIEWER_AVM2_RUNTIME.md`.
 
-- die Dokumentklasse über `SymbolClass` mit Character-ID 0;
-- exportierte MovieClip-Klassen über ihre jeweilige Character-ID;
-- Root- und verschachtelte Timeline-Zustände;
-- numerische Frames und vorhandene Frame-Labels.
+## DisplayObject-Properties
 
-Ein Skript wird beim Eintritt in seinen Frame einmal angewendet. Beim späteren erneuten Eintritt in denselben Frame wird es erneut ausgeführt. Manuelle `sprite_frame`-Overrides bleiben fixiert und führen für diesen Pfad keine automatische Frame-Script-Steuerung aus.
+Auf bereits vorhandenen Instanzen werden derzeit unterstützt:
 
-## State Inspector
+- `visible`;
+- `alpha`;
+- `text`;
+- `htmlText`.
 
-MovieClip-Knoten zeigen zusätzlich:
+Die Objektauflösung verwendet Instanznamen, Textvariablen, Symbolklassen und stabile Inspector-Pfade. Manuelle Inspector-Overrides besitzen weiterhin Vorrang vor Runtime-Werten.
+
+MovieClip- und EditText-Knoten zeigen aktive Werte unter:
 
 ```text
-AVM2-Frame-Scripts:
-- Klasse: ui.controls.MenuButton
-- Frames: 1, 10, 18
-- Aktionen im aktuellen Frame:
-  - stop (frame1)
+AVM2-Runtime:
+- visible: false
+- alpha: 0.5
+- text: 12500
 ```
 
-Im normalen Analysefeld stehen Anzahl der DoABC-Module, Klassen, Methoden, Frame Scripts, sicher erkannten Timeline-Aktionen und Parserfehler.
+## Callback-Stubs und Game-Mocks
+
+`ExternalInterface.call(...)` wird nicht an beliebige Host-Funktionen weitergeleitet. Zulässig sind nur explizit registrierte, nebenwirkungsfreie Callbacks sowie lesende Zugriffe auf aktivierte Game-State-Mocks.
+
+Die Registry kann intern erweitert werden über:
+
+```python
+ui_browser.register_avm2_native_callback(
+    "GetExampleValue",
+    lambda context, arguments: 123,
+)
+```
+
+Nicht registrierte Namen liefern `undefined` und werden protokolliert.
+
+## Sicherheitsgrenzen
+
+- maximal 8192 Instruktionen pro Ausführung;
+- maximale Aufruftiefe 16;
+- maximal acht unmittelbar verkettete Frame-Sprünge;
+- keine Dateisystem-, Prozess-, Netzwerk- oder beliebigen Python-Aufrufe;
+- nicht unterstützte Opcodes brechen nur die betroffene Methode ab.
 
 ## Validierung am bereitgestellten UI-Corpus
 
@@ -101,9 +125,7 @@ Ein direkter Scan der eingebetteten SWF/GFX-Filme in `UIPak.pak` ergab:
 - 1.460 Klassen;
 - 14.642 Methoden;
 - 1.342 erkannte Frame-Script-Zuordnungen;
-- 1.215 direkt ausführbare Timeline-Aktionen.
-
-Verteilung der sicheren Timeline-Aktionen:
+- 1.215 direkt erkennbare Timeline-Aktionen.
 
 | Aktion | Anzahl |
 |---|---:|
@@ -112,31 +134,22 @@ Verteilung der sicheren Timeline-Aktionen:
 | `gotoAndStop` | 70 |
 | `play` | 9 |
 
-Die übrigen erkannten Frame Scripts bleiben im Inspector und Disassembly sichtbar, werden aber nur ausgeführt, wenn ihre Operationen in den sicheren Teilumfang fallen.
-
-Zusätzlich prüfen fünf synthetische Tests ABC-Tabellen, DoABC, Disassembly, `addFrameScript`, direkte Timeline-Aktionen und JSON-Inventar.
+Fünf Parser-/Inventartests und fünf Runtime-Tests prüfen ABC-Tabellen, Disassembly, Frame-Script-Bindings, Branches, Property-Zuweisungen, Timeline-Sprünge, Callback-Mocks und Override-Vorrang.
 
 ## Grenzen
 
-Noch nicht ausgeführt werden insbesondere:
+Noch nicht vollständig ausgeführt werden insbesondere:
 
-- allgemeine AVM2-Stack- und Objektsemantik;
-- Konstruktorlogik außerhalb der statischen `addFrameScript`-Erkennung;
-- Bedingungen, Schleifen und Exceptions;
-- Property-Zuweisungen wie `visible`, `alpha`, `text` oder `htmlText`;
-- dynamische DisplayObjects;
+- allgemeine AVM2-Objekt-, Prototyp- und Klassen-Semantik;
+- Konstruktoren und Script-Initializer außerhalb der Frame-Script-Zuordnung;
+- Exception-Handling und komplexe Iteration;
+- dynamisch erzeugte oder entfernte DisplayObjects;
 - Events, Timer und Eingabe;
-- native Scaleform- und Spielcallbacks;
+- beliebige native Scaleform- und Spielcallbacks;
 - MSBT- und Sprachlogik.
 
-Unbekannte oder neue AVM2-Opcodes bleiben im Disassembly als `op_XX` sichtbar. Sie werden nicht ausgeführt.
+Unbekannte oder neue AVM2-Opcodes bleiben im Disassembly als `op_XX` sichtbar. Sie werden nicht geraten.
 
 ## Nächster Schritt
 
-Die nächste AVM2-Ausbaustufe ergänzt eine kleine kontrollierte Interpreter-Laufzeit mit:
-
-1. lokalen Variablen und Operand-Stack;
-2. einfachen Verzweigungen;
-3. Property-Lesen und -Schreiben auf vorhandenen DisplayObjects;
-4. Text-, Sichtbarkeits- und Alpha-Änderungen;
-5. einer Registry für sichere native Callback-Stubs, die mit den vorhandenen Game-State-Mocks verbunden wird.
+Die nächste Ausbaustufe erweitert die kontrollierte Runtime um Konstruktor-/Initializer-Zustände, zusätzliche DisplayObject-Properties, Event-Dispatcher-Grundlagen und eine corpus-spezifische Callback-Namenszuordnung.
