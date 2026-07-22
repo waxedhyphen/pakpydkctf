@@ -91,6 +91,31 @@ AVM2-Frame-Scripts:
 
 Im normalen Analysefeld stehen Anzahl der DoABC-Module, Klassen, Methoden, Frame Scripts, sicher erkannten Timeline-Aktionen und Parserfehler.
 
+## Validierung am bereitgestellten UI-Corpus
+
+Ein direkter Scan der eingebetteten SWF/GFX-Filme in `UIPak.pak` ergab:
+
+- 41 Filme mit `DoABC`;
+- 43 ABC-Module;
+- 0 ABC-Parserfehler;
+- 1.460 Klassen;
+- 14.642 Methoden;
+- 1.342 erkannte Frame-Script-Zuordnungen;
+- 1.215 direkt ausführbare Timeline-Aktionen.
+
+Verteilung der sicheren Timeline-Aktionen:
+
+| Aktion | Anzahl |
+|---|---:|
+| `stop` | 908 |
+| `gotoAndPlay` | 228 |
+| `gotoAndStop` | 70 |
+| `play` | 9 |
+
+Die übrigen erkannten Frame Scripts bleiben im Inspector und Disassembly sichtbar, werden aber nur ausgeführt, wenn ihre Operationen in den sicheren Teilumfang fallen.
+
+Zusätzlich prüfen fünf synthetische Tests ABC-Tabellen, DoABC, Disassembly, `addFrameScript`, direkte Timeline-Aktionen und JSON-Inventar.
+
 ## Grenzen
 
 Noch nicht ausgeführt werden insbesondere:
