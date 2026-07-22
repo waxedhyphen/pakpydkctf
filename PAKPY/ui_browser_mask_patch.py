@@ -47,7 +47,6 @@ def _multiply_alpha(left, right):
 
 
 def intersect_mask_alpha(alpha, masks):
-    """Intersect one alpha channel with every active clip mask."""
     result = alpha
     for mask in masks:
         result = _multiply_alpha(result, mask.alpha)
@@ -55,7 +54,6 @@ def intersect_mask_alpha(alpha, masks):
 
 
 def apply_clip_masks(layer, masks):
-    """Apply active masks to an RGBA layer and return the same layer."""
     if not masks:
         return layer
     layer.putalpha(intersect_mask_alpha(layer.getchannel("A"), masks))
@@ -63,7 +61,6 @@ def apply_clip_masks(layer, masks):
 
 
 def active_masks_at_depth(masks, depth):
-    """Drop masks whose inclusive depth range ended before ``depth``."""
     return [mask for mask in masks if depth <= mask.end_depth]
 
 
@@ -86,7 +83,6 @@ def install():
     if _INSTALLED:
         return
     _INSTALLED = True
-
     if PILImage is None:
         return
 
@@ -97,14 +93,12 @@ def install():
         if level > 64:
             self.stats.recursion_skips += 1
             return
-
         active_masks = []
         for depth in sorted(display):
             active_masks = active_masks_at_depth(active_masks, depth)
             item = display[depth]
             if not item.visible:
                 continue
-
             clip_depth = item.clip_depth
             if clip_depth is not None and int(clip_depth) > int(depth):
                 mask_layer = _render_mask_source(
@@ -120,15 +114,21 @@ def install():
                     self.stats.empty_masks = getattr(self.stats, "empty_masks", 0) + 1
                 continue
 
-            if active_masks:
+            blend_mode = int(getattr(item, "blend_mode", 0) or 0)
+            if active_masks or blend_mode not in (0, 1):
                 layer = _new_layer(canvas)
                 draw_unmasked(
                     self, layer, {depth: item},
                     parent_matrix, parent_color, stack, level,
                 )
-                apply_clip_masks(layer, active_masks)
-                canvas.alpha_composite(layer)
-                self.stats.masked_placements = getattr(self.stats, "masked_placements", 0) + 1
+                if active_masks:
+                    apply_clip_masks(layer, active_masks)
+                    self.stats.masked_placements = getattr(self.stats, "masked_placements", 0) + 1
+                compositor = getattr(self, "_composite_ui_layer", None)
+                if compositor is not None:
+                    compositor(canvas, layer, blend_mode)
+                else:
+                    canvas.alpha_composite(layer)
             else:
                 draw_unmasked(
                     self, canvas, {depth: item},
@@ -140,11 +140,29 @@ def install():
         masks = getattr(stats, "masks_defined", 0)
         masked = getattr(stats, "masked_placements", 0)
         empty = getattr(stats, "empty_masks", 0)
-        if not masks and not masked and not empty:
+        scale9 = getattr(stats, "scale9_placements", 0)
+        fallbacks = getattr(stats, "scale9_fallbacks", 0)
+        blend_modes = getattr(stats, "blend_modes", {})
+        if not masks and not masked and not empty and not scale9 and not fallbacks and not blend_modes:
             return text
-        lines = ["", "Masken:", f"- ClipDepth-Masken: {masks}", f"- Maskierte Placements: {masked}"]
+        lines = []
+        if masks or masked or empty:
+            lines.extend([
+                "", "Masken:",
+                f"- ClipDepth-Masken: {masks}",
+                f"- Maskierte Placements: {masked}",
+            ])
         if empty:
             lines.append(f"- Leere Masken: {empty}")
+        if scale9 or fallbacks:
+            lines.extend(["", "Scale9:", f"- Nine-slice Placements: {scale9}"])
+            if fallbacks:
+                lines.append(f"- Fallbacks: {fallbacks}")
+        if blend_modes:
+            lines.extend(["", "Blend Modes:"])
+            names = getattr(ui_browser, "BLEND_NAMES", {})
+            for mode, count in sorted(blend_modes.items()):
+                lines.append(f"- {names.get(mode, mode)}: {count}")
         return text + "\n" + "\n".join(lines)
 
     ui_browser.UIRenderer._draw_display = draw_display
