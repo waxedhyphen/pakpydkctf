@@ -5,13 +5,17 @@ import copy
 
 import ui_browser
 import ui_browser_avm2_dynamic_patch as dynamic
+import ui_browser_avm2_lifecycle_patch as lifecycle
 import ui_browser_avm2_runtime_patch as runtime
+import ui_browser_button_navigation_patch as button
 import ui_browser_edit_text_model as model
 import ui_browser_edit_text_patch as edit
+import ui_browser_precise_hit as precise
 import ui_browser_state_inspector_patch as inspector
 
 
 _INSTALLED = False
+_ORIGINAL_MOUSE = None
 
 
 def target(owner, path, require_editable=True, node=None, definition=None):
@@ -152,14 +156,66 @@ def get_property(context, receiver, name):
     return edit.get_property(context, receiver, name)
 
 
+def _dispatch_mouse(movie, path, event_type, point, button_down=False):
+    value = lifecycle.RuntimeEvent(event_type, bubbles=True, data={"stage": point})
+    value.extra.update(
+        stageX=point[0] if point else 0.0,
+        stageY=point[1] if point else 0.0,
+        buttonDown=bool(button_down),
+    )
+    dynamic._dispatch_path(movie, path, value, True)
+
+
+def mouse_event(owner, event, event_type):
+    """Keep direct TextField hits from being promoted to a button-like parent."""
+    movie = getattr(owner, "_current_movie", None)
+    if movie is None or not edit._enabled(owner):
+        return _ORIGINAL_MOUSE(owner, event, event_type)
+    raw_region, point = precise.precise_raw_hit(owner, event)
+    raw_path = str(getattr(raw_region, "path", "") or "")
+    input_target = target(owner, raw_path, True) if raw_path else None
+    state = dynamic._state(movie)
+
+    if event_type == "mouseDown" and input_target is not None:
+        state["pressed_path"] = raw_path
+        dynamic._set_focus(movie, raw_path)
+        try:
+            owner.canvas.focus_set()
+        except Exception:
+            pass
+        _dispatch_mouse(movie, raw_path, "mouseDown", point, True)
+        session = edit.begin_edit(owner, raw_path, point)
+        if session is not None:
+            session.dragging = True
+        owner.request_render()
+        return "break"
+
+    session = edit._active(movie)
+    if event_type == "mouseUp" and session is not None:
+        pressed = str(state.get("pressed_path", "") or "")
+        state["pressed_path"] = ""
+        session.dragging = False
+        release_path = raw_path if raw_path == session.path else session.path
+        _dispatch_mouse(movie, release_path, "mouseUp", point, False)
+        if pressed == session.path and raw_path == session.path:
+            _dispatch_mouse(movie, session.path, "click", point, False)
+        owner.request_render()
+        return "break"
+
+    return _ORIGINAL_MOUSE(owner, event, event_type)
+
+
 def install():
-    global _INSTALLED
+    global _INSTALLED, _ORIGINAL_MOUSE
     if _INSTALLED:
         return
     _INSTALLED = True
+    _ORIGINAL_MOUSE = edit.mouse_event
     edit._target = target
     edit._decorate_nodes = decorate_nodes
     edit.draw_edit_text = draw_edit_text
+    edit.mouse_event = mouse_event
     ui_browser.UIRenderer._draw_edit_text = draw_edit_text
     runtime._set_property = set_property
     runtime._get_property = get_property
+    button.mouse_event = mouse_event
