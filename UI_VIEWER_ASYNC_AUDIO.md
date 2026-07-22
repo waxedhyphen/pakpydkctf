@@ -103,6 +103,8 @@ Die Zeiten sind absichtlich kurz, fest und nicht als Original-Spielzeiten zu ver
 
 `SaveBusy` und `isLoadingIn` werden als echte Preview-Data-Values gesetzt und beim Abschluss wieder zurückgenommen.
 
+Completion-Ereignisse werden nur für eine explizite, konservative Namensliste erzeugt. Dazu gehören tatsächliche Save-Slot-Operationen wie `newSaveGame`, `copySaveGame` und `PopulateSaveData`, echte Transition-/Load-Aufrufe sowie konkrete Leaderboard-/Replay-Operationen. Synchrone Setter wie `setBalloonCount` erhalten keine erfundene Save-Completion. Ebenso werden `EffectsSetting` und `MusicSetting` als Einstellungen behandelt und nicht als Soundnamen an CAUD weitergereicht.
+
 ### Priorität und Nebenwirkungen
 
 Die bestehende Callback-Priorität bleibt unverändert:
@@ -289,7 +291,7 @@ Als konkrete End-to-End-Prüfung wurde `UI_Menu_Button_Enter` über CAUD und CSM
 
 ## Tests und Validierung
 
-Die fokussierte Testsuite umfasst 13 Tests:
+Die fokussierte Testsuite umfasst 15 Tests:
 
 - Mono-DSP-Frame;
 - Stereo-Interleaving und WAV-Header;
@@ -303,7 +305,9 @@ Die fokussierte Testsuite umfasst 13 Tests:
 - Data-Value-Feldbenachrichtigungen;
 - Unterdrückung aller Nachwirkungen bei manuellem Callback-Override;
 - deterministischer Save-Abschluss;
-- Audioauflösung und `soundComplete` anhand der echten dekodierten Dauer.
+- Audioauflösung und `soundComplete` anhand der echten dekodierten Dauer;
+- konservative Abgrenzung synchroner Save-Setter von echten Completion-Operationen;
+- Ausschluss von `EffectsSetting` und `MusicSetting` aus der Soundnamenauflösung.
 
 Zusätzlich wurden Syntax- und Installations-Smoke-Tests sowie der vollständige Corpus-Scan durchgeführt. Die direkte `winsound`-Ausgabe konnte in der Linux-Headless-Umgebung nicht akustisch geprüft werden; der erzeugte reale WAV-Datenstrom wurde strukturell validiert.
 
