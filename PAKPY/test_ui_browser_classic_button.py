@@ -31,7 +31,7 @@ def button2_payload():
     )
     condition = (
         (0).to_bytes(2, "little")  # final condition block
-        + (0x0800).to_bytes(2, "little")  # OverDown -> OverUp
+        + (0x0800 | (13 << 1)).to_bytes(2, "little")  # OverDown -> OverUp + Enter
         + b"\x06\x00"  # Play, End
     )
     # ActionOffset is measured from the beginning of the ActionOffset field.
@@ -58,6 +58,7 @@ class ClassicButtonModelTests(unittest.TestCase):
         definition = classic.parse_classic_button(button2_payload(), 2)
         self.assertTrue(definition.track_as_menu)
         self.assertIn("over_down_to_over_up", definition.button_actions[0].conditions)
+        self.assertEqual(definition.button_actions[0].key_code, 13)
         self.assertEqual(definition.button_actions[0].actions[0].name, "Play")
 
     def test_avm1_inventory_marks_only_timeline_actions_safe(self):
