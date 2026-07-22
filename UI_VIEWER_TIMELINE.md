@@ -82,7 +82,7 @@ Status: eingebettete Fonts und initiale `DefineEditText`-Inhalte abgeschlossen
 - Unicode-Glyphen, Scaleform-HTML, Größe, Farbe, Ausrichtung und `letterSpacing`.
 - 648 EditText-Felder und 647 HTML-Textfelder.
 
-Offen bleiben MSBT-Zuordnung, Laufzeittexte und ein pixelgenauer Font-Rasterizer-Abgleich.
+Offen bleiben MSBT-Zuordnung, Laufzeittexte außerhalb der unterstützten AVM2-Pfade und ein pixelgenauer Font-Rasterizer-Abgleich.
 
 ### Phase 6.5 – Display-List-/State-Inspector
 
@@ -91,13 +91,14 @@ Status: abgeschlossen
 - Rekursiver Tiefenbaum mit stabilen Instanzpfaden.
 - Character-ID, Klasse, Sichtbarkeit, Matrix, ColorTransform, ClipDepth, Scale9, Filter und Blend Mode.
 - MovieClip-Frames/Labels sowie Fontklasse und Text.
+- Dynamisch erzeugte MovieClips, TextFields, Shapes und Container erscheinen mit Parent-, Transform-, Fokus- und Eingabemetadaten.
 - Suche, Sichtbarkeitsfilter, Pfadkopie und JSON-Snapshot.
 
-Siehe `UI_VIEWER_STATE_INSPECTOR.md`.
+Siehe `UI_VIEWER_STATE_INSPECTOR.md` und `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`.
 
 ### Phase 7 – Verschachtelte Timelines
 
-Status: laufende strukturelle Vorschau umgesetzt; AVM2-Frame-Scripts und Lifecycle-Ereignisse steuern inzwischen einen sicheren Teilumfang
+Status: laufende strukturelle Vorschau umgesetzt; AVM2-Frame-Scripts, Lifecycle-Ereignisse und dynamische MovieClips steuern einen sicheren Teilumfang
 
 - eigener Framezustand pro stabilem MovieClip-Instanzpfad;
 - globale Play-/Pause-Steuerung und `F7`;
@@ -108,11 +109,12 @@ Status: laufende strukturelle Vorschau umgesetzt; AVM2-Frame-Scripts und Lifecyc
 - manueller `sprite_frame`-Override besitzt Vorrang;
 - Wiedergabestatus, Geschwindigkeit und Instanzframes werden in JSON-Presets gespeichert;
 - `stop`, `play`, `gotoAndStop` und `gotoAndPlay` werden aus kontrolliert interpretierten Frame Scripts angewendet;
-- `ENTER_FRAME`, Timer und Event-Handler können Root- und Untertimelines verändern.
+- `ENTER_FRAME`, Timer und Event-Handler können Root- und Untertimelines verändern;
+- dynamisch erzeugte MovieClips mit verknüpfter SWF-Definition verwenden ihre echte Timeline und laufen mit der UI-Timeline.
 
-Wichtige Grenze: dynamisch erzeugte DisplayObjects, vollständiges Event-Bubbling und reale Eingabeereignisse fehlen weiterhin.
+Wichtige Grenze: vollständiges Event-Capture/Bubbling, automatische Button-Zustände und Controller-Navigation fehlen weiterhin.
 
-Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md` und `UI_VIEWER_AVM2_LIFECYCLE.md`.
+Siehe `UI_VIEWER_TIMELINE_PLAYBACK.md`, `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_LIFECYCLE.md` und `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`.
 
 ### Phase 7.5 – Interaktive Performance
 
@@ -123,7 +125,8 @@ Status: umgesetzt
 - gedrosselte Inspector-Aktualisierung;
 - adaptive Vorschauauflösung von 35 bis 75 Prozent während Play/Scrubbing;
 - volle native Auflösung nach Pause und beim PNG-Export;
-- AVM2-Runtime-Revisionsnummer im Frame-Cache-Schlüssel.
+- AVM2- und Dynamic-State-Revisionsnummern im Frame-Cache-Schlüssel;
+- gecachte SymbolClass- und AVM2-Klassenauflösung für dynamische Konstruktionen.
 
 Siehe `UI_VIEWER_PERFORMANCE.md`.
 
@@ -142,6 +145,7 @@ Implementiert:
 - manuelle Text-Overrides besitzen Vorrang vor AVM2-Runtime und Mocks;
 - Profile und Mock-Werte werden im JSON-Preset gespeichert;
 - aktive Game-Mocks können über sichere `ExternalInterface.call`- und `GetDataValue`-Stubs gelesen werden;
+- AVM2 kann vorhandene und dynamische TextFields im Vorschauzustand aktualisieren;
 - Zustände bleiben während der Sitzung pro Film getrennt.
 
 Siehe `UI_VIEWER_STATE_PRESETS.md` und `UI_VIEWER_GAME_STATE_MOCKS.md`.
@@ -150,11 +154,11 @@ Noch offen:
 
 - vollständige Zuordnung realer nativer Callback-Namen des Spiels;
 - MSBT-Text-IDs und Sprachauswahl;
-- dynamisch erst durch AVM2 erzeugte Textfelder und DisplayObjects.
+- semantische Mock-Zuordnung für erst zur Laufzeit erzeugte, frei benannte TextFields.
 
 ### Phase 9 – ActionScript 3
 
-Status: Strukturparser, Frame-Script-Inventar, kontrollierte Interpreter-Runtime sowie Lifecycle-/Event-/Timer-Grundlage umgesetzt; vollständige AVM2-Semantik offen
+Status: Strukturparser, Frame-Script-Inventar, kontrollierte Interpreter-Runtime, Lifecycle-/Event-/Timer-Grundlage sowie dynamische Display-List umgesetzt; vollständige AVM2-Semantik offen
 
 Implementiert:
 
@@ -168,20 +172,23 @@ Implementiert:
 - direkte Konstanten, einfache Konvertierungen, Arithmetik und Vergleiche;
 - `jump`, bedingte Sprünge und `lookupswitch`;
 - direkte Hilfsmethoden-Aufrufe derselben Klasse;
-- `stop`, `play`, `gotoAndStop` und `gotoAndPlay` für Root- und Untertimelines;
-- Property-Lesen und -Schreiben auf vorhandenen Instanzen;
-- `visible`, `alpha`, `text` und `htmlText`;
+- `stop`, `play`, `gotoAndStop` und `gotoAndPlay` für Root-, Unter- und dynamische Timelines;
+- Property-Lesen und -Schreiben auf vorhandenen und dynamischen Instanzen;
+- `visible`, `alpha`, `text`, `htmlText`, `x`, `y`, `scaleX`, `scaleY`, `rotation`, `enabled`, `mouseEnabled`, `tabEnabled` und Fokusstatus;
 - Whitelist-Registry für sichere native Callback-Stubs;
 - lesende Anbindung vorhandener Game-State-Mocks an `ExternalInterface.call` und corpus-typische Datenfelder;
-- Script-, Klassen- und Instanz-Initializer für vorhandene Root- und MovieClip-Instanzen;
+- Script-, Klassen- und Instanz-Initializer für Root-, Timeline- und verknüpfte dynamische Instanzen;
 - Basisklassen-Initializer vor abgeleiteten Konstruktoren, wenn die Klassen im selben ABC-Modul liegen;
 - EventDispatcher-Grundfunktionen mit Listenern, Priorität und direktem Dispatch;
 - Event-Konstanten und sichere Custom-Eventobjekte;
 - `Timer`, `getTimer`, `setTimeout`, `setInterval` und die zugehörigen Clear-Funktionen;
 - deterministische Runtime-Uhr anhand der SWF-Timeline;
 - `ENTER_FRAME`, `TIMER` und `TIMER_COMPLETE`;
+- sichere Konstruktion von MovieClip, Sprite, TextField, Shape, DisplayObject sowie verknüpften SymbolClass-Instanzen;
+- `addChild`, `addChildAt`, `removeChild`, `removeChildAt`, `getChildByName`, `getChildAt`, `contains`, `numChildren`, Child-Reihenfolge und Swap-Operationen;
+- dynamische Objekte im Renderer, State Inspector und Render-Cache;
 - AVM2-Inspector über `F9` und Runtime-Neuausführung über `F10`;
-- Frame-Script-, Runtime- und Lifecycle-Metadaten im State Inspector beziehungsweise Analysefeld.
+- Frame-Script-, Runtime-, Lifecycle-, Dynamic- und Input-Metadaten im State Inspector beziehungsweise Analysefeld.
 
 Sicherheitsgrenzen:
 
@@ -190,6 +197,9 @@ Sicherheitsgrenzen:
 - höchstens acht direkt verkettete Frame-Sprünge;
 - höchstens 32 Timer-Auslösungen pro Runtime-Tick;
 - höchstens 32 Klassen in einer lokal aufgelösten Vererbungskette;
+- höchstens 2048 dynamische DisplayObjects pro Film;
+- maximale dynamische Verschachtelungstiefe 64;
+- unbekannte Nicht-Display-Klassen werden nicht als visuelle Objekte konstruiert;
 - nicht unterstützte Opcodes brechen nur die betroffene Methode ab;
 - keine beliebigen Host-, Datei-, Prozess- oder Netzwerkaufrufe.
 
@@ -197,7 +207,9 @@ Validierung:
 
 - fünf synthetische ABC-/Frame-Script-Tests für Strukturparser, DoABC, Disassembly, `addFrameScript`, Timeline-Aktionen und JSON-Inventar;
 - elf Tests für Property-Zuweisungen, Branches, Callback-Mocks, Corpus-Muster, Timeline-Sprünge und manuellen Override-Vorrang;
-- acht Lifecycle-Tests für Initializer-Reihenfolge, EventDispatcher, Event-Konstanten, Timer, `ENTER_FRAME`, `setTimeout` und verschachtelte Timeline-Zustände.
+- acht Lifecycle-Tests für Initializer-Reihenfolge, EventDispatcher, Event-Konstanten, Timer, `ENTER_FRAME`, `setTimeout` und verschachtelte Timeline-Zustände;
+- neun Dynamic-Display-Modelltests für Konstruktion, Containeroperationen, Transform, Text, Fokus und Timeline-Fortschritt;
+- zwei Tests für den genauen Konstruktorzeitpunkt verknüpfter dynamischer AVM2-Klassen.
 
 Noch offen:
 
@@ -205,21 +217,39 @@ Noch offen:
 - Initializer und Vererbung über ABC-Modulgrenzen hinweg;
 - Exception-Handling und vollständige Iteration;
 - vollständiges Event-Bubbling, Capture und Weak-Listener-Semantik;
-- dynamische DisplayObjects und Display-List-Manipulation;
-- reale Maus-, Tastatur-, Controller- und Fokusereignisse;
+- dynamische Vektorzeichenbefehle und editierbare TextFields;
+- automatische SimpleButton-Zustände;
+- Controller-Navigation und reale Gamepad-Ereignisse;
 - corpus-spezifische native Callback-Implementierungen;
 - MSBT- und Sprachlogik.
 
-Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md` und `UI_VIEWER_AVM2_LIFECYCLE.md`.
+Siehe `UI_VIEWER_AVM2.md`, `UI_VIEWER_AVM2_RUNTIME.md`, `UI_VIEWER_AVM2_RUNTIME_CORPUS.md`, `UI_VIEWER_AVM2_LIFECYCLE.md` und `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`.
 
 ### Phase 10 – Eingabe und Audio
 
-Status: offen
+Status: Maus-, Tastatur-, Fokus- und rechteckige Hit-Test-Grundlage umgesetzt; Controller, Button-Zustände und Audio offen
 
-- Maus-, Tastatur- und Controller-Fokus.
-- Hit-Testing und Button-Zustände.
-- CAUD/CSMP und UI-Sounds.
-- Anbindung kontrollierbarer Game-State-Mocks an native Callbacks.
+Implementiert:
+
+- transformierte rechteckige Hit-Regionen für Shapes, TextFields, externe Bilder und dynamische Objekte;
+- `mouseOver`, `mouseOut`, `mouseDown`, `mouseUp` und `click`;
+- `focusIn` und `focusOut`;
+- Fokuswechsel per Mausklick, `Tab` und `Shift+Tab`;
+- Aktivierung des fokussierten Ziels mit Enter oder Leertaste;
+- `keyDown` und `keyUp` mit Keycode, Zeichencode und Tastennamen;
+- direkte Weitergabe entlang stabiler Parent-Pfade bis `root`;
+- abschaltbare Browser-Option `Input Events`.
+
+Noch offen:
+
+- automatische SimpleButton- und MovieClip-Zustände `up`, `over`, `down` und `hitTest`;
+- pixelgenaue Hit-Tests, `mouseChildren`, Masken- und ScrollRect-Regeln;
+- Richtungsfokus, Controller-Mapping und echte Gamepad-Eingabe;
+- TextField-Cursor und Texteingabe;
+- CAUD/CSMP und UI-Sounds;
+- vollständige Anbindung kontrollierbarer Game-State-Mocks an reale native DKCTF-Callbacks.
+
+Siehe `UI_VIEWER_DYNAMIC_DISPLAY_INPUT.md`.
 
 ## Zusätzliche Dateien
 
@@ -232,7 +262,7 @@ Status: offen
 Visuell vollständig:
 
 - Bilder, Shapes, Masken, Texte, Fonts, Filter und Blend Modes werden korrekt dargestellt.
-- Verschachtelte Timelines und skriptgesteuerte Zustände laufen synchron.
+- Verschachtelte und dynamische Timelines sowie skriptgesteuerte Zustände laufen synchron.
 - Requirete Ressourcen werden eindeutig aufgelöst.
 - Referenzframes aus dem Spiel können strukturell reproduziert werden.
 
@@ -246,10 +276,10 @@ Funktional vollständig:
 
 ## Nächster Arbeitsblock
 
-Dynamische Display-List und Eingabegrundlage:
+Button-, Navigations- und Callback-Stufe:
 
-1. zusätzliche DisplayObject-Properties wie `x`, `y`, `scaleX`, `scaleY`, `rotation`, `enabled` und Fokusstatus;
-2. kontrollierte `addChild`, `removeChild`, `getChildByName` und `getChildAt`-Semantik;
-3. sichere dynamische MovieClip-/TextField-Instanzen im Vorschauzustand;
-4. Hit-Testing und Erzeugung von Maus-, Tastatur-, Controller- und Fokusereignissen;
-5. corpus-spezifische Inventarisierung und Implementierung realer DKCTF-Callbacks.
+1. automatische SimpleButton-/MovieClip-Zustände `up`, `over`, `down` und `hitTest`;
+2. Richtungsfokus und Controller-Mapping;
+3. präzisere Hit-Test-Regeln einschließlich `mouseChildren`, Masken und ScrollRect;
+4. Inventarisierung und sichere Implementierung realer DKCTF-Callbacks;
+5. anschließend CAUD/CSMP-UI-Audio sowie MSBT-Sprachtexte.
