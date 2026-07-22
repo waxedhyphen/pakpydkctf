@@ -83,7 +83,7 @@ Der State Inspector zeigt dynamische Objekte als `DynamicMovieClip`, `DynamicTex
 - Text beziehungsweise MovieClip-Frame;
 - dynamischen Kindern.
 
-Die Dynamic-State-Revisionsnummer ist Teil des Render-Cache-Schlüssels. Transform-, Text-, Child- oder Fokusänderungen verwenden deshalb keinen veralteten gecachten Frame.
+Die Dynamic-State-Revisionsnummer ist Teil des Render-Cache-Schlüssels. Transform-, Text-, Child- oder Fokusänderungen verwenden deshalb keinen veralteten gecachten Frame. Hit-Regionen werden zusammen mit dem jeweiligen Frame-Cache-Eintrag gesichert und bei einem Cache-Treffer wiederhergestellt. Die Hit-Reihenfolge folgt der tatsächlichen Display-Reihenfolge, sodass spätere Geschwister nicht von früher gerenderten Unterobjekten überdeckt werden.
 
 ## Eingabe im UI Browser
 
@@ -134,7 +134,9 @@ Neun fokussierte Modelltests prüfen:
 
 Zwei zusätzliche Tests prüfen, dass verknüpfte AVM2-Konstruktoren beim `new` genau einmal laufen und eingebaute Klassen ohne ABC-Definition keinen erfundenen Initializer erhalten.
 
-Die elf Tests liefen gegen ein minimales lokales Runtime-Modell erfolgreich. Die neuen Dateien wurden außerdem syntaktisch kompiliert. Eine vollständige visuelle Tk-End-to-End-Prüfung mit allen Filmen ist in der headless Entwicklungsumgebung nicht möglich.
+Drei Render- und Cache-Tests prüfen die Wiederherstellung der passenden Hit-Regionen bei einem Frame-Cache-Treffer, das Leeren des Hit-Region-Side-Caches und die korrekte Tiefenreihenfolge nach verschachteltem Rendering.
+
+Die insgesamt 14 Tests liefen gegen minimale lokale Runtime-Modelle erfolgreich. Die neuen Dateien wurden außerdem syntaktisch kompiliert. Eine vollständige visuelle Tk-End-to-End-Prüfung mit allen Filmen ist in der headless Entwicklungsumgebung nicht möglich.
 
 ## Grenzen
 
