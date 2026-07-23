@@ -129,7 +129,7 @@ def precise_raw_hit(owner, event):
     mapping = getattr(movie, "ui_precise_hit_geometries", {}) or {}
     diagnostics = getattr(movie, "ui_precise_hit_diagnostics", {}) or {}
     diagnostics["tests"] = int(diagnostics.get("tests", 0)) + 1
-    for region in reversed(tuple(getattr(movie, "ui_input_hit_regions", ()) or ()):
+    for region in reversed(tuple(getattr(movie, "ui_input_hit_regions", ()) or ())):
         if not region.enabled:
             continue
         left, top, right, bottom = region.bounds
