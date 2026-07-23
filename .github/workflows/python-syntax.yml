@@ -1,4 +1,4 @@
-name: Python syntax
+name: Python checks
 
 on:
   push:
@@ -29,3 +29,10 @@ jobs:
       - name: Compile repository Python sources
         working-directory: PAKPY
         run: python -m unittest test_repository_python_syntax
+      - name: Run AVM2 repack tests
+        working-directory: PAKPY
+        run: >-
+          python -m unittest
+          test_ui_browser_avm2_repack
+          test_ui_browser_avm2_duplicate_module_fix_patch
+          test_ui_browser_avm2_variable_length_patch
