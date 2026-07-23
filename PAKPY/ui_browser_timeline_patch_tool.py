@@ -1,4 +1,4 @@
-"""Universal UI for validated SWF timeline instance insertion."""
+"""Searchable universal UI for validated SWF timeline instance insertion."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,6 +14,7 @@ import ui_browser_timeline_repack as timeline
 _INSTALLED = False
 _BASE_INIT = None
 _BASE_CLOSE = None
+_DASH = "—"
 
 
 def _context(owner):
@@ -66,24 +67,259 @@ def _report_text(report):
     ))
 
 
-def _source_sprite_ids(structure):
-    return tuple(
-        str(sprite_id)
-        for sprite_id, items in sorted(structure.items())
-        if any(item.get("name") for item in items)
+def _placement_dict(depth, item):
+    return {
+        "depth": depth,
+        "name": item.name,
+        "character_id": item.character_id,
+        "matrix_hex": item.matrix.hex(" ").upper(),
+    }
+
+
+def _inspect_movie(movie_data):
+    structure = timeline.inspect_sprites(movie_data)
+    _data, _signature, _start, root_records, _tail = timeline._root(movie_data)
+    root_items = tuple(
+        _placement_dict(depth, item)
+        for depth, item in sorted(timeline._first_frame(root_records).items())
     )
+    return structure, root_items
 
 
-def _target_sprite_ids(structure):
-    return tuple(str(sprite_id) for sprite_id in sorted(structure))
+def _unique(values):
+    return tuple(dict.fromkeys(value for value in values if value))
 
 
-def _names(structure, sprite_id):
-    return tuple(
-        item["name"]
-        for item in structure.get(int(sprite_id), ())
-        if item.get("name")
+def _reference_map(structure, root_items=()):
+    references = {sprite_id: [] for sprite_id in structure}
+    for parent_sprite_id, items in [(None, root_items), *sorted(structure.items())]:
+        for item in items:
+            character_id = item.get("character_id")
+            if character_id not in references:
+                continue
+            references[character_id].append({
+                "parent_sprite_id": parent_sprite_id,
+                "depth": item.get("depth"),
+                "name": item.get("name") or "",
+                "matrix_hex": item.get("matrix_hex") or "",
+            })
+    return {key: tuple(value) for key, value in references.items()}
+
+
+def _reference_location(reference):
+    parent = (
+        "ROOT" if reference["parent_sprite_id"] is None
+        else f"Sprite {reference['parent_sprite_id']}"
     )
+    return f"{parent}@Tiefe {reference['depth']}"
+
+
+def _search_blob(*values):
+    return " ".join(str(value) for value in values if value is not None).casefold()
+
+
+def _matches(blob, query):
+    return all(term in blob for term in str(query).casefold().split())
+
+
+def _source_rows(structure, references):
+    rows = []
+    for sprite_id, items in sorted(structure.items()):
+        refs = references.get(sprite_id, ())
+        aliases = ", ".join(_unique(ref["name"] for ref in refs)) or _DASH
+        locations = ", ".join(_reference_location(ref) for ref in refs) or _DASH
+        for item in items:
+            name = item.get("name") or ""
+            if not name:
+                continue
+            matrix = item.get("matrix_hex") or "00"
+            character_id = item.get("character_id")
+            rows.append({
+                "sprite_id": sprite_id,
+                "name": name,
+                "depth": item.get("depth"),
+                "character_id": character_id,
+                "values": (
+                    sprite_id, aliases, name,
+                    character_id if character_id is not None else _DASH,
+                    item.get("depth"), matrix,
+                ),
+                "search": _search_blob(
+                    "sprite", sprite_id, aliases, locations, name,
+                    "character char", character_id,
+                    "tiefe depth", item.get("depth"), matrix,
+                ),
+            })
+    return tuple(rows)
+
+
+def _target_rows(structure, references):
+    rows = []
+    for sprite_id, items in sorted(structure.items()):
+        refs = references.get(sprite_id, ())
+        aliases = ", ".join(_unique(ref["name"] for ref in refs)) or _DASH
+        locations = ", ".join(_reference_location(ref) for ref in refs) or _DASH
+        named = tuple(item for item in items if item.get("name"))
+        contents = ", ".join(
+            f"{item['name']}@{item['depth']}→Char {item.get('character_id')}"
+            for item in named
+        ) or "(keine benannten Instanzen)"
+        details = " ".join(
+            _search_blob(
+                item.get("name"), item.get("depth"),
+                item.get("character_id"), item.get("matrix_hex"),
+            )
+            for item in items
+        )
+        rows.append({
+            "sprite_id": sprite_id,
+            "values": (sprite_id, aliases, locations, len(items), contents),
+            "search": _search_blob(
+                "sprite", sprite_id, aliases, locations, len(items),
+                contents, details,
+            ),
+        })
+    return tuple(rows)
+
+
+def _anchor_rows(structure, sprite_id):
+    rows = [{
+        "name": "",
+        "values": ("(Quellmatrix verwenden)", _DASH, _DASH, _DASH),
+        "search": _search_blob("Quellmatrix Quelle kein Anker"),
+    }]
+    for item in structure.get(int(sprite_id), ()):
+        name = item.get("name") or ""
+        if not name:
+            continue
+        matrix = item.get("matrix_hex") or "00"
+        character_id = item.get("character_id")
+        rows.append({
+            "name": name,
+            "values": (
+                name, item.get("depth"),
+                character_id if character_id is not None else _DASH,
+                matrix,
+            ),
+            "search": _search_blob(
+                name, "tiefe depth", item.get("depth"),
+                "character char", character_id, matrix,
+            ),
+        })
+    return tuple(rows)
+
+
+def _sort_value(value):
+    text = str(value).strip()
+    try:
+        return 0, int(text, 0)
+    except ValueError:
+        return 1, text.casefold()
+
+
+def _sort_tree(tree, column, reverse=False):
+    items = [(tree.set(item, column), item) for item in tree.get_children("")]
+    items.sort(key=lambda pair: _sort_value(pair[0]), reverse=reverse)
+    for index, (_value, item) in enumerate(items):
+        tree.move(item, "", index)
+    tree.heading(column, command=lambda: _sort_tree(tree, column, not reverse))
+
+
+class SearchTree(ttk.Frame):
+    def __init__(self, parent, columns, on_select, summary=None):
+        super().__init__(parent)
+        self.rows = ()
+        self.visible = {}
+        self.selected_key = None
+        self.key_getter = lambda row: None
+        self.on_select = on_select
+        self.query = tk.StringVar()
+        self.count = tk.StringVar()
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(2, weight=1)
+
+        search = ttk.Frame(self)
+        search.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        search.columnconfigure(1, weight=1)
+        ttk.Label(search, text="Suchen:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(search, textvariable=self.query).grid(
+            row=0, column=1, sticky="ew", padx=6,
+        )
+        ttk.Button(search, text="Leeren", command=lambda: self.query.set("")).grid(
+            row=0, column=2,
+        )
+        ttk.Label(search, textvariable=self.count).grid(
+            row=0, column=3, sticky="e", padx=(8, 0),
+        )
+        if summary is not None:
+            ttk.Label(self, textvariable=summary).grid(
+                row=1, column=0, sticky="ew", pady=(0, 5),
+            )
+
+        holder = ttk.Frame(self)
+        holder.grid(row=2, column=0, sticky="nsew")
+        holder.columnconfigure(0, weight=1)
+        holder.rowconfigure(0, weight=1)
+        names = tuple(column[0] for column in columns)
+        self.tree = ttk.Treeview(
+            holder, columns=names, show="headings", selectmode="browse",
+        )
+        for name, title, width, anchor, stretch in columns:
+            self.tree.heading(
+                name, text=title,
+                command=lambda key=name: _sort_tree(self.tree, key),
+            )
+            self.tree.column(
+                name, width=width, minwidth=55,
+                anchor=anchor, stretch=stretch,
+            )
+        yscroll = ttk.Scrollbar(holder, orient="vertical", command=self.tree.yview)
+        xscroll = ttk.Scrollbar(holder, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+        self.tree.bind("<<TreeviewSelect>>", self._selected)
+        self.query.trace_add("write", lambda *_args: self.refresh())
+
+    def set_rows(self, rows, key_getter, selected_key=None, select_first=False):
+        self.rows = tuple(rows)
+        self.key_getter = key_getter
+        self.selected_key = selected_key
+        self.refresh(select_first=select_first)
+
+    def refresh(self, select_first=False):
+        children = self.tree.get_children("")
+        if children:
+            self.tree.delete(*children)
+        self.visible = {}
+        visible = [row for row in self.rows if _matches(row["search"], self.query.get())]
+        selected_iid = None
+        for index, row in enumerate(visible):
+            iid = f"row:{index}"
+            self.visible[iid] = row
+            self.tree.insert("", "end", iid=iid, values=row["values"])
+            if self.key_getter(row) == self.selected_key:
+                selected_iid = iid
+        self.count.set(f"{len(visible)} / {len(self.rows)}")
+        if selected_iid is not None:
+            self.tree.selection_set(selected_iid)
+            self.tree.see(selected_iid)
+        elif select_first and visible:
+            first = "row:0"
+            self.tree.selection_set(first)
+            self.tree.see(first)
+            self._selected()
+
+    def _selected(self, _event=None):
+        selection = self.tree.selection()
+        if not selection:
+            return
+        row = self.visible.get(selection[0])
+        if row is None:
+            return
+        self.selected_key = self.key_getter(row)
+        self.on_select(row)
 
 
 class TimelineEditorDialog(tk.Toplevel):
@@ -91,13 +327,21 @@ class TimelineEditorDialog(tk.Toplevel):
         super().__init__(owner)
         self.owner = owner
         self.structure = {}
+        self.root_items = ()
+        self.references = {}
         self.title("SWF-Timeline-Editor")
-        self.geometry("820x650")
-        self.minsize(720, 560)
+        self.geometry("1280x840")
+        self.minsize(980, 680)
         self.transient(owner)
         self.protocol("WM_DELETE_WINDOW", self.close)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=3)
+        self.rowconfigure(2, weight=2)
+        self.rowconfigure(3, weight=1)
 
         self.status = tk.StringVar(value="Noch nichts verändert")
+        self.source_summary = tk.StringVar(value="Keine Quellinstanz ausgewählt")
+        self.target_summary = tk.StringVar(value="Kein Ziel-Sprite ausgewählt")
         self.source_sprite = tk.StringVar()
         self.source_name = tk.StringVar()
         self.target_sprite = tk.StringVar()
@@ -106,80 +350,130 @@ class TimelineEditorDialog(tk.Toplevel):
         self.depth = tk.StringVar()
         self.replace_existing = tk.BooleanVar(value=False)
 
-        ttk.Label(self, textvariable=self.status).pack(anchor="w", padx=10, pady=(10, 6))
+        header = ttk.Frame(self, padding=(10, 10, 10, 6))
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, textvariable=self.status).grid(row=0, column=0, sticky="w")
+        ttk.Button(
+            header, text="Struktur neu einlesen", command=self.refresh_structure,
+        ).grid(row=0, column=1, sticky="e")
 
-        form = ttk.LabelFrame(self, text="Instanz kopieren", padding=10)
-        form.pack(fill="x", padx=10, pady=(0, 8))
+        browser = ttk.Panedwindow(self, orient="horizontal")
+        browser.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 8))
+        source_frame = ttk.LabelFrame(browser, text="1. Quellinstanz auswählen", padding=8)
+        target_frame = ttk.LabelFrame(browser, text="2. Ziel-Sprite auswählen", padding=8)
+        browser.add(source_frame, weight=1)
+        browser.add(target_frame, weight=1)
+        self.source_browser = SearchTree(
+            source_frame,
+            (
+                ("sprite", "Quell-Sprite", 85, "e", False),
+                ("alias", "Sprite referenziert als", 150, "w", True),
+                ("name", "Instanzname", 150, "w", True),
+                ("character", "Character-ID", 90, "e", False),
+                ("depth", "Tiefe", 65, "e", False),
+                ("matrix", "Matrix", 250, "w", True),
+            ),
+            self._source_selected,
+            self.source_summary,
+        )
+        self.source_browser.pack(fill="both", expand=True)
+        self.target_browser = SearchTree(
+            target_frame,
+            (
+                ("sprite", "Ziel-Sprite", 80, "e", False),
+                ("alias", "Referenziert als", 160, "w", True),
+                ("location", "Referenzort", 145, "w", True),
+                ("count", "Elemente", 65, "e", False),
+                ("contents", "Benannte Inhalte", 300, "w", True),
+            ),
+            self._target_selected,
+            self.target_summary,
+        )
+        self.target_browser.pack(fill="both", expand=True)
+
+        options = ttk.LabelFrame(self, text="3. Zielposition und Instanzname", padding=8)
+        options.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 8))
+        options.columnconfigure(0, weight=3)
+        options.columnconfigure(1, weight=2)
+        options.rowconfigure(0, weight=1)
+        self.anchor_browser = SearchTree(
+            options,
+            (
+                ("name", "Positionsanker", 190, "w", True),
+                ("depth", "Tiefe", 65, "e", False),
+                ("character", "Character-ID", 90, "e", False),
+                ("matrix", "Matrix", 300, "w", True),
+            ),
+            self._anchor_selected,
+        )
+        self.anchor_browser.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        self._build_options(options)
+
+        report_frame = ttk.LabelFrame(self, text="Prüfbericht", padding=6)
+        report_frame.grid(row=3, column=0, sticky="nsew", padx=10)
+        report_frame.columnconfigure(0, weight=1)
+        report_frame.rowconfigure(0, weight=1)
+        self.report = tk.Text(report_frame, wrap="word", height=7, state="disabled")
+        report_scroll = ttk.Scrollbar(
+            report_frame, orient="vertical", command=self.report.yview,
+        )
+        self.report.configure(yscrollcommand=report_scroll.set)
+        self.report.grid(row=0, column=0, sticky="nsew")
+        report_scroll.grid(row=0, column=1, sticky="ns")
+
+        buttons = ttk.Frame(self, padding=10)
+        buttons.grid(row=4, column=0, sticky="ew")
+        ttk.Button(buttons, text="Plan prüfen", command=self.plan).pack(side="left")
+        ttk.Button(buttons, text="Vorschau anwenden", command=self.preview).pack(
+            side="left", padx=6,
+        )
+        ttk.Button(buttons, text="Vorschau zurücksetzen", command=self.restore).pack(
+            side="left",
+        )
+        ttk.Button(buttons, text="GFX speichern…", command=self.save_gfx).pack(side="right")
+        ttk.Button(buttons, text="PAK neu bauen…", command=self.save_pak).pack(
+            side="right", padx=6,
+        )
+        self._show(
+            "Links kann nach Instanzname, Sprite-ID, Character-ID, Tiefe oder Matrix gesucht werden. "
+            "Rechts kann nach Sprite-ID, externem Instanznamen oder enthaltenen Instanzen gesucht werden."
+        )
+        self.refresh_structure()
+
+    def _build_options(self, parent):
+        form = ttk.Frame(parent, padding=(8, 4, 0, 0))
+        form.grid(row=0, column=1, sticky="nsew")
         form.columnconfigure(1, weight=1)
-
-        ttk.Label(form, text="Quell-Sprite:").grid(row=0, column=0, sticky="w", pady=3)
-        self.source_sprite_box = ttk.Combobox(
-            form, textvariable=self.source_sprite, state="readonly",
+        ttk.Label(form, text="Ausgewählte Quelle:").grid(row=0, column=0, sticky="nw", pady=4)
+        ttk.Label(form, textvariable=self.source_summary, wraplength=390).grid(
+            row=0, column=1, sticky="nw", pady=4,
         )
-        self.source_sprite_box.grid(row=0, column=1, sticky="ew", pady=3)
-        self.source_sprite_box.bind("<<ComboboxSelected>>", self._source_changed)
-
-        ttk.Label(form, text="Quellinstanz:").grid(row=1, column=0, sticky="w", pady=3)
-        self.source_name_box = ttk.Combobox(
-            form, textvariable=self.source_name, state="readonly",
+        ttk.Label(form, text="Ausgewähltes Ziel:").grid(row=1, column=0, sticky="nw", pady=4)
+        ttk.Label(form, textvariable=self.target_summary, wraplength=390).grid(
+            row=1, column=1, sticky="nw", pady=4,
         )
-        self.source_name_box.grid(row=1, column=1, sticky="ew", pady=3)
-        self.source_name_box.bind("<<ComboboxSelected>>", self._source_name_changed)
-
-        ttk.Label(form, text="Ziel-Sprite:").grid(row=2, column=0, sticky="w", pady=3)
-        self.target_sprite_box = ttk.Combobox(
-            form, textvariable=self.target_sprite, state="readonly",
-        )
-        self.target_sprite_box.grid(row=2, column=1, sticky="ew", pady=3)
-        self.target_sprite_box.bind("<<ComboboxSelected>>", self._target_changed)
-
-        ttk.Label(form, text="Neuer Instanzname:").grid(row=3, column=0, sticky="w", pady=3)
-        ttk.Entry(form, textvariable=self.target_name).grid(
-            row=3, column=1, sticky="ew", pady=3,
-        )
-
-        ttk.Label(form, text="Positionsanker im Ziel:").grid(row=4, column=0, sticky="w", pady=3)
-        self.anchor_box = ttk.Combobox(
-            form, textvariable=self.anchor_name, state="readonly",
-        )
-        self.anchor_box.grid(row=4, column=1, sticky="ew", pady=3)
-
-        ttk.Label(form, text="Zieltiefe:").grid(row=5, column=0, sticky="w", pady=3)
+        ttk.Label(form, text="Neuer Instanzname:").grid(row=2, column=0, sticky="w", pady=4)
+        name_row = ttk.Frame(form)
+        name_row.grid(row=2, column=1, sticky="ew", pady=4)
+        name_row.columnconfigure(0, weight=1)
+        ttk.Entry(name_row, textvariable=self.target_name).grid(row=0, column=0, sticky="ew")
+        ttk.Button(
+            name_row, text="Quellname übernehmen",
+            command=lambda: self.target_name.set(self.source_name.get()),
+        ).grid(row=0, column=1, padx=(6, 0))
+        ttk.Label(form, text="Zieltiefe:").grid(row=3, column=0, sticky="w", pady=4)
         depth_row = ttk.Frame(form)
-        depth_row.grid(row=5, column=1, sticky="ew", pady=3)
+        depth_row.grid(row=3, column=1, sticky="ew", pady=4)
         ttk.Entry(depth_row, textvariable=self.depth, width=18).pack(side="left")
         ttk.Label(depth_row, text="leer = automatisch; Dezimal oder 0xHex").pack(
             side="left", padx=(8, 0),
         )
-
         ttk.Checkbutton(
             form,
             text="Vorhandene gleichnamige Zielinstanz ersetzen",
             variable=self.replace_existing,
-        ).grid(row=6, column=1, sticky="w", pady=(5, 1))
-
-        ttk.Button(
-            form, text="Struktur neu einlesen", command=self.refresh_structure,
-        ).grid(row=0, column=2, rowspan=2, padx=(10, 0), sticky="n")
-
-        self.report = tk.Text(self, wrap="word", state="disabled")
-        self.report.pack(fill="both", expand=True, padx=10)
-
-        row = ttk.Frame(self, padding=10)
-        row.pack(fill="x")
-        ttk.Button(row, text="Plan prüfen", command=self.plan).pack(side="left")
-        ttk.Button(row, text="Vorschau anwenden", command=self.preview).pack(
-            side="left", padx=6,
-        )
-        ttk.Button(row, text="Vorschau zurücksetzen", command=self.restore).pack(
-            side="left",
-        )
-        ttk.Button(row, text="GFX speichern…", command=self.save_gfx).pack(side="right")
-        ttk.Button(row, text="PAK neu bauen…", command=self.save_pak).pack(
-            side="right", padx=6,
-        )
-
-        self.refresh_structure()
+        ).grid(row=4, column=1, sticky="w", pady=(7, 1))
 
     def _show(self, value):
         self.report.configure(state="normal")
@@ -187,54 +481,93 @@ class TimelineEditorDialog(tk.Toplevel):
         self.report.insert("1.0", str(value))
         self.report.configure(state="disabled")
 
-    def _source_changed(self, _event=None):
-        names = _names(self.structure, self.source_sprite.get())
-        self.source_name_box.configure(values=names)
-        if self.source_name.get() not in names:
-            self.source_name.set(names[0] if names else "")
-        self._source_name_changed()
+    def _source_selected(self, row):
+        self.source_sprite.set(str(row["sprite_id"]))
+        self.source_name.set(row["name"])
+        self.target_name.set(row["name"])
+        self.source_summary.set(
+            f"Sprite {row['sprite_id']} / {row['name']} / "
+            f"Character {row['character_id']} / Tiefe {row['depth']}"
+        )
 
-    def _source_name_changed(self, _event=None):
-        if not self.target_name.get().strip():
-            self.target_name.set(self.source_name.get())
-
-    def _target_changed(self, _event=None):
-        names = _names(self.structure, self.target_sprite.get())
-        values = ("",) + names
-        self.anchor_box.configure(values=values)
-        if self.anchor_name.get() not in values:
+    def _target_selected(self, row):
+        self.target_sprite.set(str(row["sprite_id"]))
+        self.target_summary.set(
+            f"Sprite {row['sprite_id']} / referenziert als {row['values'][1]}"
+        )
+        valid = {
+            item.get("name") for item in self.structure.get(row["sprite_id"], ())
+            if item.get("name")
+        }
+        if self.anchor_name.get() not in valid:
             self.anchor_name.set("")
+        self.anchor_browser.set_rows(
+            _anchor_rows(self.structure, row["sprite_id"]),
+            lambda item: item["name"],
+            self.anchor_name.get(),
+            select_first=True,
+        )
+
+    def _anchor_selected(self, row):
+        self.anchor_name.set(row["name"])
 
     def refresh_structure(self):
         try:
             _record, _container, movie_data, patch_count = _base_movie(self.owner)
-            structure = timeline.inspect_sprites(movie_data)
-            source_ids = _source_sprite_ids(structure)
-            target_ids = _target_sprite_ids(structure)
-            if not source_ids:
+            old_source = (self.source_sprite.get(), self.source_name.get())
+            old_target = self.target_sprite.get()
+            old_anchor = self.anchor_name.get()
+            structure, root_items = _inspect_movie(movie_data)
+            references = _reference_map(structure, root_items)
+            source_rows = _source_rows(structure, references)
+            target_rows = _target_rows(structure, references)
+            if not source_rows:
                 raise timeline.TimelinePatchError(
                     "Der ausgewählte Film enthält keine benannte Quellinstanz"
                 )
-            if not target_ids:
+            if not target_rows:
                 raise timeline.TimelinePatchError(
                     "Der ausgewählte Film enthält kein DefineSprite"
                 )
-            old_source = self.source_sprite.get()
-            old_target = self.target_sprite.get()
             self.structure = structure
-            self.source_sprite_box.configure(values=source_ids)
-            self.target_sprite_box.configure(values=target_ids)
-            self.source_sprite.set(
-                old_source if old_source in source_ids else source_ids[0]
+            self.root_items = root_items
+            self.references = references
+            source_exists = any(
+                old_source == (str(row["sprite_id"]), row["name"])
+                for row in source_rows
             )
-            self.target_sprite.set(
-                old_target if old_target in target_ids else target_ids[0]
+            target_exists = any(old_target == str(row["sprite_id"]) for row in target_rows)
+            if not source_exists:
+                self.source_sprite.set("")
+                self.source_name.set("")
+                self.source_summary.set("Keine Quellinstanz ausgewählt")
+            if not target_exists:
+                self.target_sprite.set("")
+                self.target_summary.set("Kein Ziel-Sprite ausgewählt")
+            self.anchor_name.set(old_anchor if target_exists else "")
+            self.source_browser.set_rows(
+                source_rows,
+                lambda row: (str(row["sprite_id"]), row["name"]),
+                old_source if source_exists else None,
+                select_first=not source_exists,
             )
-            self._source_changed()
-            self._target_changed()
+            self.target_browser.set_rows(
+                target_rows,
+                lambda row: str(row["sprite_id"]),
+                old_target if target_exists else None,
+                select_first=not target_exists,
+            )
+            if target_exists:
+                self.anchor_browser.set_rows(
+                    _anchor_rows(structure, old_target),
+                    lambda row: row["name"],
+                    self.anchor_name.get(),
+                    select_first=True,
+                )
+            reference_count = sum(len(items) for items in references.values())
             self.status.set(
-                f"Struktur eingelesen: {len(source_ids)} Quell-Sprites, "
-                f"{len(target_ids)} Ziel-Sprites; "
+                f"Struktur eingelesen: {len(source_rows)} benannte Quellinstanzen, "
+                f"{len(target_rows)} Ziel-Sprites, {reference_count} Sprite-Referenzen; "
                 f"{patch_count} AVM2-Patches berücksichtigt"
             )
         except Exception as exc:
@@ -242,12 +575,20 @@ class TimelineEditorDialog(tk.Toplevel):
             messagebox.showerror("SWF-Timeline", str(exc), parent=self)
 
     def _spec(self):
+        source_sprite = self.source_sprite.get().strip()
         source_name = self.source_name.get().strip()
+        target_sprite = self.target_sprite.get().strip()
         target_name = self.target_name.get().strip()
-        if not source_name or not target_name:
+        if not source_sprite or not source_name:
             raise timeline.TimelinePatchError(
-                "Quellinstanz und neuer Instanzname sind erforderlich"
+                "In der linken Tabelle muss eine Quellinstanz ausgewählt sein"
             )
+        if not target_sprite:
+            raise timeline.TimelinePatchError(
+                "In der rechten Tabelle muss ein Ziel-Sprite ausgewählt sein"
+            )
+        if not target_name:
+            raise timeline.TimelinePatchError("Der neue Instanzname ist erforderlich")
         depth_text = self.depth.get().strip()
         try:
             depth = int(depth_text, 0) if depth_text else None
@@ -256,9 +597,9 @@ class TimelineEditorDialog(tk.Toplevel):
                 f"Ungültige Zieltiefe: {depth_text!r}"
             ) from exc
         return timeline.TimelineCopySpec(
-            source_sprite_id=int(self.source_sprite.get()),
+            source_sprite_id=int(source_sprite),
             source_name=source_name,
-            target_sprite_id=int(self.target_sprite.get()),
+            target_sprite_id=int(target_sprite),
             target_name=target_name,
             anchor_name=self.anchor_name.get().strip(),
             depth=depth,
@@ -371,7 +712,7 @@ def _init(self, *args, **kwargs):
     ).pack(side="left")
     ttk.Label(
         bar,
-        text="Universell: Quelle, Ziel, Name, Anker, Tiefe und Ersetzen frei wählbar",
+        text="Durchsuchbare Quellen, Ziel-Sprites und Positionsanker",
     ).pack(side="left", padx=10)
 
 
