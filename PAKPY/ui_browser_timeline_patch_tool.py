@@ -66,12 +66,16 @@ def _report_text(report):
     ))
 
 
-def _sprite_ids(structure):
+def _source_sprite_ids(structure):
     return tuple(
         str(sprite_id)
         for sprite_id, items in sorted(structure.items())
         if any(item.get("name") for item in items)
     )
+
+
+def _target_sprite_ids(structure):
+    return tuple(str(sprite_id) for sprite_id in sorted(structure))
 
 
 def _names(structure, sprite_id):
@@ -183,10 +187,6 @@ class TimelineEditorDialog(tk.Toplevel):
         self.report.insert("1.0", str(value))
         self.report.configure(state="disabled")
 
-    def _selected(self):
-        record, _container, _movie_data, _patch_count = _base_movie(self.owner)
-        return record
-
     def _source_changed(self, _event=None):
         names = _names(self.structure, self.source_sprite.get())
         self.source_name_box.configure(values=names)
@@ -209,22 +209,32 @@ class TimelineEditorDialog(tk.Toplevel):
         try:
             _record, _container, movie_data, patch_count = _base_movie(self.owner)
             structure = timeline.inspect_sprites(movie_data)
-            sprite_ids = _sprite_ids(structure)
-            if not sprite_ids:
+            source_ids = _source_sprite_ids(structure)
+            target_ids = _target_sprite_ids(structure)
+            if not source_ids:
                 raise timeline.TimelinePatchError(
-                    "Der ausgewählte Film enthält keine benannten Sprite-Instanzen"
+                    "Der ausgewählte Film enthält keine benannte Quellinstanz"
+                )
+            if not target_ids:
+                raise timeline.TimelinePatchError(
+                    "Der ausgewählte Film enthält kein DefineSprite"
                 )
             old_source = self.source_sprite.get()
             old_target = self.target_sprite.get()
             self.structure = structure
-            self.source_sprite_box.configure(values=sprite_ids)
-            self.target_sprite_box.configure(values=sprite_ids)
-            self.source_sprite.set(old_source if old_source in sprite_ids else sprite_ids[0])
-            self.target_sprite.set(old_target if old_target in sprite_ids else sprite_ids[0])
+            self.source_sprite_box.configure(values=source_ids)
+            self.target_sprite_box.configure(values=target_ids)
+            self.source_sprite.set(
+                old_source if old_source in source_ids else source_ids[0]
+            )
+            self.target_sprite.set(
+                old_target if old_target in target_ids else target_ids[0]
+            )
             self._source_changed()
             self._target_changed()
             self.status.set(
-                f"Struktur eingelesen: {len(sprite_ids)} benannte Sprites; "
+                f"Struktur eingelesen: {len(source_ids)} Quell-Sprites, "
+                f"{len(target_ids)} Ziel-Sprites; "
                 f"{patch_count} AVM2-Patches berücksichtigt"
             )
         except Exception as exc:
