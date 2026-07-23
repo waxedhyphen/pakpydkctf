@@ -1,0 +1,31 @@
+name: Python syntax
+
+on:
+  push:
+    paths:
+      - "PAKPY/**/*.py"
+      - ".github/workflows/python-syntax.yml"
+  pull_request:
+    paths:
+      - "PAKPY/**/*.py"
+      - ".github/workflows/python-syntax.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile repository Python sources
+        working-directory: PAKPY
+        run: python -m unittest test_repository_python_syntax
