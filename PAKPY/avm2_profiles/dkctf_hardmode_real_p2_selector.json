@@ -18,6 +18,15 @@
       "expected": "60 F4 08",
       "replacement": "60 BF 07 D0 24 02 46 F3 07 01 66 81 04 73 66 8A 0A D7 60 B7 01 2C CB 10 2C F2 07 2C DA 09 D3 4F EC 06 04 60 F4 08",
       "note": "Before initLevelTransition, map chooseKongP2.currentState through kongMapping and write the resulting Kong string to mRuntimeData.Char_P2. local_3 keeps max_stack at the original value 5."
+    },
+    {
+      "module_name": "<unbenannt>",
+      "source": "root",
+      "method_index": 488,
+      "code_offset": "0xC6",
+      "expected": "4E FF FF",
+      "replacement": "2B FF FF",
+      "note": "Correct the PLAY case of the final lookupswitch: the switch moves forward by 35 bytes while the PLAY case target at 0x0F remains before the inserted block. Offset changes from -178 to -213."
     }
   ]
 }
