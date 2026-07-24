@@ -10,7 +10,7 @@ from skeletal_tail_patch import install as install_skeletal_tail_patch
 from exact_skeletal_rig_patch import install as install_exact_skeletal_rig_patch
 from mesh_partition_export_patch import install as install_mesh_partition_export_patch
 from mesh_partition_outliner_cleanup_patch import install as install_mesh_partition_outliner_cleanup_patch
-from blend_model_repack_patch import install as install_blend_model_repack_patch
+from blend_model_repack_patch import install as install_blend_model_repack
 from mesh_viewer_gui_patch import install as install_mesh_viewer_gui_patch
 from ui_browser_gui_patch import install as install_ui_browser_gui_patch
 from preview_orientation_patch import install as install_preview_orientation_patch
@@ -61,6 +61,7 @@ from ui_browser_avm2_variable_length_patch import install as install_ui_browser_
 from ui_browser_avm2_block_patch_tool import install as install_ui_browser_avm2_block_patch_tool
 from ui_browser_timeline_patch_tool import install as install_ui_browser_timeline_patch_tool
 from exefs_gui_patch import install as install_exefs_gui_patch
+from exefs_function_gui_patch import install as install_exefs_function_gui_patch
 from mesh_viewer_uv_diagnostics_patch import install as install_mesh_viewer_uv_diagnostics_patch
 from mesh_viewer_selection_patch import install as install_mesh_viewer_selection_patch
 from mesh_viewer_visibility_patch import install as install_mesh_viewer_visibility_patch
@@ -94,7 +95,7 @@ install_skeletal_tail_patch()
 install_exact_skeletal_rig_patch()
 install_mesh_partition_export_patch()
 install_mesh_partition_outliner_cleanup_patch()
-install_blend_model_repack_patch(App)
+install_blend_model_repack(App)
 install_dcln_gui(App)
 install_room_gui(App)
 install_char_gui(App)
@@ -151,6 +152,7 @@ install_ui_browser_avm2_variable_length_patch()
 install_ui_browser_avm2_block_patch_tool()
 install_ui_browser_timeline_patch_tool()
 install_exefs_gui_patch(App)
+install_exefs_function_gui_patch(App)
 install_mesh_viewer_uv_diagnostics_patch()
 install_mesh_viewer_selection_patch()
 install_mesh_viewer_visibility_patch()
