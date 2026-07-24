@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "patches": [
+    {
+      "module_name": "<unbenannt>",
+      "source": "root",
+      "method_index": 488,
+      "code_offset": "0xC",
+      "expected": "83 00 00",
+      "replacement": "A6 00 00",
+      "note": "menu_hardmode PLAY branch: move the initial dispatch target forward by the 35-byte Char_P2 write inserted at 0x2E."
+    },
+    {
+      "module_name": "<unbenannt>",
+      "source": "root",
+      "method_index": 488,
+      "code_offset": "0x2E",
+      "expected": "60 F4 08",
+      "replacement": "60 BF 07 D0 24 02 46 F3 07 01 66 81 04 73 66 8A 0A D7 60 B7 01 2C CB 10 2C F2 07 2C DA 09 D3 4F EC 06 04 60 F4 08",
+      "note": "Before initLevelTransition, map chooseKongP2.currentState through kongMapping and write the resulting Kong string to mRuntimeData.Char_P2. local_3 keeps max_stack at the original value 5."
+    }
+  ]
+}
