@@ -132,8 +132,8 @@ class NsoImage:
             file_offset, memory_offset, memory_size = struct.unpack_from(
                 "<III", raw, header_offset
             )
-            compressed = bool(flags & (1 << flag_index))
-            hash_enabled = bool(flags & (1 << (flag_index + 3)))
+            compressed = bool(flags & (1 << (flag_index * 4)))
+            hash_enabled = bool(flags & (1 << (12 + flag_index * 4)))
             if memory_size and stored_size == 0:
                 raise NsoError(f"Segment {name} hat Größe, aber keine gespeicherte Länge")
             if stored_size and file_offset < NSO_HEADER_SIZE:
@@ -405,12 +405,13 @@ def _require_non_negative(value: int, label: str) -> int:
 
 
 def _read_module_name(raw: bytes, offset: int, size: int) -> str:
-    if size == 0:
+    if size == 0 or offset == 0:
         return ""
+    # Some valid NSOs use placeholder values when no useful module name is
+    # present. The field is informational and must not prevent analysis of
+    # otherwise valid executable segments.
     if offset < NSO_HEADER_SIZE or offset + size > len(raw):
-        raise NsoError(
-            f"Modulname liegt außerhalb der Datei: 0x{offset:X}+0x{size:X}"
-        )
+        return ""
     value = raw[offset:offset + size].split(b"\0", 1)[0]
     return value.decode("utf-8", errors="replace")
 
