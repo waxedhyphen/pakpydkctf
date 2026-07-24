@@ -1,6 +1,6 @@
 # DKCTF Hard Mode Multiplayer – native ExeFS findings
 
-Diese Datei dokumentiert nur binär nachgewiesene Fakten aus der bereitgestellten DKCTF-`main`. Vermutete Feldnamen werden nicht als bewiesen dargestellt.
+Diese Datei dokumentiert binär nachgewiesene Fakten aus der bereitgestellten DKCTF-`main`. In-Game-Beobachtungen stehen zusätzlich in `EXEFS_HARDMODE_TEST_LOG.md`.
 
 ## Referenz-Build
 
@@ -45,7 +45,7 @@ ExternalInterface.call(
 );
 ```
 
-Der Hard-Mode-Start übergibt zusätzlich genau einen Kong und schreibt vor dem Übergang nur `Char_P1`.
+Der Stock-Hard-Mode-Start schreibt nur `Char_P1` und übergibt nur einen Kong an die native Transition.
 
 ## 2. Native Callback-Auflösung
 
@@ -67,16 +67,16 @@ Der Stringparser bei `0x1F50EC` bildet die Modi exakt ab:
 
 Der Callback bei `0x35267C` liest den Modus aus dem ersten Argument. Ein optionales zweites Argument wird als Kong ausgewertet. Danach wird der gemeinsame Übergangshelfer bei `0x352AA0` aufgerufen.
 
-Im Helfer liegt der Modus in `w23`. Der Hard-Mode-Zweig ist eindeutig:
+Der Hard-Mode-Zweig ist eindeutig:
 
 ```text
 w23 == 2
 0x352C18 -> 0x1E6FC0
 ```
 
-`0x1E6FC0` ist damit die nachgewiesene native Hard-Mode-Initialisierung.
+`0x1E6FC0` ist die nachgewiesene native Hard-Mode-Initialisierung.
 
-## 3. Native Charakterfelder und Aktivmaske
+## 3. Charakterfelder und Aktivmaske
 
 Der registrierte Callback `UpdateCharacterTypes` liegt bei:
 
@@ -112,15 +112,15 @@ Bit 1 = P2 aktiv
 11 = P1 und P2 aktiv
 ```
 
-## 4. Nachgewiesene Hard-Mode-Solosperre
+## 4. Erster Hard-Mode-Soloblocker: Aktivmaske
 
 Die Hard-Mode-Funktion bei `0x1E6FC0`:
 
 1. setzt die ausgewählte Hard-Mode-Figur nach `+0x2698`,
-2. überschreibt `+0x269C` mit einer automatisch bestimmten Ersatzfigur,
+2. überschreibt `+0x269C` mit einer automatisch bestimmten Partnerfigur,
 3. erzwingt in `+0x26A0` den Zustand `01`.
 
-Der entscheidende Block:
+Der Block:
 
 ```asm
 0x1E7010  MOV  W8, #0x26A0
@@ -136,20 +136,14 @@ Sinngemäß:
 flags = (flags & 0xFC) | 1;
 ```
 
-Dadurch werden Bit 0 und Bit 1 gelöscht und anschließend nur Bit 0 wieder gesetzt. Das ist der konkrete native Grund, warum Hard Mode P2 deaktiviert.
+Dadurch werden Bit 0 und Bit 1 gelöscht und nur Bit 0 wieder gesetzt.
 
-## 5. Minimaler Testpatch 1
-
-Nur die Maske wird geändert:
+### Testpatch 1
 
 ```asm
-Original:
-0x1E7018  AND W9, W9, #0xFC
-Bytes:    29 15 1E 12
-
-Neu:
-0x1E7018  AND W9, W9, #0xFE
-Bytes:    29 19 1F 12
+0x1E7018
+29 15 1E 12  AND W9, W9, #0xFC
+29 19 1F 12  AND W9, W9, #0xFE
 ```
 
 Neue Semantik:
@@ -158,24 +152,90 @@ Neue Semantik:
 flags = (flags & 0xFE) | 1;
 ```
 
-```text
-vorher 01 -> nachher 01
-vorher 11 -> nachher 11
+In-Game-Ergebnis: P2 blieb als Piggyback-/Begleiter-Kong vorhanden, war aber noch kein unabhängiger Spieler. Der Patch war damit nur teilweise erfolgreich.
+
+## 5. Zweiter Hard-Mode-Soloblocker: Zustand `+0x26AF`
+
+Hard Mode setzt ein separates Statusbyte auf null:
+
+```asm
+0x1E6FE4  MOV  W8, #0x26AF
+0x1E6FEC  STRB WZR, [X19, X8]
 ```
 
-Einzelspieler bleibt unverändert; ein bereits aktiver P2-Slot bleibt erhalten.
+Originalbytes:
 
-Noch nicht Teil dieses Tests: Bei `0x1E700C` wird das P2-Charakterfeld `+0x269C` weiterhin mit einer automatisch bestimmten Figur überschrieben. Der erste Test prüft ausschließlich, ob P2 aktiv/spawnbar bleibt.
+```text
+7F 6A 28 38
+```
 
-## 6. Datengetriebenes PAKPY-Projekt
+Die Funktion bei `0x33557C`, die sowohl von `UpdateCharacterTypes` als auch vom Transition-Helfer verwendet wird, liest dieses Byte zuerst:
 
-Der DKCTF-Testpatch ist **nicht** im Python-Code hardcodiert. Er liegt ausschließlich als externe Projektdatei vor:
+```text
++0x26AF == 0 -> false
+```
+
+Bei `false` wird der unabhängige P2-Pfad nicht aktiviert. Der Quellname dieses Feldes ist noch nicht bewiesen; deshalb bleibt die Dokumentation adressbasiert.
+
+### Testpatch 2
+
+```asm
+0x1E6FEC
+7F 6A 28 38  STRB WZR, [X19, X8]
+1F 20 03 D5  NOP
+
+0x1E7018
+29 15 1E 12  AND W9, W9, #0xFC
+29 19 1F 12  AND W9, W9, #0xFE
+```
+
+In-Game-Ergebnis: **bestätigt**.
+
+- Hard Mode startet mit zwei echten Spielern.
+- P2 ist unabhängig vorhanden.
+- Der zweite Controller kann P2 steuern.
+- Die Multiplayer-Aktivierung ist für den Referenz-Build gelöst.
+
+Externes Projekt:
+
+```text
+PAKPY/exefs_profiles/dkctf_hardmode_p2_test2.json
+```
+
+## 6. Verbleibende automatische Figurenpaarung
+
+Der Multiplayer-Pfad funktioniert, aber Hard Mode bestimmt die Figuren weiterhin automatisch:
+
+```text
+P1 = DK      -> P2 = Diddy
+P1 = Diddy   -> P2 = DK
+P1 = Dixie   -> P2 = DK
+andere Buddy-Kongs -> P2 = DK
+```
+
+Funky ist im Stock-Hard-Mode-Selector im normalen Modus nicht auswählbar. Die Hard-Mode-Initialisierung überschreibt weiterhin das P2-Charakterfeld bei `+0x269C`.
+
+Das ist jetzt ein getrenntes Auswahlproblem. Der nächste Hauptschritt ist daher UI-seitig:
+
+- zwei Selector-Instanzen im Hard-Mode-Menü,
+- eine für P1 und eine für P2,
+- später jeweils vollständiger Fünferzyklus,
+- danach Übergabe beider gewählten Werte an die bereits funktionierende native Multiplayer-Initialisierung.
+
+UI-Dokumentation:
+
+```text
+PAKPY/UI_HARDMODE_KONG_SELECT.md
+```
+
+## 7. Datengetriebenes PAKPY-System
+
+Die DKCTF-Patches sind nicht in der universellen Python-Engine hardcodiert. Sie liegen als externe JSON-Projekte vor:
 
 ```text
 PAKPY/exefs_profiles/dkctf_hardmode_p2_test1.json
+PAKPY/exefs_profiles/dkctf_hardmode_p2_test2.json
 ```
-
-Die universelle Engine und GUI enthalten keine DKCTF-Adresse, Build ID oder Gameplay-Patchliste.
 
 GUI:
 
@@ -184,37 +244,28 @@ Werkzeuge -> ExeFS Patchprojekt / IPS32
 Ctrl+Shift+P
 ```
 
-Ablauf:
+Die Engine validiert Build ID, Originalbytes, Segmentgrenzen und Überschneidungen und kann direkt in einen Emulator-Modordner exportieren.
 
-1. beliebige `main` laden,
-2. beliebiges JSON-Projekt laden oder Einträge manuell erstellen,
-3. Build ID und Originalbytes validieren,
-4. IPS32 in einen Emulator-Modordner oder eine Atmosphère-Struktur exportieren.
-
-Für dieses externe Projekt gilt:
-
-```text
-NSO-VA:       0x1E7018
-IPS32-Offset: 0x1E7118
-```
-
-Die vollständige universelle Projektarchitektur und das JSON-Schema stehen in `EXEFS_PATCH_PROJECTS.md`.
-
-## 7. Bestätigungsstatus
+## 8. Bestätigungsstatus
 
 ### Binär bestätigt
 
 - `initLevelTransition("HARD", currentKong)` wird zu Modusenum 2.
-- Modus 2 ruft die Hard-Initialisierung bei `0x1E6FC0` auf.
+- Modus 2 ruft `0x1E6FC0` auf.
 - `UpdateCharacterTypes` schreibt P1/P2 nach `+0x2698/+0x269C`.
 - Bit 0/1 bei `+0x26A0` aktivieren P1/P2.
-- Hard Mode löscht Bit 1 und erzwingt nur P1.
-- `29 15 1E 12 -> 29 19 1F 12` ist gegen den Referenz-Build exakt validiert.
-- Der erzeugte IPS32-Eintrag ist strukturell validiert.
+- Hard Mode löscht Bit 1 an `0x1E7018`.
+- Hard Mode löscht den separaten Zustand bei `+0x26AF` an `0x1E6FEC`.
+- Beide Test-2-Einträge sind gegen den Referenz-Build exakt validiert.
 
-### Noch nicht im Spiel bestätigt
+### Im Spiel bestätigt
 
-- ob Testpatch 1 P2 im Hard Mode tatsächlich spawnen lässt,
-- welche automatisch gesetzte P2-Figur erscheint,
-- ob spätere Hard-Mode-Systeme P2 erneut deaktivieren,
-- der spätere Erhalt der im KONG-Select ausgewählten P2-Figur.
+- Test 1 erzeugt Partner-/Piggyback-Verhalten, aber keinen echten P2.
+- Test 2 aktiviert einen unabhängigen, steuerbaren P2 im Hard Mode.
+
+### Noch offen
+
+- freie Auswahl des P1-Kongs im neuen Hard-Mode-UI,
+- freie Auswahl des P2-Kongs im neuen Hard-Mode-UI,
+- Funky im vollständigen Fünferzyklus,
+- Übergabe und Erhalt beider gewählten Charaktere.
