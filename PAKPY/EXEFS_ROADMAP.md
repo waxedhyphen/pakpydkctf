@@ -29,7 +29,7 @@ Status: **implementiert**
 Umfang:
 
 - `NSO0`-Header validieren
-- Version und Flags lesen
+- Version und die NSO-Flags `0..2` (Kompression) sowie `3..5` (Hash) lesen
 - Modulname lesen
 - vollständige 32-Byte-Build-ID lesen
 - `text`, `rodata`, `data` und `bss` erfassen
@@ -40,6 +40,7 @@ Umfang:
 - bei komprimierten Segmenten keine falsche 1:1-Dateizuordnung behaupten
 - GUI unter `Werkzeuge → ExeFS Lab (NSO)`
 - synthetische Tests für normale, komprimierte und BSS-Bereiche
+- reale Validierung gegen die angehängte DKCTF-`main` mit `flags = 0x3F`
 
 Dateien:
 
@@ -51,49 +52,176 @@ PAKPY/test_exefs_nso.py
 
 ## Schritt 2 – ARM64-Disassembler
 
-Geplant:
+Status: **implementiert – Baseline vollständig nutzbar**
 
-- AArch64-Disassembly des `text`-Segments
-- Adresse, Dateioffset, Bytes, Mnemonic und Operanden
-- direkte Branch-/Call-Ziele
-- gelesene und geschriebene Register
-- Sprung zu Adresse/Offset
-- Export eines markierten Bereichs
-- optional Capstone; fehlende Abhängigkeit muss sauber gemeldet werden
+Umfang:
+
+- AArch64-Disassembly des dekomprimierten `text`-Segments
+- NSO-VA oder Runtime-Adresse, Bytes, Mnemonic und Operanden
+- direkte Ziele für `B`, `BL`, `B.cond`, `CBZ/CBNZ`, `TBZ/TBNZ`, `ADR/ADRP` und Literal-Loads
+- integrierter Decoder für Kontrollfluss, Register-Moves, Immediate-Arithmetik, Move-Wide sowie häufige Load/Store-Formen
+- unbekannte Instruktionen bleiben sichtbar als `.word`, statt übersprungen zu werden
+- optionales Capstone-Backend für vollständige AArch64-Disassembly
+- automatische Erkennung des üblichen ersten Codes hinter dem `MOD0`-Header
+- GUI-Ansicht im ExeFS Lab mit Startadresse, Anzahl und Runtime-Adressumschaltung
+- Tests mit bekannten Instruktionsbytes und echter DKCTF-`main`
+
+Dateien:
+
+```text
+PAKPY/exefs_arm64.py
+PAKPY/test_exefs_arm64.py
+```
+
+Noch für spätere Datenflussphasen auszubauen:
+
+- vollständige Register-read/write-Metadaten ohne Capstone
+- Sprungnavigation und markierter Export
 
 ## Schritt 3 – String- und Xref-Browser
 
-Geplant:
+Status: **implementiert – erste Analyseebene**
 
-- ASCII-/UTF-8- und relevante UTF-16-Strings katalogisieren
-- `ADRP + ADD`, `ADRP + LDR` und Literalreferenzen erkennen
-- Pointertabellen in `rodata`/`data` erkennen
-- alle Xrefs auf einen String anzeigen
-- nahe Strings, Funktionen und Datenobjekte gruppieren
-- Suchprofile für `initLevelTransition`, `PrepareForTransition`, `PlayerCount`, `Char_P1`, `Char_P2`, `HARD`
+Umfang:
+
+- ASCII-/UTF-8- und relevante UTF-16LE-Strings in `rodata` und `data`
+- exakte oder teilweise Suche mit optionaler Groß-/Kleinschreibung
+- 64-Bit-Pointerreferenzen in `rodata` und `data`
+- direkte `ADR`- sowie `ADRP + ADD`-/`ADRP + LDR`-Referenzen im ARM64-Code
+- Erkennung der im DKCTF-Build verwendeten Native-Callback-Records
+- Ausgabe von Stringadresse, Pointer-Slots, Callback-Record und nativem Funktionspointer
+- GUI-Tab `Strings / Xrefs`
+- gecachter Stringkatalog pro geladener NSO-Datei
+
+Dateien:
+
+```text
+PAKPY/exefs_strings.py
+PAKPY/test_exefs_strings.py
+```
+
+Noch auszubauen:
+
+- mehrstufige GOT-/Relocation-Xrefs
+- nahe Strings/Funktionen automatisch gruppieren
+- vollständige Pointertabellen-Klassifizierung
 
 ## Schritt 4 – Funktions- und Callgraph-Ansicht
 
-Geplant:
+Status: **implementiert – kontrollflussbasierte Baseline**
 
-- heuristische Funktionsgrenzen
-- `Calls` und `Called by`
-- Basic Blocks und Branch-Ziele
-- referenzierte Strings und globale Daten
-- Rückgabestellen
-- lokale Namen, Kommentare und Bookmarks
+Umfang:
+
+- Funktionsanalyse ab einer bekannten Startadresse
+- Worklist-basierte Basic-Block-Erkennung
+- direkte `B`-/Bedingungsziele
+- direkte `BL`-Calls
+- globaler Index für `Called by`
+- Rückgabestellen und indirekte `BR`-/`BLR`-Grenzen
+- maximale Instruktionszahl als Sicherheitsgrenze
+- Suche aller unmittelbaren Load-/Store-Zugriffe auf einen Objektfeld-Offset
+- eigene GUI unter `Werkzeuge → ExeFS Funktion / Datenfluss`
+
+Dateien:
+
+```text
+PAKPY/exefs_functions.py
+PAKPY/exefs_function_gui_patch.py
+PAKPY/test_exefs_functions.py
+```
+
+Noch auszubauen:
+
+- Jump-Table-Ziele automatisch auflösen
+- referenzierte Strings und globale Daten direkt in die Funktionsansicht einblenden
+- persistente Namen, Kommentare und Bookmarks
 
 ## Schritt 5 – UI-Callback → ExeFS-Tracer
 
-Geplant:
+Status: **teilweise implementiert; manueller Name-Transfer funktioniert**
 
-- vorhandenen Native-Callback-Inspector anbinden
-- Aktion `Im ExeFS verfolgen`
-- AVM2-Aufrufstelle, Callbackname und Argumentbeispiele übernehmen
-- NSO-String und Registrierungs-Xrefs suchen
-- mögliche Name/Funktionspointer-Tabellen bewerten
-- Callback-Funktionskandidaten mit Konfidenz anzeigen
-- konkreter erster Zielpfad: `initLevelTransition("HARD", currentKong)`
+Bereits vorhanden:
+
+- Callbackname aus dem UI-Inspector kann im ExeFS-Lab gesucht werden
+- String, Pointer-Slots, Callback-Record und native Funktion werden verbunden
+- erkannte Callback-Funktion kann mit einem Klick in den ARM64-Tab übernommen werden
+- konkreter Zielpfad `initLevelTransition("HARD", currentKong)` wurde im echten Build bis zur nativen Funktion verfolgt
+
+Noch offen:
+
+- direkte Aktion `Im ExeFS verfolgen` im bestehenden Native-Callback-Inspector
+- AVM2-Aufrufstelle und Argumentbeispiele automatisch an das ExeFS Lab übergeben
+- Konfidenzbewertung mehrerer Kandidaten
+
+---
+
+# Reale DKCTF-Referenz – angehängtes ExeFS
+
+Die Implementierung wurde zusätzlich zu den synthetischen Tests gegen die bereitgestellte echte `main` geprüft.
+
+```text
+Dateigröße: 13.616.472 Bytes (0xCFC558)
+SHA-256: 018d157673bfd932813555a5991e4257b57f52f89039a0b6685356767e62cd21
+Build ID: F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000
+NSO-Flags: 0x3F
+```
+
+Alle drei gespeicherten Segmente sind in diesem Build komprimiert und gehasht:
+
+| Segment | NSO-VA | Speichergröße | gespeicherte Größe |
+|---|---:|---:|---:|
+| `text` | `0x0` | `0xB9BC68` | `0x67381F` |
+| `rodata` | `0xB9C000` | `0xD7D96B` | `0x644466` |
+| `data` | `0x191A000` | `0xE3A68` | `0x447D2` |
+| `bss` | `0x19FDE68` | `0x4A6C598` | nur Speicher |
+
+Die drei aktivierten Segment-Hashes werden erfolgreich validiert.
+
+## Bestätigter Callback-Trace
+
+```text
+UI: ExternalInterface.call("initLevelTransition", "HARD", currentKong)
+String:          0x1520A98
+rodata-Pointer:  0xBEFBE0
+Callback-Record: 0x193BB40
+Native Funktion: 0x35267C
+```
+
+Die Funktion bei `0x35267C` übernimmt den Callback-Argumentcontainer aus `x2`, prüft mindestens ein und anschließend mindestens zwei Argumente und ruft nach der Argumentumwandlung den Helfer bei `0x352AA0` auf.
+
+Binär und durch die neue Funktionsanalyse bestätigt:
+
+```text
+initLevelTransition: 0x35267C–0x352AA0
+  265 erkannte Instruktionen
+  78 Basic Blocks
+  38 direkte Calls
+
+Helper: 0x352AA0–0x352D28
+  154 erkannte Instruktionen
+  27 Basic Blocks
+  29 direkte Calls
+  direkter Aufrufer: 0x352850
+```
+
+Der lokale Datenflusstracer beweist für die Prüfung bei `0x352C4C`:
+
+```text
+x19 stammt aus arg0
+w8 = load32(arg0 + 0x840)
+cmp w8, 2
+b.ne 0x352CEC
+```
+
+Damit ist die Bedingung exakt als `load32(arg0+0x840) != 2` beschrieben. Der Quellname dieses Objektfelds ist weiterhin **nicht** bewiesen und wird deshalb noch nicht als `PlayerCount` bezeichnet.
+
+Weitere Zugriffe derselben Übergangsklasse:
+
+```text
+0x351B88: load32(arg0+0x840) == 2
+0x3525C4: 32-Bit-Lesezugriff auf arg0+0x840
+0x352C4C: load32(arg0+0x840) != 2
+```
 
 ---
 
@@ -101,25 +229,40 @@ Geplant:
 
 ## Schritt 6 – Lokaler Register-/Konstanten-Tracer
 
-Mindestens zu unterstützen:
+Status: **implementiert – konservative lokale Baseline**
+
+Unterstützt:
 
 ```text
-MOV, MOVZ, MOVK
-ADRP, ADR, ADD, SUB
-LDR, STR
-CMP, TST
-CSEL
-CBZ, CBNZ
-TBZ, TBNZ
-B.cond, B, BL, RET
+MOV
+MOVZ, MOVN, MOVK
+ADR, ADRP
+ADD, SUB immediate
+LDR, STR immediate
+CMP immediate/register
+B.cond nach einem erkannten Vergleich
+BL/BLR mit AAPCS64-Clobbering von x0–x18
 ```
 
-Ziele:
+Der Tracer beginnt mit `arg0` bis `arg7`, bewahrt callee-saved Register und gibt Speicherzugriffe ohne erfundene Symbolnamen aus. Beispiel aus dem realen Build:
 
-- Herkunft einfacher Argumente und Konstanten verfolgen
-- Stringpointer bis zum Vergleich verfolgen
-- Loads/Stores auf globale Daten verbinden
-- Werte wie `PlayerCount == 1` sichtbar machen
+```text
+0x352C50 / branch 0x352C54:
+load32(arg0+0x840) != 2 -> 0x352CEC
+```
+
+Datei:
+
+```text
+PAKPY/exefs_dataflow.py
+```
+
+Noch auszubauen:
+
+- Zustände an CFG-Joins zusammenführen
+- `TST`, `CSEL`, bitweise Aliase und weitere Load-/Store-Formen
+- Stringpointer bis durch Helferaufrufe verfolgen
+- benannte Objektfelder erst nach zusätzlichem Beweis speichern
 
 ## Schritt 7 – Bedingungsanalyse
 
@@ -374,10 +517,20 @@ Bereits UI-seitig bestätigt:
 - `map.menu_hardmode.inputSelect` ruft `initLevelTransition("HARD", currentKong)` auf
 - SWF setzt vor dem Übergang nur `Char_P1`
 
-Nächster technischer Meilenstein nach Schritt 1:
+Aktueller technischer Stand:
 
 ```text
-initLevelTransition im ExeFS-main statisch bis zum nativen Callback verfolgen
+initLevelTransition wurde bis 0x35267C und in den Helper 0x352AA0 verfolgt.
+Funktions-/Callgraph-Analyse und lokaler Registerdatenfluss sind implementiert.
+Das Feld arg0+0x840 wird im Hard-Mode-Übergang gegen 2 geprüft.
+```
+
+Nächster Meilenstein:
+
+```text
+Die Bedeutung und alle relevanten Schreibstellen von arg0+0x840 nachweisen.
+Danach entscheiden, ob die Prüfung bei 0x352C54 der Multiplayer-Block ist oder
+nur ein bereits gewünschter Zwei-Spieler-Zweig.
 ```
 
 # Formatquellen
