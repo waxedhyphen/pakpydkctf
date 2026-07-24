@@ -61,6 +61,7 @@ from ui_browser_avm2_variable_length_patch import install as install_ui_browser_
 from ui_browser_avm2_block_patch_tool import install as install_ui_browser_avm2_block_patch_tool
 from ui_browser_timeline_patch_tool import install as install_ui_browser_timeline_patch_tool
 from ui_browser_timeline_transform_patch import install as install_ui_browser_timeline_transform_patch
+from ui_browser_timeline_rename_patch import install as install_ui_browser_timeline_rename_patch
 from exefs_gui_patch import install as install_exefs_gui_patch
 from exefs_function_gui_patch import install as install_exefs_function_gui_patch
 from exefs_patch_gui_patch import install as install_exefs_patch_gui_patch
@@ -154,6 +155,7 @@ install_ui_browser_avm2_variable_length_patch()
 install_ui_browser_avm2_block_patch_tool()
 install_ui_browser_timeline_patch_tool()
 install_ui_browser_timeline_transform_patch()
+install_ui_browser_timeline_rename_patch()
 install_exefs_gui_patch(App)
 install_exefs_function_gui_patch(App)
 install_exefs_patch_gui_patch(App)
