@@ -1,68 +1,79 @@
-# UI KONG Select: bestätigter Stand
+# UI KONG Select: Teil 1 abgeschlossen
 
-Diese Datei dokumentiert den aktuell **im Spiel funktionierenden Diddy-Stand** des
-KONG-Select-Menüs. Sie trennt bewusst zwischen:
+Diese Datei dokumentiert den finalen, **im Spiel bestätigten** Stand von Teil 1 des
+KONG-Select-Umbaus:
 
-- **binär bestätigt**: direkt aus den beiden PAK-Dateien und den enthaltenen SWF/ABC-Daten gelesen
-- **im Spiel bestätigt**: vom Nutzer mit der modifizierten PAK getestet
-- **noch offen**: für Dixie und Cranky noch nicht gebaut oder getestet
+- Spieler 1 kann im Menü zwischen allen fünf Kongs rotieren.
+- Die Namen werden korrekt angezeigt.
+- Die Porträts werden korrekt ein- und ausgeblendet.
+- Der ausgewählte Kong bleibt beim erneuten Öffnen des Menüs korrekt dargestellt.
 
-Die Dokumentation ist keine allgemeine Vermutung über Scaleform. Sie beschreibt den
-konkreten Stand der analysierten Dateien.
+Der bestätigte Zyklus lautet:
 
-## Analysierte PAK-Dateien
+```text
+Rechts: DK -> FUNKY -> DIDDY -> DIXIE -> CRANKY -> DK
+Links:  DK -> CRANKY -> DIXIE -> DIDDY -> FUNKY -> DK
+```
 
-| Rolle | Datei | Größe | SHA-256 |
-|---|---:|---:|---|
-| Ausgangsstand | `UIPak(7).pak` | 72.653.504 Bytes | `f007a0aeeef648a0a188bec8ba33b88a6d37d5c0316f7c753380136e88540850` |
-| funktionierender Diddy-Stand | `diddyicon.pak` | 72.653.976 Bytes | `4096947ac68da29db5eb2e8c66a4cdb3e5ad7a2a30f2744942a2f8587a14e3bb` |
+Diese Dokumentation trennt weiterhin zwischen:
 
-Es wurden genau zwei PAK-Assets inhaltlich verändert:
+- **binär bestätigt**: direkt aus den enthaltenen SWF-/ABC-Daten gelesen
+- **im Spiel bestätigt**: mit der finalen PAK getestet
+- **noch offen**: gehört nicht zu Teil 1
 
-| Asset | Originalgröße | Modgröße | Änderung |
-|---|---:|---:|---:|
-| `PauseMenu` (`GFX`) | 350.123 | 350.434 | +311 Bytes |
-| `MasterShell` (`GFX`) | 432.011 | 432.172 | +161 Bytes |
-
-Alle nachfolgenden PAK-Offsetänderungen sind eine Folge dieser Größenänderungen.
-
-## Wichtigste Architektur-Erkenntnis
-
-Die funktionierende Lösung besteht aus **zwei getrennten Ebenen**:
-
-1. **`PauseMenu -> Source` und unterstützende PauseMenu-Filme**
-   - Auswahlrotation
-   - `P1Selection`
-   - sichtbarer Charaktername
-   - Behandlung beim Öffnen des Menüs
-
-2. **`MasterShell -> MenuCharacter.swf` und `MasterShell -> Source`**
-   - tatsächliche Diddy-Porträtinstanz für Spieler 1
-   - Rücksetzen der Porträt-Sichtbarkeit
-
-Deshalb dürfen Rotation und Porträt nicht als ein einziger Patch behandelt werden.
+Teil 1 bezeichnet hier die vollständige **Spieler-1-UI-Auswahl**. Unabhängige
+Spieler-2-Auswahl, doppelte Kongs und alle Gameplay-/Spawn-Pfade sind separate
+Arbeitsschritte.
 
 ---
 
-# 1. Funktionierende P1-Rotation mit Diddy
+# 1. Referenzdateien
 
-## Aktueller, bestätigter Zyklus
+## Historische Stände
 
-Nach rechts:
+| Rolle | Datei | Größe | SHA-256 |
+|---|---:|---:|---|
+| früher Ausgangsstand | `UIPak(7).pak` | 72.653.504 Bytes | `f007a0aeeef648a0a188bec8ba33b88a6d37d5c0316f7c753380136e88540850` |
+| funktionierender DK/Funky/Diddy-Stand | `UIPak(8).pak` | 72.653.980 Bytes | `995a8066c9858a8910e0613a2e1e34f4cdaf733e117e8435a32ec18b85be7c9f` |
+| finaler Teil-1-Stand | `UIPak(9).pak` | 72.654.140 Bytes | `11e4d12e63b3ad5b11c80f558fb817d1e3588f85e312b7758843480b24670101` |
 
-```text
-DK -> FUNKY -> DIDDY -> DK
-```
+## Änderungen von `UIPak(8).pak` zu `UIPak(9).pak`
 
-Nach links:
+Es wurden genau zwei PAK-Assets verändert:
 
-```text
-DK -> DIDDY -> FUNKY -> DK
-```
+| Asset | vorher | final | Delta |
+|---|---:|---:|---:|
+| `PauseMenu` (`GFX`) | 350.438 | 350.567 | +129 Bytes |
+| `MasterShell` (`GFX`) | 432.172 | 432.203 | +31 Bytes |
 
-Dieser Stand ist im Spiel bestätigt.
+Innerhalb dieser GFX-Assets änderten sich:
 
-## Relevanter Film
+| Film | vorher | final | Delta |
+|---|---:|---:|---:|
+| `PauseMenu -> MenuCharacter.swf` | 30.875 | 30.896 | +21 Bytes |
+| `PauseMenu -> Source` | 85.308 | 85.416 | +108 Bytes komprimiert |
+| `MasterShell -> MenuCharacter.swf` | 30.871 | 30.892 | +21 Bytes |
+| `MasterShell -> Source` | 62.428 | 62.438 | +10 Bytes komprimiert |
+
+Alle übrigen PAK-Einträge sind zwischen diesen beiden Ständen unverändert.
+
+---
+
+# 2. Architektur: Source und Timeline sind getrennt
+
+Die funktionierende Lösung besteht aus zwei unterschiedlichen Ebenen.
+
+## `PauseMenu -> Source`
+
+Diese Ebene steuert:
+
+- `P1Selection`
+- Rotation nach rechts und links
+- sichtbaren lokalisierten Namen
+- Wiederherstellung beim Öffnen des Menüs
+- Sichtbarkeit der P1-Porträts während der Rotation
+
+Relevante Klasse:
 
 ```text
 PauseMenu -> Source
@@ -70,9 +81,24 @@ DoABC: erstes unbenanntes Root-Modul
 Klasse: shell.MenuCharacter
 ```
 
-## Relevante Konstanten
+## `PauseMenu/MasterShell -> MenuCharacter.swf`
 
-Im analysierten `PauseMenu -> Source` gelten:
+Diese Ebene enthält die tatsächlichen Timeline-Instanzen der Porträts.
+
+## `MasterShell -> Source`
+
+Diese Ebene enthält zusätzlich eine eigene `resetPortraitP1`-Methode. Sie muss dieselben
+fünf Instanznamen kennen, obwohl die wirksame Rotationslogik in `PauseMenu -> Source`
+liegt.
+
+**Folgerung:** Rotation und Icon-Timeline dürfen nicht als ein einziger Patch behandelt
+werden. Beide Bereiche müssen separat geändert und separat geprüft werden.
+
+---
+
+# 3. Relevante PauseMenu-Konstanten und Felder
+
+## Charakterkonstanten
 
 | Konstante | Multiname-Index |
 |---|---:|
@@ -82,7 +108,7 @@ Im analysierten `PauseMenu -> Source` gelten:
 | `k_sCranky` | 918 |
 | `k_sFunky` | 919 |
 
-Relevante Felder:
+## Auswahl- und UI-Felder
 
 | Feld | Multiname-Index |
 |---|---:|
@@ -92,179 +118,199 @@ Relevante Felder:
 | `portrait_p2` | 506 |
 | `P1Selection` | 507 |
 | `P2Selection` | 508 |
+| `visible` | 1293 |
+| `dk` | 1297 |
+| `fk` | 1298 |
+| `diddy` | 1299 |
+| `dixie` | 1300 |
+| `cranky` | 1301 |
+| `toggleNext` | 1304 |
 
-Relevante Lokalisierungsstrings:
+## Lokalisierungsstrings
 
 | Text | String-Index |
 |---|---:|
+| `$_P1_Title` | 2103 |
 | `$_Character_DK` | 2104 |
 | `$_Character_FK` | 2106 |
 | `$_Character_Diddy` | 2111 |
 | `$_Character_Dixie` | 2113 |
 | `$_Character_Cranky` | 2115 |
 
-## Methode 490: `initMenu`
+---
 
-Originale Codelänge:
+# 4. Finale Source-Methoden
+
+## Methodengrößen
+
+| Bereich | Methode | Stock | `UIPak(8)` | final `UIPak(9)` |
+|---|---|---:|---:|---:|
+| PauseMenu | `initMenu` 490 | 1018 | 1085 | 1219 |
+| PauseMenu | `toggleRight` 492 | 668 | 732 | 853 |
+| PauseMenu | `toggleLeft` 493 | 668 | 732 | 846 |
+| PauseMenu | `resetPortraitP1` 500 | 25 | 36 | 58 |
+| MasterShell | `resetPortraitP1` 359 | 25 | 36 | 58 |
+
+Alle fünf finalen Methodenbodies lassen sich aus `UIPak(9).pak` vollständig und ohne
+strukturellen ABC-Fehler disassemblieren.
+
+## 4.1 `initMenu`, Methode 490
+
+Der finale Zusatz beginnt bei `0x3FA` und behandelt alle drei zusätzlichen Kongs.
 
 ```text
-1018 Bytes
+P1Selection == Diddy  -> Diddy-Text, Diddy-Icon, gemeinsame Fortsetzung
+P1Selection == Dixie  -> Dixie-Text, Dixie-Icon, gemeinsame Fortsetzung
+P1Selection == Cranky -> Cranky-Text, Cranky-Icon, gemeinsame Fortsetzung
+sonst                 -> ursprünglicher Pfad
 ```
 
-Modifizierte Codelänge:
+Binär bestätigte Ziele:
 
-```text
-1074 Bytes
-```
+| Auswahl | Textblock | Iconblock |
+|---|---:|---:|
+| Diddy | `0x420` | innerhalb desselben Blocks ab `0x444` |
+| Dixie | `0x453` | `0x4B3` |
+| Cranky | `0x47B` | `0x4A3` |
 
-Die Methode wurde so erweitert, dass `P1Selection == k_sDiddy` kein ungültiger Wert
-mehr ist.
-
-Der angehängte Diddy-Zweig macht sinngemäß:
+Sinngemäß:
 
 ```actionscript
-if (P1Selection == k_sDiddy)
-{
-    P1_Character.setToggle(
-        this,
-        Vial.Proxy.parse("shell", "$_P1_Title"),
-        Vial.Proxy.parse("shell", "$_Character_Diddy")
-    );
-}
-else
-{
-    // ursprünglicher Fehler-/Fallback-Pfad
+if (P1Selection == k_sDiddy) {
+    setToggleText("$_Character_Diddy");
+    portrait_p1.diddy.visible = true;
+} else if (P1Selection == k_sDixie) {
+    setToggleText("$_Character_Dixie");
+    portrait_p1.dixie.visible = true;
+} else if (P1Selection == k_sCranky) {
+    setToggleText("$_Character_Cranky");
+    portrait_p1.cranky.visible = true;
 }
 ```
 
-Danach springt der Zweig wieder in den gemeinsamen Fortsetzungsbereich der Methode.
+Damit funktionieren Name und Icon auch nach Schließen und erneutem Öffnen des Menüs.
 
-Wichtig: Dieser Diddy-Zweig setzt in `PauseMenu -> Source` **nicht ausdrücklich**
-`portrait_p1.diddy.visible = true`. Der funktionierende Porträtpfad liegt, wie unten
-dokumentiert, in MasterShell.
+## 4.2 `toggleRight`, Methode 492
 
-## Methode 492: `toggleRight`
-
-Originale Codelänge:
+Finale Rechtsrotation:
 
 ```text
-668 Bytes
+DK -> Funky -> Diddy -> Dixie -> Cranky -> DK
 ```
 
-Modifizierte Codelänge:
+Der neue Dispatcher beginnt bei `0x2BB`:
 
 ```text
-715 Bytes
+aktuell Diddy  -> Dixie-Zweig bei 0x2E1
+aktuell Dixie  -> Cranky-Zweig bei 0x300
+aktuell Cranky -> vorhandener DK-Zweig bei 0x65
+sonst          -> vorhandener Pfad
 ```
 
-Die vorhandene P1-Auswahl war ursprünglich auf DK und Funky ausgelegt. Der modifizierte
-Dispatcher arbeitet effektiv so:
+Die drei dedizierten Abschlussblöcke sind:
 
-```text
-aktuell DK      -> Funky-Zweig
-aktuell Funky   -> neuer Diddy-Zweig
-aktuell Diddy   -> DK-Zweig
-sonst           -> Fehlerpfad
-```
+| Zielauswahl | Abschlussblock | sichtbares Icon |
+|---|---:|---|
+| Diddy | `0x31F` | `portrait_p1.diddy` |
+| Dixie | `0x331` | `portrait_p1.dixie` |
+| Cranky | `0x343` | `portrait_p1.cranky` |
 
-Der neue Diddy-Zweig macht sinngemäß:
+### Kritische, bestätigte Rechtskorrektur
+
+Ein früher Zwischenpatch ließ den Funky-zu-Diddy-Zweig bei `0x2B5` in den neu
+angehängten Dispatcher springen. Dadurch wurde der Block mit einem falschen Stackzustand
+betreten und das Spiel stürzte beim Rechtsdrücken ab.
+
+Der funktionierende Stand springt stattdessen von `0x2B5` direkt zu `0x31F`, einem
+eigenen Diddy-Abschlussblock:
 
 ```actionscript
-P1Selection = k_sDiddy;
-P1_Character.setToggleText(Vial.Proxy.parse("shell", "$_Character_Diddy"));
-P1_Character.toggleNext(controllerIndex);
+P1_Character.toggleNext(...);
+portrait_p1.diddy.visible = true;
 return;
 ```
 
-Die relativen Sprünge und der `lookupswitch` wurden manuell passend zur vergrößerten
-Methode korrigiert. Der variable AVM2-Patcher baut Containergrößen neu auf, korrigiert
-aber keine semantischen Sprungziele automatisch.
+Diese Korrektur ist im Spiel bestätigt und darf nicht wieder entfernt oder auf den
+Dispatcher zurückgeführt werden.
 
-## Methode 493: `toggleLeft`
+## 4.3 `toggleLeft`, Methode 493
 
-Originale Codelänge:
-
-```text
-668 Bytes
-```
-
-Modifizierte Codelänge:
+Finale Linksrotation:
 
 ```text
-715 Bytes
+DK -> Cranky -> Dixie -> Diddy -> Funky -> DK
 ```
 
-Der P1-Dispatcher arbeitet effektiv so:
+Der finale Zusatz arbeitet so:
 
 ```text
-aktuell DK      -> neuer Diddy-Zweig
-aktuell Diddy   -> Funky-Zweig
-aktuell Funky   -> DK-Zweig
-sonst           -> Fehlerpfad
+DK             -> Cranky-Initialblock bei 0x29C
+aktuell Diddy  -> vorhandener Funky-Zweig bei 0x38
+aktuell Dixie  -> Diddy-Zweig bei 0x2E1
+aktuell Cranky -> Dixie-Zweig bei 0x30B
+sonst          -> vorhandener Fehlerpfad
 ```
 
-Der eingefügte Diddy-Block setzt ebenfalls `P1Selection = k_sDiddy`, aktualisiert den
-Diddy-Text und führt die vorhandene Toggle-Animation aus.
+Sichtbarkeitsblöcke:
 
-## Binär bestätigte Methodendeltas
+| Zielauswahl | Block | sichtbares Icon |
+|---|---:|---|
+| Diddy | ab `0x2FA` | `portrait_p1.diddy` |
+| Dixie | `0x32A` | `portrait_p1.dixie` |
+| Cranky | `0x33C` | `portrait_p1.cranky` |
 
-| Methode | Original | Modifiziert | Delta |
-|---|---:|---:|---:|
-| `initMenu` 490 | 1018 | 1074 | +56 |
-| `toggleRight` 492 | 668 | 715 | +47 |
-| `toggleLeft` 493 | 668 | 715 | +47 |
+Der funktionierende linke Pfad verwendet weiterhin die bereits vorhandene
+`toggleNext`-Property. Diese Benennung darf nicht allein aufgrund des Methodennamens
+`toggleLeft` als Fehler behandelt werden; das Verhalten ist im Spiel korrekt bestätigt.
+
+## 4.4 PauseMenu `resetPortraitP1`, Methode 500
+
+Finale Codelänge: `58 Bytes`.
+
+```actionscript
+portrait_p1.dk.visible = false;
+portrait_p1.fk.visible = false;
+portrait_p1.diddy.visible = false;
+portrait_p1.dixie.visible = false;
+portrait_p1.cranky.visible = false;
+```
+
+Relevante finale Offsets:
+
+```text
+0x0003 dk
+0x000E fk
+0x0019 diddy
+0x0024 dixie
+0x002F cranky
+0x0039 returnvoid
+```
+
+## 4.5 MasterShell `resetPortraitP1`, Methode 359
+
+Finale Codelänge: `58 Bytes`.
+
+MasterShell verwendet andere Multiname-Indizes:
+
+| Feld | Multiname-Index |
+|---|---:|
+| `portrait_p1` | 301 |
+| `visible` | 1485 |
+| `dk` | 1489 |
+| `fk` | 1490 |
+| `diddy` | 1491 |
+| `dixie` | 1492 |
+| `cranky` | 1493 |
+
+Die finale Methode blendet ebenfalls alle fünf P1-Porträts aus.
 
 ---
 
-# 2. Weitere PauseMenu-Patches im funktionierenden Stand
+# 5. Finale Porträt-Timeline
 
-## `PauseMenu -> MenuCharacter.swf`
+## Vorhandene P2-Quellen
 
-Das eingebettete `MenuCharacter.swf` enthält ein eigenes AVM2-Modul mit
-`shell.MenuCharacter.initMenu`, Methode 241.
-
-Die funktionierende PAK verändert dort:
-
-```text
-Methode 241, Offset 0x0000:
-D0 -> 47
-```
-
-Damit beginnt die Methode mit `returnvoid` und beendet sich sofort.
-
-Zusätzlich wurde in derselben Methode bei Offset `0x138` ein bedingter Zweig durch
-`pop/nop`-Bytes neutralisiert:
-
-```text
-12 21 00 00 -> 29 02 02 02
-```
-
-Das ist wichtig, weil der wirksame Auswahlcode des funktionierenden Stands in
-`PauseMenu -> Source` liegt. Änderungen dürfen nicht blind gleichzeitig in beiden
-Klassenkopien eingebaut werden.
-
-## `PauseMenu -> Options.swf`
-
-Die funktionierende PAK enthält außerdem drei gleichlange AVM2-Patches:
-
-| Klasse / Methode | Methodenindex | Offset | Original | Neu |
-|---|---:|---:|---|---|
-| `shell.Options.stateManager` | 264 | `0x42A` | `14 09 00 00` | `29 29 02 02` |
-| `shell.Options_main.initMenu` | 411 | `0x145` | `D3` | `26` |
-| `shell.Options_main.inputSelect` | 419 | `0x165` | `12 18 00 00` | `29 02 02 02` |
-
-Diese Patches sind im funktionierenden PAK vorhanden. Ihre genaue Verantwortung für
-den gesamten Menüfluss ist noch nicht vollständig isoliert. Sie dürfen daher nicht
-als reine Porträtpatches bezeichnet oder ohne Prüfung entfernt werden.
-
----
-
-# 3. Funktionierendes P1-Diddy-Porträt
-
-## Originale Sprite-Struktur
-
-In beiden originalen `MenuCharacter.swf`-Filmen ist Sprite 12 die vorhandene
-Spieler-2-Porträtgruppe:
+In Sprite 12 liegen die drei Partner-Kong-Grafiken:
 
 | Instanz | Character-ID | Tiefe | Matrix |
 |---|---:|---:|---|
@@ -272,240 +318,137 @@ Spieler-2-Porträtgruppe:
 | `dixie` | 10 | 3 | `00` |
 | `diddy` | 11 | 5 | `00` |
 
-Sprite 15 ist die originale Spieler-1-Porträtgruppe:
+## P1-Zielgruppe
 
-| Instanz | Character-ID | Tiefe | Matrix |
-|---|---:|---:|---|
-| `dk` | 13 | 1 | `10 A0 00` |
-| `fk` | 14 | 3 | `00` |
+Spieler 1 verwendet Sprite 15.
 
-Damit ist binär bestätigt:
-
-- Diddy-Grafik: Character-ID `11`
-- Dixie-Grafik: Character-ID `10`
-- Cranky-Grafik: Character-ID `9`
-- Spieler-1-Zielgruppe: Sprite `15`
-- vorhandene DK-Position für Spieler 1: Matrix `10 A0 00`
-
-## Tatsächliche Änderung in der funktionierenden PAK
-
-Der neue P1-Diddy-Eintrag befindet sich in:
+In der finalen PAK enthalten **beide** Filme dieselbe vollständige P1-Gruppe:
 
 ```text
+PauseMenu  -> MenuCharacter.swf -> Sprite 15
 MasterShell -> MenuCharacter.swf -> Sprite 15
 ```
 
-Eingefügte Instanz:
+| Tiefe | Instanz | Character-ID | Matrix |
+|---:|---|---:|---|
+| 1 | `dk` | 13 | `10 A0 00` |
+| 3 | `fk` | 14 | `00` |
+| 5 | `diddy` | 11 | `10 A0 00` |
+| 7 | `dixie` | 10 | `10 A0 00` |
+| 9 | `cranky` | 9 | `10 A0 00` |
 
-| Eigenschaft | Wert |
-|---|---|
-| Name | `diddy` |
-| Character-ID | `11` |
-| Tiefe | `5` |
-| Matrix | `10 A0 00` |
-| Tag | `PlaceObject2` |
+Damit verwenden Diddy, Dixie und Cranky die bereits vorhandenen P2-Grafiken, aber die
+bestätigte P1-DK-Positionsmatrix.
 
-Roher Payload:
+## Rohe `PlaceObject2`-Payloads
+
+### Diddy
 
 ```text
 26 05 00 0B 00 10 A0 00 64 69 64 64 79 00
 ```
 
-Das ist die Spieler-2-Diddy-Grafik aus Sprite 12, aber an der Spieler-1-DK-Position.
-
-## Entscheidende Korrektur zu früheren Annahmen
-
-Im funktionierenden `diddyicon.pak` wurde **keine Diddy-Instanz in**
+### Dixie
 
 ```text
-PauseMenu -> MenuCharacter.swf -> Sprite 15
+26 07 00 0A 00 10 A0 00 64 69 78 69 65 00
 ```
 
-gefunden.
-
-Dort enthält der erste Frame weiterhin nur:
+### Cranky
 
 ```text
-dk@Tiefe 1
-fk@Tiefe 3
+26 09 00 09 00 10 A0 00 63 72 61 6E 6B 79 00
 ```
 
-Der funktionierende Stand beweist daher nicht, dass dieselbe Timeline-Instanz zusätzlich
-in PauseMenu eingesetzt werden muss. Die bestätigte P1-Diddy-Instanz liegt in
-MasterShell.
+## Reproduzierbare Timeline-Editor-Einstellungen
 
-## `MasterShell -> Source`: Methode 359 `resetPortraitP1`
+Für beide Filme wurden die gleichen Kopien ausgeführt.
 
-Originale Codelänge:
+### Dixie
 
 ```text
-25 Bytes
+Quell-Sprite:       12
+Quellinstanz:       dixie
+Ziel-Sprite:        15
+Neuer Instanzname:  dixie
+Positionsanker:     dk
+Zieltiefe:          7
+Ersetzen:           AUS
 ```
 
-Modifizierte Codelänge:
+### Cranky
 
 ```text
-36 Bytes
+Quell-Sprite:       12
+Quellinstanz:       cranky
+Ziel-Sprite:        15
+Neuer Instanzname:  cranky
+Positionsanker:     dk
+Zieltiefe:          9
+Ersetzen:           AUS
 ```
 
-Die Methode setzt nun alle drei vorhandenen P1-Porträts unsichtbar:
-
-```actionscript
-portrait_p1.dk.visible = false;
-portrait_p1.fk.visible = false;
-portrait_p1.diddy.visible = false;
-```
-
-Disassembly des funktionierenden Stands:
-
-```text
-0000: getlocal_0
-0001: pushscope
-0002: getlocal_0
-0003: getproperty portrait_p1
-0006: getproperty dk
-0009: pushfalse
-000A: setproperty visible
-000D: getlocal_0
-000E: getproperty portrait_p1
-0011: getproperty fk
-0014: pushfalse
-0015: setproperty visible
-0018: getlocal_0
-0019: getproperty portrait_p1
-001C: getproperty diddy
-001F: pushfalse
-0020: setproperty visible
-0023: returnvoid
-```
-
-## Auffälliger Unterschied zwischen PauseMenu und MasterShell
-
-`PauseMenu -> Source` enthält ebenfalls `resetPortraitP1`, dort Methode 500. Im
-funktionierenden PAK blieb sie jedoch unverändert und blendet nur DK und Funky aus:
-
-```actionscript
-portrait_p1.dk.visible = false;
-portrait_p1.fk.visible = false;
-```
-
-Diddy wird in dieser PauseMenu-Methode nicht erwähnt.
-
-Das ist kein theoretischer Vorschlag, sondern der binär bestätigte Zustand der
-funktionierenden PAK. Deshalb darf die MasterShell-Logik nicht automatisch auf
-PauseMenu übertragen werden, ohne einen eigenen Test zu machen.
+Die Tiefen `7` und `9` sind jetzt nicht mehr nur Vorschlagswerte, sondern binär und im
+Spiel bestätigte Endwerte.
 
 ---
 
-# 4. Bestätigungsstatus
+# 6. Bestätigungsstatus
 
 ## Im Spiel bestätigt
 
-- P1 kann zwischen DK, Funky und Diddy rotieren.
-- Rechtsrotation: `DK -> Funky -> Diddy -> DK`.
-- Linksrotation läuft rückwärts.
-- Diddy-Text wird angezeigt.
-- Das Diddy-Porträt für Spieler 1 funktioniert im bereitgestellten PAK-Stand.
+- Rechtsrotation: `DK -> Funky -> Diddy -> Dixie -> Cranky -> DK`.
+- Linksrotation: `DK -> Cranky -> Dixie -> Diddy -> Funky -> DK`.
+- Diddy-, Dixie- und Cranky-Texte werden korrekt angezeigt.
+- Diddy-, Dixie- und Cranky-P1-Porträts werden korrekt angezeigt.
+- Beim Weiterrotieren verschwindet das vorherige Porträt.
+- Beim erneuten Öffnen des Menüs werden Name und Porträt der aktuellen Auswahl korrekt
+  wiederhergestellt.
+- Der korrigierte Rechtsweg verursacht keinen Crash mehr.
 
 ## Binär bestätigt
 
-- Diddy ist `k_sDiddy`, Multiname 916.
-- Diddy-Text ist `$_Character_Diddy`, String 2111.
-- Diddy-Porträt ist Character-ID 11.
-- P1-Porträtgruppe ist Sprite 15.
-- Die neue P1-Diddy-Instanz liegt in MasterShell Sprite 15.
-- MasterShell `resetPortraitP1` setzt Diddy auf unsichtbar.
-- PauseMenu `Source` enthält die erweiterte Auswahlrotation.
-- PauseMenu `MenuCharacter.swf` enthält keine neue P1-Diddy-Instanz im ersten Frame.
+- `UIPak(9).pak` enthält 1659 PAK-Einträge.
+- Gegenüber `UIPak(8).pak` wurden nur `PauseMenu` und `MasterShell` verändert.
+- Beide `MenuCharacter.swf` enthalten in Sprite 15 alle fünf P1-Instanzen.
+- PauseMenu-Methoden 490, 492, 493 und 500 enthalten die finale Fünferlogik.
+- MasterShell-Methode 359 blendet alle fünf P1-Porträts aus.
+- Alle finalen Methodenbodies und SWF-Strukturen lassen sich fehlerfrei parsen.
 
-## Noch nicht bestätigt
+## Teil 1 abgeschlossen
 
-- P1-Dixie-Rotation.
-- P1-Cranky-Rotation.
-- P1-Dixie-Porträt.
-- P1-Cranky-Porträt.
-- zweimal derselbe Kong in allen P1/P2-Kombinationen.
-- vollständiges Verhalten in allen Frontend-, Map-, Demo- und Funky-Mode-Pfaden.
+Teil 1 ist abgeschlossen:
+
+```text
+P1-UI-Rotation + P1-Text + P1-Porträts für DK, Funky, Diddy, Dixie und Cranky
+```
 
 ---
 
-# 5. Nächster Ausbau: Dixie und Cranky
+# 7. Noch offen / Teil 2 und später
 
-Das gewünschte Endergebnis für Rechtsrotation ist:
+Nicht durch Teil 1 abgedeckt:
 
-```text
-DK -> FUNKY -> DIDDY -> DIXIE -> CRANKY -> DK
-```
+- Spieler 2 unabhängig auf DK/Funky erweitern
+- Spieler 1 und Spieler 2 unabhängig jeden Kong wählen lassen
+- zweimal denselben Kong erlauben
+- Gameplay-/Spawn-/Hard-Mode-/Frontend-Sonderpfade vollständig verifizieren
+- Auswahlzustände außerhalb dieses konkreten Menüpfads prüfen
 
-Links muss exakt die Gegenrichtung bilden:
-
-```text
-DK -> CRANKY -> DIXIE -> DIDDY -> FUNKY -> DK
-```
-
-## Source-Arbeit separat behandeln
-
-Für die Rotation müssen in `PauseMenu -> Source` getrennt geprüft und erweitert werden:
-
-1. `initMenu` Methode 490
-   - Dixie als gültigen P1-Wert erkennen
-   - Cranky als gültigen P1-Wert erkennen
-   - korrekten lokalisierten Text setzen
-
-2. `toggleRight` Methode 492
-   - Funky -> Diddy bleibt erhalten
-   - Diddy -> Dixie ergänzen
-   - Dixie -> Cranky ergänzen
-   - Cranky -> DK ergänzen
-
-3. `toggleLeft` Methode 493
-   - DK -> Cranky ergänzen
-   - Cranky -> Dixie ergänzen
-   - Dixie -> Diddy ergänzen
-   - Diddy -> Funky bleibt erhalten
-
-Dabei müssen `lookupswitch`, relative Sprünge und alle Rücksprünge anhand des finalen
-Methodenlayouts neu berechnet werden. Die aktuellen Diddy-Offets sind nicht automatisch
-stabile Offsets für einen erneut vergrößerten Methodenbody.
-
-## Menü-/Icon-Arbeit separat behandeln
-
-Binär bekannte Quellen:
-
-```text
-Dixie  = Sprite 12 / Character-ID 10 / Instanzname dixie
-Cranky = Sprite 12 / Character-ID 9  / Instanzname cranky
-```
-
-Bestätigtes Ziel:
-
-```text
-MasterShell -> MenuCharacter.swf -> Sprite 15
-```
-
-Für beide neuen Instanzen gilt:
-
-- eigener Name (`dixie`, `cranky`)
-- freie, eindeutige Tiefe in Sprite 15
-- P1-Position muss anhand eines bestätigten P1-Ankers gesetzt werden
-- anschließend MasterShell `resetPortraitP1` um beide Namen erweitern
-- sichtbare Aktivierung im Spiel einzeln testen
-
-Die konkreten Zieltiefen für Dixie und Cranky sind noch nicht im Spiel bestätigt und
-werden deshalb hier nicht als feststehende Werte behauptet.
+Diese Punkte dürfen nicht als durch `UIPak(9).pak` bestätigt bezeichnet werden.
 
 ---
 
-# 6. Regeln für weitere Patches
+# 8. Regeln für weitere Arbeit
 
-1. **Source und Timeline getrennt bearbeiten.**
-2. **Immer vom zuletzt funktionierenden PAK-Stand ausgehen.**
-3. **Originalbytes vor jedem AVM2-Patch exakt validieren.**
-4. **Bei variabler Länge alle relativen Sprünge manuell korrigieren.**
-5. **Offsets beziehen sich auf den unveränderten Methodenbody des jeweiligen
-   Patchprofils.**
-6. **Vorschau-Bestätigung und Spiel-Bestätigung getrennt dokumentieren.**
-7. **Nicht annehmen, dass PauseMenu und MasterShell identische Kopien derselben Logik
-   verwenden.**
-8. **Keine Dixie-/Cranky-Tiefe oder Sichtbarkeitslogik als bestätigt markieren, bevor
-   die gebaute PAK im Spiel getestet wurde.**
+1. Immer von `UIPak(9).pak` oder einem daraus nachweislich funktionierenden Nachfolger
+   ausgehen.
+2. Source und Timeline getrennt bearbeiten.
+3. PauseMenu und MasterShell nicht als identische Codekopien behandeln.
+4. Originalbytes vor jedem AVM2-Patch exakt validieren.
+5. Bei variabler Länge alle relativen Sprünge und `lookupswitch`-Ziele manuell prüfen.
+6. Jeder neue Sprung muss auf einer gültigen Instruktionsgrenze landen.
+7. Vorschau-Bestätigung, binäre Bestätigung und Spiel-Bestätigung getrennt dokumentieren.
+8. Den funktionierenden Diddy-Abschlussblock der Rechtsrotation bei `0x31F` nicht wieder
+   in den Dispatcher hineinleiten.
+9. Keine PAK blind erzeugen oder verändern; der Nutzer baut und testet die PAK selbst.
