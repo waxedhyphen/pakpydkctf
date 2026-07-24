@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "patches": [
+    {
+      "module_name": "<unbenannt>",
+      "source": "root",
+      "method_index": 488,
+      "code_offset": "0x83",
+      "expected": "D0 66 BF 03 D3 4F F5 08 03",
+      "replacement": "4F F5 08 01 02 02 02 02 02",
+      "note": "Hotfix for a PAK that already contains the faulty UpdateCharacterTypes(currentKong, P2) insertion. Invoke UpdateCharacterTypes with zero character arguments, exactly like the original game, and pad the removed argument bytecode with AVM2 NOPs. Same length; no jump offsets change."
+    }
+  ]
+}
