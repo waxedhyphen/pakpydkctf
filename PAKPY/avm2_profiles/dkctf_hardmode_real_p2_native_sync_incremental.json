@@ -7,8 +7,8 @@
       "method_index": 488,
       "code_offset": "0xC",
       "expected": "A6 00 00",
-      "replacement": "E1 00 00",
-      "note": "Incremental patch for a PAK that already contains the earlier real-P2 profile and PLAY-switch fix: move the dispatch target by the additional 59-byte native callback insertion."
+      "replacement": "DC 00 00",
+      "note": "Incremental patch for a PAK that already contains the earlier real-P2 profile and PLAY-switch fix: move the dispatch target by the corrected additional 54-byte callback insertion."
     },
     {
       "module_name": "<unbenannt>",
@@ -16,8 +16,8 @@
       "method_index": 488,
       "code_offset": "0x51",
       "expected": "60 F4 08",
-      "replacement": "60 F4 08 2C C9 07 24 00 24 06 46 98 09 02 2C 83 09 24 00 24 09 46 98 09 02 A0 2C E6 07 24 06 24 04 46 98 09 02 A0 2C E6 07 24 05 24 01 46 98 09 02 A0 D0 66 BF 03 D3 4F F5 08 03 60 F4 08",
-      "note": "Call native UpdateCharacterTypes(currentKong, selected P2 Kong) before the existing initLevelTransition call. local_3 already contains the selected P2 Kong string."
+      "replacement": "60 F4 08 2C C9 07 24 00 24 06 46 98 09 02 2C 83 09 24 00 24 09 46 98 09 02 A0 2C E6 07 24 06 24 04 46 98 09 02 A0 2C E6 07 24 05 24 01 46 98 09 02 A0 4F F5 08 01 60 F4 08",
+      "note": "Construct the existing native callback name UpdateCharacterTypes and invoke it with zero character arguments, matching the original game call shape, before initLevelTransition."
     },
     {
       "module_name": "<unbenannt>",
@@ -25,8 +25,8 @@
       "method_index": 488,
       "code_offset": "0xE9",
       "expected": "2B FF FF",
-      "replacement": "F0 FE FF",
-      "note": "Correct the PLAY lookupswitch case after the additional 59-byte insertion: offset changes from -213 to -272."
+      "replacement": "F5 FE FF",
+      "note": "Correct the PLAY lookupswitch case after the additional 54-byte insertion: offset changes from -213 to -267."
     }
   ]
 }
