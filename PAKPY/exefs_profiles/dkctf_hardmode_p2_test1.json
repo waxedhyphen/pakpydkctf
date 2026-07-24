@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "DKCTF Hard Mode – P2 active test 1",
+  "patch_group": "DKCTF_HardMode_P2_Test1",
+  "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
+  "notes": "First isolated in-game test: preserve an already active P2 slot. This does not preserve the previously selected P2 character yet.",
+  "entries": [
+    {
+      "memory_offset": "0x1E7018",
+      "expected": "29 15 1E 12",
+      "replacement": "29 19 1F 12",
+      "description": "Hard Mode: preserve active P2 bit. Changes (flags & 0xFC) | 1 to (flags & 0xFE) | 1."
+    }
+  ]
+}
