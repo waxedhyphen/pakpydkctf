@@ -213,7 +213,9 @@ cmp w8, 2
 b.ne 0x352CEC
 ```
 
-Damit ist die Bedingung exakt als `load32(arg0+0x840) != 2` beschrieben. Der Quellname dieses Objektfelds ist weiterhin **nicht** bewiesen und wird deshalb noch nicht als `PlayerCount` bezeichnet.
+Damit ist die Bedingung exakt als `load32(arg0+0x840) != 2` beschrieben. Der
+Quellname dieses Objektfelds ist weiterhin **nicht** bewiesen und wird deshalb noch
+nicht als `PlayerCount` bezeichnet.
 
 Weitere Zugriffe derselben Übergangsklasse:
 
@@ -244,7 +246,8 @@ B.cond nach einem erkannten Vergleich
 BL/BLR mit AAPCS64-Clobbering von x0–x18
 ```
 
-Der Tracer beginnt mit `arg0` bis `arg7`, bewahrt callee-saved Register und gibt Speicherzugriffe ohne erfundene Symbolnamen aus. Beispiel aus dem realen Build:
+Der Tracer beginnt mit `arg0` bis `arg7`, bewahrt callee-saved Register und gibt
+Speicherzugriffe ohne erfundene Symbolnamen aus. Beispiel aus dem realen Build:
 
 ```text
 0x352C50 / branch 0x352C54:
@@ -289,16 +292,27 @@ Geplant:
 
 ## Schritt 9 – ARM64-Patch-Editor
 
-Geplant:
+Status: **Baseline implementiert**
 
-- erwartete Originalbytes
-- neue Bytes
-- Disassembly vorher/nachher
-- 4-Byte-Ausrichtung
-- Segmentgrenzen
-- Build-ID-Prüfung
-- Patchüberschneidungen
-- rein lokale Vorschau vor Export
+Umfang:
+
+- erwartete Originalbytes gegen das dekomprimierte NSO prüfen
+- neue Bytes gleichlang validieren
+- Disassembly vorher/nachher anzeigen
+- Segmentgrenzen und BSS ausschließen
+- vollständige Build ID und `main`-SHA-256 im Projektbericht festhalten
+- Patchüberschneidungen erkennen
+- geladene `main` niemals verändern
+- GUI unter `Werkzeuge → ExeFS Patchvorschau / IPS32`
+- erstes eingebautes Profil: `Hard Mode: P2 aktiv halten – Test 1`
+
+Dateien:
+
+```text
+PAKPY/exefs_patch.py
+PAKPY/exefs_patch_gui_patch.py
+PAKPY/test_exefs_patch.py
+```
 
 ## Schritt 10 – ARM64-Hilfsaktionen
 
@@ -330,14 +344,23 @@ Geplant:
 
 ## Schritt 12 – IPS-/IPS32-Export
 
-Geplant:
+Status: **IPS32-Baseline implementiert**
 
-- Atmosphère-Struktur erzeugen
+Umfang:
+
+- Atmosphère-Struktur `atmosphere/exefs_patches/<Gruppe>/` erzeugen
 - Dateiname aus vollständiger Build ID
-- IPS und IPS32
-- Titel-ID und Patchgruppe
+- IPS32-Header, Records und `EEOF`-Footer
+- korrekte Atmosphère-Regel `IPS-Offset = NSO-VA + 0x100`
 - Manifest mit Original-SHA-256, Offsets und Disassembly
-- nur für exakt passendes Build-Profil exportieren
+- Markdown-Patchbericht
+- Export nur nach erfolgreicher Originalbyte-Validierung
+
+Noch offen:
+
+- klassischer IPS-Export für Adressen unter dem 24-Bit-Limit
+- mehrere frei editierbare Patcheinträge in der GUI
+- Titel-ID-Verwaltung im Patchprojekt
 
 ---
 
@@ -521,17 +544,22 @@ Aktueller technischer Stand:
 
 ```text
 initLevelTransition wurde bis 0x35267C und in den Helper 0x352AA0 verfolgt.
-Funktions-/Callgraph-Analyse und lokaler Registerdatenfluss sind implementiert.
-Das Feld arg0+0x840 wird im Hard-Mode-Übergang gegen 2 geprüft.
+Der Hard-Mode-Zweig ruft die Initialisierung bei 0x1E6FC0 auf.
+UpdateCharacterTypes beweist P1/P2-Felder +0x2698/+0x269C sowie die Aktivbits
+bei +0x26A0. Hard Mode löscht Bit 1 und erzwingt dadurch P1-only.
 ```
 
-Nächster Meilenstein:
+Erster Testpatch:
 
 ```text
-Die Bedeutung und alle relevanten Schreibstellen von arg0+0x840 nachweisen.
-Danach entscheiden, ob die Prüfung bei 0x352C54 der Multiplayer-Block ist oder
-nur ein bereits gewünschter Zwei-Spieler-Zweig.
+NSO-VA 0x1E7018
+29 15 1E 12  AND W9,W9,#0xFC
+29 19 1F 12  AND W9,W9,#0xFE
 ```
+
+Ziel des ersten Tests ist ausschließlich, das bereits aktive P2-Bit zu erhalten.
+Die automatische P2-Figur des nativen Hard-Mode-Pfads bleibt zunächst unverändert.
+Details und Bestätigungsstatus stehen in `EXEFS_HARDMODE_FINDINGS.md`.
 
 # Formatquellen
 
