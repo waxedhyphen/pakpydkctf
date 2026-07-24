@@ -170,7 +170,7 @@ def _disassemble_capstone(
         target = None
         if item.group(ARM64_GRP_JUMP) or item.group(ARM64_GRP_CALL):
             for operand in item.operands:
-                if getattr(operand, "type", None) == 2:
+                if getattr(operand, "type", None) == 2:  # ARM64_OP_IMM
                     target = int(operand.imm)
                     break
         yield Arm64Instruction(
@@ -344,6 +344,20 @@ def decode_word(word: int, address: int) -> tuple[str, str, Optional[int], bool,
             operands += f", {('lsl', 'lsr', 'asr', 'reserved')[shift_type]} #{amount}"
         return mnemonic, operands, None, False, False
 
+    if (word & 0x1F800000) == 0x12000000:
+        sf = (word >> 31) & 1
+        opc = (word >> 29) & 0x3
+        immediate = _decode_logical_immediate(word, 64 if sf else 32)
+        if immediate is not None:
+            rn = (word >> 5) & 31
+            rd = word & 31
+            mnemonic = ("and", "orr", "eor", "ands")[opc]
+            if mnemonic == "orr" and rn == 31:
+                return "mov", f"{_reg(rd, sf)}, #0x{immediate:X}", None, False, False
+            if mnemonic == "ands" and rd == 31:
+                return "tst", f"{_reg(rn, sf)}, #0x{immediate:X}", None, False, False
+            return mnemonic, f"{_reg(rd, sf)}, {_reg(rn, sf)}, #0x{immediate:X}", None, False, False
+
     if (word & 0x1F800000) == 0x12800000:
         sf = (word >> 31) & 1
         opc = (word >> 29) & 0x3
@@ -411,11 +425,11 @@ def _decode_load_store_pair(word: int):
     immediate = imm7 * scale
     base = _xreg(rn, sp=True)
     address = f"[{base}"
-    if mode == 1:
+    if mode == 1:  # post-index
         address += f"], #{_fmt_signed_imm(immediate)}"
-    elif mode == 3:
+    elif mode == 3:  # pre-index
         address += f", #{_fmt_signed_imm(immediate)}]!"
-    else:
+    else:  # signed offset / non-temporal
         if immediate:
             address += f", #{_fmt_signed_imm(immediate)}"
         address += "]"
@@ -448,6 +462,36 @@ def _decode_load_store_unsigned(word: int):
     if opc == 2 and size in (2, 3):
         return "ldrsw", f"{_xreg(rt)}, {address}", None, False, False
     return None
+
+
+def _decode_logical_immediate(word: int, width: int) -> Optional[int]:
+    n = (word >> 22) & 1
+    immr = (word >> 16) & 0x3F
+    imms = (word >> 10) & 0x3F
+    marker = (n << 6) | ((~imms) & 0x3F)
+    if marker == 0:
+        return None
+    length = marker.bit_length() - 1
+    element_size = 1 << length
+    if element_size > width:
+        return None
+    levels = element_size - 1
+    s = imms & levels
+    r = immr & levels
+    if s == levels:
+        return None
+    element = (1 << (s + 1)) - 1
+    element = _rotate_right(element, r, element_size)
+    value = 0
+    for shift in range(0, width, element_size):
+        value |= element << shift
+    return value
+
+
+def _rotate_right(value: int, amount: int, width: int) -> int:
+    amount %= width
+    mask = (1 << width) - 1
+    return ((value >> amount) | (value << (width - amount))) & mask
 
 
 def _reg(index: int, sf: int, sp: bool = False) -> str:
