@@ -7,6 +7,8 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from exefs_nso import DEFAULT_RUNTIME_BASE, NsoError, NsoImage, parse_int
+from exefs_arm64 import available_backend, disassemble_image
+from exefs_strings import catalog_strings, trace_string
 
 
 _INSTALLED = False
@@ -17,8 +19,10 @@ class ExeFsLabWindow:
     def __init__(self, app):
         self.app = app
         self.image = None
+        self.string_catalog = None
+        self.last_string_trace = None
         self.window = tk.Toplevel(app.root)
-        self.window.title("PAKPY ExeFS Lab – Schritt 1: NSO")
+        self.window.title("PAKPY ExeFS Lab – NSO / ARM64 / Xrefs")
         self.window.geometry("1080x760")
         self.window.minsize(880, 620)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
@@ -28,6 +32,13 @@ class ExeFsLabWindow:
         self.address_var = tk.StringVar()
         self.address_kind_var = tk.StringVar(value="NSO-VA")
         self.status_var = tk.StringVar(value="Keine NSO-Datei geladen")
+        self.disasm_address_var = tk.StringVar(value="0x0")
+        self.disasm_count_var = tk.StringVar(value="64")
+        self.disasm_backend_var = tk.StringVar(value="auto")
+        self.disasm_runtime_var = tk.BooleanVar(value=False)
+        self.string_query_var = tk.StringVar(value="initLevelTransition")
+        self.string_exact_var = tk.BooleanVar(value=True)
+        self.string_case_var = tk.BooleanVar(value=True)
 
         outer = ttk.Frame(self.window, padding=12)
         outer.pack(fill="both", expand=True)
@@ -98,11 +109,91 @@ class ExeFsLabWindow:
         self.segment_tree.column("hash", width=70, anchor="center")
         self.segment_tree.pack(fill="both", expand=True)
 
-        result_group = ttk.LabelFrame(bottom, text="Übersetzung", padding=6)
-        result_group.pack(fill="both", expand=True)
+        bottom_pane = ttk.Panedwindow(bottom, orient="horizontal")
+        bottom_pane.pack(fill="both", expand=True)
+
+        result_group = ttk.LabelFrame(bottom_pane, text="Adressübersetzung", padding=6)
+        analysis_notebook = ttk.Notebook(bottom_pane)
+        disasm_group = ttk.Frame(analysis_notebook, padding=6)
+        strings_group = ttk.Frame(analysis_notebook, padding=6)
+        analysis_notebook.add(disasm_group, text="ARM64")
+        analysis_notebook.add(strings_group, text="Strings / Xrefs")
+        self.analysis_notebook = analysis_notebook
+        self.disasm_tab = disasm_group
+        self.strings_tab = strings_group
+        bottom_pane.add(result_group, weight=1)
+        bottom_pane.add(analysis_notebook, weight=2)
+
         self.result = ScrolledText(result_group, wrap="word", height=9)
         self.result.pack(fill="both", expand=True)
         self.result.configure(state="disabled")
+
+        disasm_controls = ttk.Frame(disasm_group)
+        disasm_controls.pack(fill="x", pady=(0, 6))
+        ttk.Label(disasm_controls, text="Start-VA").pack(side="left")
+        disasm_entry = ttk.Entry(
+            disasm_controls, textvariable=self.disasm_address_var, width=16
+        )
+        disasm_entry.pack(side="left", padx=(6, 10))
+        ttk.Label(disasm_controls, text="Anzahl").pack(side="left")
+        ttk.Entry(
+            disasm_controls, textvariable=self.disasm_count_var, width=7
+        ).pack(side="left", padx=(6, 10))
+        ttk.Label(disasm_controls, text="Backend").pack(side="left")
+        ttk.Combobox(
+            disasm_controls,
+            textvariable=self.disasm_backend_var,
+            values=("auto", "builtin", "capstone"),
+            state="readonly",
+            width=10,
+        ).pack(side="left", padx=(6, 10))
+        ttk.Checkbutton(
+            disasm_controls,
+            text="Runtime-Adressen",
+            variable=self.disasm_runtime_var,
+        ).pack(side="left")
+        ttk.Button(
+            disasm_controls, text="Disassemblieren", command=self.disassemble
+        ).pack(side="right")
+        disasm_entry.bind("<Return>", lambda _event: self.disassemble())
+
+        self.disassembly = ScrolledText(
+            disasm_group, wrap="none", height=12, font=("TkFixedFont", 9)
+        )
+        self.disassembly.pack(fill="both", expand=True)
+        self.disassembly.configure(state="disabled")
+
+        string_controls = ttk.Frame(strings_group)
+        string_controls.pack(fill="x", pady=(0, 6))
+        ttk.Label(string_controls, text="String").pack(side="left")
+        string_entry = ttk.Entry(
+            string_controls, textvariable=self.string_query_var, width=30
+        )
+        string_entry.pack(side="left", fill="x", expand=True, padx=(6, 10))
+        ttk.Checkbutton(
+            string_controls, text="Exakt", variable=self.string_exact_var
+        ).pack(side="left")
+        ttk.Checkbutton(
+            string_controls, text="Groß/Klein", variable=self.string_case_var
+        ).pack(side="left", padx=(6, 10))
+        ttk.Button(
+            string_controls, text="Suchen / tracen", command=self.search_string
+        ).pack(side="right")
+        string_entry.bind("<Return>", lambda _event: self.search_string())
+
+        callback_row = ttk.Frame(strings_group)
+        callback_row.pack(fill="x", pady=(0, 6))
+        ttk.Button(
+            callback_row,
+            text="Callback-Funktion disassemblieren",
+            command=self.disassemble_callback,
+        ).pack(side="right")
+
+        self.string_results = ScrolledText(
+            strings_group, wrap="none", height=12, font=("TkFixedFont", 9)
+        )
+        self.string_results.pack(fill="both", expand=True)
+        self.string_results.configure(state="disabled")
 
         ttk.Label(outer, textvariable=self.status_var, anchor="w").pack(
             fill="x", pady=(8, 0)
@@ -136,9 +227,7 @@ class ExeFsLabWindow:
     def load_file(self):
         path = self.path_var.get().strip()
         if not path:
-            messagebox.showerror(
-                "ExeFS Lab", "Bitte zuerst eine NSO-Datei auswählen.", parent=self.window
-            )
+            messagebox.showerror("ExeFS Lab", "Bitte zuerst eine NSO-Datei auswählen.", parent=self.window)
             return
         try:
             image = NsoImage.from_file(path)
@@ -147,14 +236,25 @@ class ExeFsLabWindow:
             self.status_var.set("NSO konnte nicht eingelesen werden")
             return
         self.image = image
+        self.string_catalog = None
+        self.last_string_trace = None
         self._set_text(self.summary, "\n".join(image.summary_lines()))
         self._fill_segments(image)
         self._set_text(
             self.result,
             "Adresse eingeben und Dateioffset, NSO-VA oder Runtime-Adresse auswählen.",
         )
+        self._set_text(
+            self.string_results,
+            "String eingeben. PAKPY zeigt Stringadressen, Pointer, ARM64-Xrefs und erkannte Callback-Records.",
+        )
+        suggested = image.suggested_code_start()
+        self.disasm_address_var.set(f"0x{suggested:X}")
+        self.disasm_backend_var.set("auto")
+        self.disassemble(show_errors=False)
         self.status_var.set(
-            f"Geladen: {Path(path).name} · Build ID {image.build_id_hex}"
+            f"Geladen: {Path(path).name} · Build ID {image.build_id_hex} · "
+            f"ARM64-Backend {available_backend()}"
         )
 
     def _fill_segments(self, image):
@@ -183,9 +283,7 @@ class ExeFsLabWindow:
 
     def translate(self):
         if self.image is None:
-            messagebox.showerror(
-                "ExeFS Lab", "Zuerst eine NSO-Datei einlesen.", parent=self.window
-            )
+            messagebox.showerror("ExeFS Lab", "Zuerst eine NSO-Datei einlesen.", parent=self.window)
             return
         try:
             value = parse_int(self.address_var.get(), "Adresse")
@@ -208,6 +306,82 @@ class ExeFsLabWindow:
         ]
         self._set_text(self.result, "\n".join(lines))
         self.status_var.set(f"Adresse 0x{value:X} übersetzt")
+
+    def search_string(self):
+        if self.image is None:
+            messagebox.showerror(
+                "ExeFS Lab", "Zuerst eine NSO-Datei einlesen.", parent=self.window
+            )
+            return
+        query = self.string_query_var.get()
+        try:
+            if self.string_catalog is None:
+                self.status_var.set("Stringkatalog wird aufgebaut …")
+                self.window.update_idletasks()
+                self.string_catalog = catalog_strings(self.image)
+            result = trace_string(
+                self.image,
+                query,
+                exact=self.string_exact_var.get(),
+                case_sensitive=self.string_case_var.get(),
+                catalog=self.string_catalog,
+            )
+        except NsoError as exc:
+            messagebox.showerror("String-/Xref-Fehler", str(exc), parent=self.window)
+            return
+        self.last_string_trace = result
+        self._set_text(self.string_results, "\n".join(result.format_lines()))
+        self.status_var.set(
+            f"{len(result.strings)} Stringtreffer · {len(result.pointer_references)} Pointer · "
+            f"{len(result.callbacks)} Callback-Kandidaten"
+        )
+
+    def disassemble_callback(self):
+        result = self.last_string_trace
+        if result is None or not result.callbacks:
+            messagebox.showerror(
+                "ExeFS Lab",
+                "Zuerst einen String mit erkanntem Callback-Record tracen.",
+                parent=self.window,
+            )
+            return
+        callback = result.callbacks[0]
+        self.disasm_address_var.set(f"0x{callback.function_address:X}")
+        self.analysis_notebook.select(self.disasm_tab)
+        self.disassemble()
+
+    def disassemble(self, show_errors=True):
+        if self.image is None:
+            if show_errors:
+                messagebox.showerror(
+                    "ExeFS Lab", "Zuerst eine NSO-Datei einlesen.", parent=self.window
+                )
+            return
+        try:
+            start = parse_int(self.disasm_address_var.get(), "Disassembly-Start")
+            count = parse_int(self.disasm_count_var.get(), "Instruktionsanzahl")
+            runtime_base = parse_int(self.runtime_base_var.get(), "Runtime-Basis")
+            result = disassemble_image(
+                self.image,
+                start_memory_offset=start,
+                instruction_count=count,
+                runtime_base=runtime_base,
+                backend=self.disasm_backend_var.get(),
+            )
+        except NsoError as exc:
+            if show_errors:
+                messagebox.showerror("ARM64-Fehler", str(exc), parent=self.window)
+            else:
+                self._set_text(self.disassembly, f"ARM64-Disassembly fehlgeschlagen:\n{exc}")
+            return
+        self._set_text(
+            self.disassembly,
+            "\n".join(result.format_lines(runtime=self.disasm_runtime_var.get())),
+        )
+        self.status_var.set(
+            f"{len(result.instructions)} ARM64-Instruktionen ab 0x{start:X} · "
+            f"Backend {result.backend}"
+        )
 
     @staticmethod
     def _set_text(widget, text):
