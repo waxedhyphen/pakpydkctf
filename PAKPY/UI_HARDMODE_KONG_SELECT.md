@@ -1,6 +1,6 @@
 # DKCTF Hard Mode – zwei unabhängige Kong-Selectoren
 
-Diese Datei dokumentiert den aktuellen Gesamtstand des Hard-Mode-Multiplayer-Umbaus und trennt klar zwischen ExeFS, UI-Timeline, AVM2-Logik und In-Game-Bestätigung.
+Diese Datei dokumentiert den aktuellen Stand des Hard-Mode-Multiplayer-Umbaus. ExeFS, SWF-Timeline, AVM2-Anzeige, Eingabe und tatsächliche Spiellogik werden getrennt bewertet.
 
 ## Gesamtziel
 
@@ -11,31 +11,27 @@ Selector P1: DK, Funky, Diddy, Dixie, Cranky
 Selector P2: DK, Funky, Diddy, Dixie, Cranky
 ```
 
-Beide Spieler sollen später unabhängig wählen können. Auch zweimal derselbe Kong soll möglich sein.
+Beide Spieler sollen unabhängig wählen können. Auch zweimal derselbe Kong soll möglich sein.
 
-Die Umsetzung wird getrennt bestätigt:
-
-1. **ExeFS bestätigt:** echter zweiter Spieler ist aktiv und steuerbar;
-2. **visuell bestätigt:** eine zweite Selector-Grafik existiert;
-3. **Sichtbarkeit bestätigt:** die zweite Zeile erscheint nur im 2-Spieler-Modus;
-4. **AVM2 bestätigt:** P2 besitzt einen eigenen Trait und Auswahlzustand;
-5. **Eingabe bestätigt:** P1 und P2 steuern getrennte Selectoren;
-6. **im Spiel bestätigt:** beide gewählten Figuren werden beim Hard-Mode-Start übernommen.
-
-## Aktueller Arbeitsstand
-
-Vom Nutzer bereitgestellter aktueller PAK-Stand:
+## Aktuelle Arbeitsgrundlage
 
 ```text
-UIPak(11).pak
+UIPak(15).pak
 ```
 
-Dieser Stand enthält laut Nutzer:
+Dieser Stand wurde im Spiel getestet und enthält den derzeit bestätigten UI-Fortschritt.
 
-- die zweite Selector-Zeile;
-- den Funky-Patch für den vorhandenen Hard-Mode-Selector.
+## Bestätigungsstufen
 
-Die Datei wurde als aktuelle Arbeitsgrundlage hochgeladen. Nach dem letzten Upload wurde noch keine weitere Änderung vorgenommen.
+1. **ExeFS:** echter zweiter Spieler ist im Hard Mode aktiv;
+2. **Timeline:** zweite Selector-Grafik existiert;
+3. **Sichtbarkeit:** zweite Zeile erscheint nur bei zwei Spielern;
+4. **Layout:** P1-Selector und Titel werden im 2P-Modus verschoben und in 1P zurückgesetzt;
+5. **Textinitialisierung:** P2 zeigt einen echten Kong-Namen statt Designer-Platzhaltern;
+6. **Eingabe:** P1 und P2 rotieren ihre eigenen UI-Texte;
+7. **Spiellogik:** gewählte Texte werden als echte Figuren übernommen.
+
+Stufe 1 bis 6 sind derzeit umgesetzt. Stufe 7 ist noch nicht umgesetzt.
 
 ## 1. ExeFS-Multiplayer – im Spiel bestätigt
 
@@ -61,17 +57,12 @@ Im Spiel bestätigt:
 
 - zwei echte Spieler starten im Hard Mode;
 - P2 ist unabhängig steuerbar;
-- der Patch wird vom Emulator geladen;
-- der zweite Kong ist nicht mehr nur ein 1P-Begleiter.
+- der zweite Kong ist nicht nur ein 1P-Begleiter.
 
 Noch offen:
 
 - Hard Mode bestimmt die Figurenpaarung weiterhin automatisch;
-- bei DK als P1 wird P2 beispielsweise Diddy;
-- bei Diddy, Dixie oder Cranky als P1 wird P2 weiterhin automatisch auf DK gesetzt;
-- die exakte Auswahl von P1 und P2 wird noch nicht aus zwei UI-Selectoren übernommen.
-
-Damit ist das Aktivieren des echten zweiten Spielers gelöst. Die aktuelle Hauptarbeit liegt in `MapHUD.swf`.
+- die beiden UI-Auswahlen werden noch nicht an den nativen Hard-Mode-Start übergeben.
 
 ## 2. Relevantes UI-Asset
 
@@ -85,56 +76,52 @@ SymbolClass-Zuordnung:
 Character ID 80 = map.menu_hardmode
 ```
 
-AVM2-Klasse:
+Relevante Klasse und Methoden:
 
 ```text
 map.menu_hardmode
-Klassenindex: 42
 Konstruktor: 483
-setMenu: 484
+setMenu:     484
+toggleLeft:  492
+toggleRight: 493
 ```
 
-Vorhandene relevante Felder:
+Relevante Eingaberoutine:
+
+```text
+map.MapHUD
+keyDownProcess: Methode 421
+```
+
+Vorhandene P1-Felder:
 
 ```text
 chooseKong          : utilities.BaseToggle
-playHM              : utilities.Button_square_anim
-rules               : utilities.Button_square_anim
 selectedKongIndex   : int
 currentKong         : String
 isFunkyMode         : Boolean
 maxNumberOfKongs    : int
 ```
 
-Aktuell existieren in AVM2 weiterhin nur ein Selector-Feld und ein Auswahlzustand.
-
-## 3. Funky immer auswählbar – im Spiel bestätigt
-
-Funky war bereits in den vorhandenen Mappings enthalten. Außerhalb des Funky-Modus wurde nur die Zykluslänge auf vier begrenzt.
-
-Minimaler Patch:
+Für P2 wurde kein neuer ABC-Trait angelegt. Der zweite Selector wird aktuell über seine feste Timeline-Position angesprochen:
 
 ```text
-map.menu_hardmode.setMenu
-Methode 484
-Code-Offset 0xA7
-
-04 -> 05
+getChildAt(2)
 ```
 
-Dadurch setzen beide Zweige:
+Das vermeidet einen Umbau des ABC-Konstantenpools und der Klassentraits.
+
+## 3. Funky im vorhandenen P1-Selector – im Spiel bestätigt
+
+Funky war bereits in den vorhandenen Mappings enthalten. Außerhalb des Funky-Modus wurde ursprünglich nur die Zykluslänge begrenzt.
+
+Der Patch setzt:
 
 ```text
 maxNumberOfKongs = 5
 ```
 
-Im Spiel bestätigt:
-
-```text
-DK -> Funky -> Diddy -> Dixie -> Cranky -> DK
-```
-
-Der globale Wert `isFunkyMode` selbst wurde nicht verändert.
+Der vorhandene P1-Selector kann dadurch alle fünf Kongs anzeigen.
 
 ## 4. Timeline von Sprite 80
 
@@ -146,7 +133,7 @@ Ursprünglicher erster Frame:
 | 21 | 72 | `chooseKong` | x=3,15 px, y=69,25 px |
 | 32 | 60 | `rules` | x=8,65 px, y=315,05 px |
 
-Der vorhandene Selector ist:
+Der vorhandene P1-Selector ist:
 
 ```text
 Character ID 72
@@ -154,109 +141,175 @@ Tiefe 21
 Instanz chooseKong
 ```
 
-Character 72 wird auch in anderen Menüs wiederverwendet und ist kein speziell für Hard Mode gebautes Symbol.
-
-## 5. Zweite Selector-Zeile – sichtbar bestätigt
-
-Es wurde eine zweite, zunächst unbenannte Instanz von Character 72 eingesetzt:
+Die zweite Instanz wurde aus Character 72 erzeugt und anschließend benannt:
 
 ```text
-Quell-Sprite:        80
-Quellinstanz:        chooseKong
-Ziel-Sprite:         80
-Zieltiefe:           22
-Instanzname:         keiner
-X-Verschiebung:      0 px
-Y-Verschiebung:      +66 px
+Character ID 72
+Tiefe 22
+Instanz chooseKongP2
 ```
 
-Ergebnismatrix:
-
-```text
-1A 03 F5 48 80
-x = 3,15 px
-y = 135,25 px
-```
-
-Sprite 80 danach:
+Aktuelle Reihenfolge in Sprite 80:
 
 ```text
 Tiefe 1   Character 60  playHM
 Tiefe 21  Character 72  chooseKong
-Tiefe 22  Character 72  unbenannt
+Tiefe 22  Character 72  chooseKongP2
 Tiefe 32  Character 60  rules
 ```
 
-In der PAKPY-Vorschau bestätigt:
+Die P2-Zeile wurde zusätzlich per Timeline-Transform nach unten positioniert. Die endgültige Feinposition wurde im Spiel bestätigt.
 
-- die zweite vollständige Selector-Zeile wird dargestellt;
-- sie befindet sich unterhalb des ursprünglichen Selectors;
-- die Kopie zeigt aktuell die Designertexte `P1` und `Two Lines!`;
-- diese Texte entstehen, weil die unbenannte Kopie noch nicht durch `map.menu_hardmode` initialisiert wird.
+## 5. Sichtbarkeit von `chooseKongP2` – im Spiel bestätigt
 
-Noch nicht bestätigt:
-
-- Darstellung der zweiten Zeile im Spiel;
-- korrekte P2-Beschriftung;
-- eigener P2-Zustand;
-- eigene Eingabe.
-
-## Aktuelles unmittelbares Ziel
-
-Die zweite Selector-Zeile soll zunächst **nur abhängig vom Spielmodus sichtbar sein**.
-
-Gewünschtes Verhalten:
+Der Runtime-Wert ist eindeutig bestätigt:
 
 ```text
-1-Spieler-Modus -> zweite Selector-Zeile unsichtbar
-2-Spieler-Modus -> zweite Selector-Zeile sichtbar
+mRuntimeData.PlayerCount
+1 = ein Spieler
+2 = zwei Spieler
 ```
 
-Noch keine Auswahl- oder Controllerlogik. Dieser Schritt soll ausschließlich die Sichtbarkeit lösen.
+`setMenu` setzt die Sichtbarkeit sinngemäß so:
 
-Dafür sind voraussichtlich diese getrennten Änderungen nötig:
+```actionscript
+getChildAt(2).visible =
+    Controller.GetDataValue(
+        "menu_hardmode::setMenu",
+        "mRuntimeData",
+        "PlayerCount"
+    ) != 1;
+```
 
-1. in `map.menu_hardmode` einen eigenen Slot-Trait ergänzen:
+Ergebnis:
 
 ```text
-chooseKongP2 : utilities.BaseToggle
+1P -> chooseKongP2 unsichtbar
+2P -> chooseKongP2 sichtbar
 ```
 
-2. die Timeline-Instanz auf Tiefe 22 kontrolliert von unbenannt zu `chooseKongP2` ändern;
-3. den konkreten Runtime-Wert für 1P/2P in `MapHUD.swf` vor dem Patch eindeutig verifizieren;
-4. in `setMenu` ausschließlich die Sichtbarkeit setzen:
+Dies ist im Spiel bestätigt.
+
+## 6. Bedingtes P1-Layout – im Spiel bestätigt
+
+Wenn P2 angezeigt wird, werden der P1-Selector und sein Titel nach oben verschoben. Beim Zurückwechseln auf 1P werden feste Originalpositionen gesetzt; es findet keine kumulative relative Verschiebung statt.
+
+Aktuelle feste Werte:
 
 ```text
-chooseKongP2.visible = Multiplayer aktiv
+1P:
+chooseKong.y              = 69,25
+chooseKong.toggle_Title.y = -141
+
+2P:
+chooseKong.y              = 14,25
+chooseKong.toggle_Title.y = -121
 ```
 
-Wichtig:
+Damit bewegt sich der gesamte P1-Selector im 2P-Modus 55 Pixel nach oben. Der Titel wird lokal um 20 Pixel nach unten korrigiert und steht dadurch insgesamt 35 Pixel höher als in 1P.
 
-- Der konkrete Feld- oder Datenname für den 1P/2P-Zustand ist vor der Umsetzung noch binär zu bestätigen.
-- Es wird nicht geraten und nicht einfach ein angenommener Name wie `PlayerCount` eingebaut.
-- Die Auswahlfunktion des zweiten Selectors bleibt in diesem Schritt unangetastet.
+Beim erneuten Öffnen in 1P stehen beide Elemente wieder an ihren Originalpositionen.
 
-## Danach folgende Schritte
+## 7. Initialisierung und Bereinigung von `chooseKongP2` – im Spiel bestätigt
 
-Erst nach bestätigter Sichtbarkeit:
+Der zweite Selector enthielt zunächst Designer-Platzhalter wie:
 
-1. P2-Beschriftung und Initialisierung korrigieren;
-2. getrennte Felder wie `selectedKongIndexP2` und `currentKongP2` ergänzen;
-3. `toggleLeft`, `toggleRight`, `nextItem` und `prevItem` für zwei Selectoren trennen;
-4. Controller 1 und Controller 2 ihren jeweiligen Selector steuern lassen;
-5. beide Selectorwerte als `Char_P1` und `Char_P2` speichern;
-6. den nativen Hard-Mode-Start so ändern, dass die gewählte P2-Figur nicht wieder automatisch überschrieben wird;
-7. doppelte Figurenkombinationen im Spiel testen.
+```text
+P1
+Two Lines!
+NAME HERE
+Choose your Kong.
+```
 
-## Aktueller Bestätigungsstatus
+Aktuelles Verhalten beim Öffnen des Menüs:
+
+- P2 wird mit `DK` initialisiert;
+- die Kong-Namensfelder werden über das vorhandene `BaseToggle.setToggle`/`setToggleText`-Verhalten befüllt;
+- der zusätzliche P2-Titel wird explizit auf einen leeren String gesetzt;
+- dadurch ist die Lösung unabhängig von der ausgewählten Sprache;
+- es wird kein englischer Lokalisierungstext manipuliert.
+
+Der zweite Titel bleibt leer:
+
+```actionscript
+chooseKongP2.toggle_Title.text = "";
+```
+
+Die Designer-Platzhalter sind im getesteten Spielstand nicht mehr sichtbar.
+
+## 8. Getrennte Texteingabe für P1 und P2 – im Spiel bestätigt
+
+Die Eingaberoutine musste den aktiven Hard-Mode-Bildschirm über das aktuelle Untermenü erkennen. `currentStateClip` selbst ist das `MapMenu`; der konkrete Hard-Mode-Bildschirm liegt in:
+
+```text
+currentStateClip.currentMenu
+```
+
+Nach der Korrektur gilt:
+
+```text
+Controller P1 links/rechts -> nur chooseKong
+Controller P2 links/rechts -> nur chooseKongP2
+```
+
+P2 benutzt derzeit einen rein visuellen Auswahlzustand am zweiten `BaseToggle`.
+
+Aktueller P2-Textzyklus:
+
+```text
+DK -> Diddy -> Dixie -> Cranky -> Funky -> DK
+```
+
+Die Rotation verändert ausschließlich die sichtbaren Texte. Sie startet beim Öffnen derzeit wieder bei `DK`.
+
+Diagnostische Methodengrößen des bestätigten Standes:
+
+```text
+Methode 421: 575 Bytes
+Methode 484: 344 Bytes
+Methode 492: 212 Bytes
+Methode 493: 210 Bytes
+```
+
+## 9. Was ausdrücklich noch nicht implementiert ist
+
+Die aktuelle Auswahl ist nur UI-Verhalten.
+
+Nicht vorhanden:
+
+- kein Lesen von `mRuntimeData.Char_P1` oder `mRuntimeData.Char_P2` beim Öffnen;
+- kein Logging der tatsächlich gespielten Figuren;
+- keine automatische Initialisierung der Texte auf die aktuell gespielten Figuren;
+- kein Schreiben der UI-Auswahl nach `Char_P1` oder `Char_P2`;
+- keine Übergabe der P2-Auswahl an den nativen Hard-Mode-Start;
+- keine bestätigte Unterstützung doppelter Figurenkombinationen im Level.
+
+Der zuletzt vorgeschlagene Patch zum Auslesen, Loggen und Synchronisieren von `Char_P1`/`Char_P2` wurde vom Nutzer **nicht übernommen** und gehört nicht zum aktuellen Stand.
+
+## 10. Aktueller Bestätigungsstatus
 
 ```text
 ExeFS: echter P2                         im Spiel bestätigt
-Funky im vorhandenen Selector            im Spiel bestätigt
-Zweite Selector-Grafik                   PAKPY-Vorschau bestätigt
-Zweite Zeile nur bei 2P sichtbar          noch nicht umgesetzt
-Eigener AVM2-Trait chooseKongP2           noch nicht umgesetzt
-Eigener P2-Auswahlzustand                 noch nicht umgesetzt
-Getrennte Controller-Eingabe              noch nicht umgesetzt
-Exakte P1/P2-Figuren im Level             noch nicht umgesetzt
+Funky im vorhandenen P1-Selector         im Spiel bestätigt
+Zweite Selector-Grafik                   im Spiel bestätigt
+Timeline-Name chooseKongP2               bestätigt
+Zweite Zeile nur bei 2P sichtbar         im Spiel bestätigt
+P1-Layout 1P/2P mit Rücksetzung          im Spiel bestätigt
+P2-Platzhalter entfernt                  im Spiel bestätigt
+P2-Titel sprachunabhängig geleert        im Spiel bestätigt
+Getrennte P1/P2-Texteingabe              im Spiel bestätigt
+P2-Auswahl nur visuell                   bestätigt
+Aktuelle Figuren beim Öffnen einlesen    nicht umgesetzt
+UI-Auswahl in Char_P1/Char_P2 schreiben  nicht umgesetzt
+Exakte P1/P2-Figuren im Level            nicht umgesetzt
 ```
+
+## Nächster funktionaler Schritt
+
+Der nächste große Schritt ist nicht mehr die Darstellung, sondern die Verbindung mit der tatsächlichen Spiellogik:
+
+1. die realen Werte und Schreibzeitpunkte von `Char_P1` und `Char_P2` sauber verifizieren;
+2. festlegen, ob die UI beim Öffnen die aktuell gespielten Figuren übernehmen soll;
+3. die beiden visuellen Auswahlzustände beim Bestätigen getrennt speichern;
+4. verhindern, dass der native Hard-Mode-Start P2 anschließend wieder automatisch ersetzt;
+5. alle 25 P1/P2-Kombinationen einschließlich doppelter Kongs testen.
