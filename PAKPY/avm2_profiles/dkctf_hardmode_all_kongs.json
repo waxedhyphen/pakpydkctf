@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "patches": [
+    {
+      "module_name": "<unbenannt>",
+      "source": "root",
+      "method_index": 484,
+      "code_offset": "0xA7",
+      "expected": "04",
+      "replacement": "05",
+      "note": "map.menu_hardmode.setMenu: use maxNumberOfKongs = 5 even when isFunkyMode is false."
+    }
+  ]
+}
