@@ -35,7 +35,7 @@ def build_nso(compress_text: bool = False) -> tuple[bytes, dict[str, bytes]]:
     total = data_offset + len(data)
     raw = bytearray(total)
     raw[:4] = b"NSO0"
-    flags = (1 if compress_text else 0) | (1 << 12) | (1 << 16) | (1 << 20)
+    flags = (1 if compress_text else 0) | (1 << 3) | (1 << 4) | (1 << 5)
     struct.pack_into("<III", raw, 0x04, 0, 0, flags)
     struct.pack_into("<III", raw, 0x10, text_offset, 0x0000, len(text))
     struct.pack_into("<I", raw, 0x1C, module_name_offset)
@@ -61,16 +61,10 @@ class NsoImageTests(unittest.TestCase):
         image = NsoImage.from_bytes(raw)
         self.assertEqual(image.module_name, "dkctf-test")
         self.assertEqual(image.build_id_hex, bytes(range(32)).hex().upper())
-        self.assertEqual(
-            [segment.name for segment in image.segments],
-            ["text", "rodata", "data", "bss"],
-        )
+        self.assertEqual([segment.name for segment in image.segments], ["text", "rodata", "data", "bss"])
         self.assertEqual(image.segment("bss").memory_offset, 0x2004)
         self.assertEqual(image.read_segment("text", verify_hash=True), expected["text"])
-        self.assertEqual(
-            image.verify_enabled_hashes(),
-            {"text": True, "rodata": True, "data": True},
-        )
+        self.assertEqual(image.verify_enabled_hashes(), {"text": True, "rodata": True, "data": True})
 
     def test_uncompressed_address_translation(self):
         raw, _ = build_nso()
