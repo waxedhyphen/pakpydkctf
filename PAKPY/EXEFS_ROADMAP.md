@@ -1,22 +1,36 @@
 # PAKPY ExeFS Lab – Roadmap
 
-Diese Datei ist die feste Roadmap für die ExeFS-/ARM64-Werkzeuge in PAKPY. Sie soll verhindern, dass Analyse, Offsets, Build IDs und Patches erneut nur als verstreute Einzelschritte existieren.
+Diese Datei ist die feste Roadmap für die universellen ExeFS-/ARM64-Werkzeuge in PAKPY.
 
-## Ziel
+## Architekturregel
 
-PAKPY soll den vollständigen Weg abdecken:
+```text
+universelle Analyse-/Patchlogik -> Python-Module
+spiel- und buildbezogene Patchdaten -> externe JSON-Projekte
+binäre Beweise und Teststatus -> Markdown-Dokumentation
+```
+
+Python-Module dürfen keine DKCTF-Adressen, Build IDs oder benannten Gameplay-Patches enthalten. Das aktuelle DKCTF-Hard-Mode-Projekt liegt nur unter:
+
+```text
+PAKPY/exefs_profiles/dkctf_hardmode_p2_test1.json
+```
+
+## Zielkette
 
 ```text
 SWF-/AVM2-Aufruf
-→ nativer ExternalInterface-/Controller-Callback
-→ NSO-String und ARM64-Xrefs
-→ Callback-Funktion und Datenfluss
-→ geprüfter ARM64-Patch
-→ Build-ID-gebundener IPS-/IPS32-Export
-→ Test- und Dokumentationsstatus
+-> nativer Callbackname
+-> NSO-String und ARM64-Xrefs
+-> Callback-Funktion und Datenfluss
+-> frei editierbares Patchprojekt
+-> Build-ID-/Originalbyte-Prüfung
+-> IPS32-Export
+-> Emulator-/Atmosphère-Modstruktur
+-> dokumentierter Spieltest
 ```
 
-Die Werkzeuge arbeiten standardmäßig nur lesend. Schreibende Patchfunktionen werden getrennt von Analysefunktionen gebaut und müssen immer Originalbytes, Build ID und Segmentgrenzen validieren.
+Analyse und Schreiben bleiben getrennt. Die geladene `main` wird nie verändert.
 
 ---
 
@@ -24,206 +38,62 @@ Die Werkzeuge arbeiten standardmäßig nur lesend. Schreibende Patchfunktionen w
 
 ## Schritt 1 – NSO-Loader und Adressübersetzer
 
-Status: **implementiert**
+Status: **implementiert und am DKCTF-Referenz-Build geprüft**
 
-Umfang:
-
-- `NSO0`-Header validieren
-- Version und die NSO-Flags `0..2` (Kompression) sowie `3..5` (Hash) lesen
-- Modulname lesen
-- vollständige 32-Byte-Build-ID lesen
-- `text`, `rodata`, `data` und `bss` erfassen
-- komprimierte Segmente erkennen
-- rohe LZ4-NSO-Segmente dekomprimieren
-- aktivierte Segment-SHA-256-Werte prüfen
-- Dateioffset, NSO-VA und Runtime-Adresse übersetzen
-- bei komprimierten Segmenten keine falsche 1:1-Dateizuordnung behaupten
-- GUI unter `Werkzeuge → ExeFS Lab (NSO)`
-- synthetische Tests für normale, komprimierte und BSS-Bereiche
-- reale Validierung gegen die angehängte DKCTF-`main` mit `flags = 0x3F`
-
-Dateien:
-
-```text
-PAKPY/exefs_nso.py
-PAKPY/exefs_gui_patch.py
-PAKPY/test_exefs_nso.py
-```
+- NSO0-Header, Version, Flags und vollständige Build ID
+- `text`, `rodata`, `data`, `bss`
+- korrekte Kompressions-/Hashflags
+- rohe LZ4-Dekomprimierung
+- Segment-SHA-256-Prüfung
+- Dateioffset, NSO-VA und Runtime-Adresse
+- keine erfundene 1:1-Dateizuordnung für komprimierte Segmente
 
 ## Schritt 2 – ARM64-Disassembler
 
-Status: **implementiert – Baseline vollständig nutzbar**
+Status: **Baseline implementiert**
 
-Umfang:
-
-- AArch64-Disassembly des dekomprimierten `text`-Segments
-- NSO-VA oder Runtime-Adresse, Bytes, Mnemonic und Operanden
-- direkte Ziele für `B`, `BL`, `B.cond`, `CBZ/CBNZ`, `TBZ/TBNZ`, `ADR/ADRP` und Literal-Loads
-- integrierter Decoder für Kontrollfluss, Register-Moves, Immediate-Arithmetik, Move-Wide sowie häufige Load/Store-Formen
-- unbekannte Instruktionen bleiben sichtbar als `.word`, statt übersprungen zu werden
-- optionales Capstone-Backend für vollständige AArch64-Disassembly
-- automatische Erkennung des üblichen ersten Codes hinter dem `MOD0`-Header
-- GUI-Ansicht im ExeFS Lab mit Startadresse, Anzahl und Runtime-Adressumschaltung
-- Tests mit bekannten Instruktionsbytes und echter DKCTF-`main`
-
-Dateien:
-
-```text
-PAKPY/exefs_arm64.py
-PAKPY/test_exefs_arm64.py
-```
-
-Noch für spätere Datenflussphasen auszubauen:
-
-- vollständige Register-read/write-Metadaten ohne Capstone
-- Sprungnavigation und markierter Export
+- AArch64-Disassembly des `text`-Segments
+- Adresse, Bytes, Mnemonic und Operanden
+- direkte Branch-/Call-Ziele
+- unbekannte Instruktionen bleiben als `.word` sichtbar
+- Capstone optional, eigener Decoder ohne Pflichtabhängigkeit
 
 ## Schritt 3 – String- und Xref-Browser
 
-Status: **implementiert – erste Analyseebene**
+Status: **Baseline implementiert**
 
-Umfang:
-
-- ASCII-/UTF-8- und relevante UTF-16LE-Strings in `rodata` und `data`
-- exakte oder teilweise Suche mit optionaler Groß-/Kleinschreibung
-- 64-Bit-Pointerreferenzen in `rodata` und `data`
-- direkte `ADR`- sowie `ADRP + ADD`-/`ADRP + LDR`-Referenzen im ARM64-Code
-- Erkennung der im DKCTF-Build verwendeten Native-Callback-Records
-- Ausgabe von Stringadresse, Pointer-Slots, Callback-Record und nativem Funktionspointer
-- GUI-Tab `Strings / Xrefs`
-- gecachter Stringkatalog pro geladener NSO-Datei
-
-Dateien:
-
-```text
-PAKPY/exefs_strings.py
-PAKPY/test_exefs_strings.py
-```
-
-Noch auszubauen:
-
-- mehrstufige GOT-/Relocation-Xrefs
-- nahe Strings/Funktionen automatisch gruppieren
-- vollständige Pointertabellen-Klassifizierung
+- ASCII-/UTF-8-Strings
+- Pointerreferenzen in `rodata`/`data`
+- ARM64-Adressreferenzen
+- Callback-Record-Kandidaten
+- `initLevelTransition` am Referenz-Build bis zum Funktionspointer verfolgt
 
 ## Schritt 4 – Funktions- und Callgraph-Ansicht
 
-Status: **implementiert – kontrollflussbasierte Baseline**
+Status: **Baseline implementiert**
 
-Umfang:
+- heuristische Funktionsgrenzen
+- `Calls` und `Called by`
+- Basic Blocks und Branch-Ziele
+- Rückgabestellen
+- Speicherzugriffssuche nach Feldoffset
 
-- Funktionsanalyse ab einer bekannten Startadresse
-- Worklist-basierte Basic-Block-Erkennung
-- direkte `B`-/Bedingungsziele
-- direkte `BL`-Calls
-- globaler Index für `Called by`
-- Rückgabestellen und indirekte `BR`-/`BLR`-Grenzen
-- maximale Instruktionszahl als Sicherheitsgrenze
-- Suche aller unmittelbaren Load-/Store-Zugriffe auf einen Objektfeld-Offset
-- eigene GUI unter `Werkzeuge → ExeFS Funktion / Datenfluss`
+## Schritt 5 – UI-Callback -> ExeFS-Tracer
 
-Dateien:
+Status: **erster realer Pfad bestätigt**
 
 ```text
-PAKPY/exefs_functions.py
-PAKPY/exefs_function_gui_patch.py
-PAKPY/test_exefs_functions.py
-```
-
-Noch auszubauen:
-
-- Jump-Table-Ziele automatisch auflösen
-- referenzierte Strings und globale Daten direkt in die Funktionsansicht einblenden
-- persistente Namen, Kommentare und Bookmarks
-
-## Schritt 5 – UI-Callback → ExeFS-Tracer
-
-Status: **teilweise implementiert; manueller Name-Transfer funktioniert**
-
-Bereits vorhanden:
-
-- Callbackname aus dem UI-Inspector kann im ExeFS-Lab gesucht werden
-- String, Pointer-Slots, Callback-Record und native Funktion werden verbunden
-- erkannte Callback-Funktion kann mit einem Klick in den ARM64-Tab übernommen werden
-- konkreter Zielpfad `initLevelTransition("HARD", currentKong)` wurde im echten Build bis zur nativen Funktion verfolgt
-
-Noch offen:
-
-- direkte Aktion `Im ExeFS verfolgen` im bestehenden Native-Callback-Inspector
-- AVM2-Aufrufstelle und Argumentbeispiele automatisch an das ExeFS Lab übergeben
-- Konfidenzbewertung mehrerer Kandidaten
-
----
-
-# Reale DKCTF-Referenz – angehängtes ExeFS
-
-Die Implementierung wurde zusätzlich zu den synthetischen Tests gegen die bereitgestellte echte `main` geprüft.
-
-```text
-Dateigröße: 13.616.472 Bytes (0xCFC558)
-SHA-256: 018d157673bfd932813555a5991e4257b57f52f89039a0b6685356767e62cd21
-Build ID: F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000
-NSO-Flags: 0x3F
-```
-
-Alle drei gespeicherten Segmente sind in diesem Build komprimiert und gehasht:
-
-| Segment | NSO-VA | Speichergröße | gespeicherte Größe |
-|---|---:|---:|---:|
-| `text` | `0x0` | `0xB9BC68` | `0x67381F` |
-| `rodata` | `0xB9C000` | `0xD7D96B` | `0x644466` |
-| `data` | `0x191A000` | `0xE3A68` | `0x447D2` |
-| `bss` | `0x19FDE68` | `0x4A6C598` | nur Speicher |
-
-Die drei aktivierten Segment-Hashes werden erfolgreich validiert.
-
-## Bestätigter Callback-Trace
-
-```text
-UI: ExternalInterface.call("initLevelTransition", "HARD", currentKong)
+initLevelTransition
 String:          0x1520A98
-rodata-Pointer:  0xBEFBE0
 Callback-Record: 0x193BB40
 Native Funktion: 0x35267C
 ```
 
-Die Funktion bei `0x35267C` übernimmt den Callback-Argumentcontainer aus `x2`, prüft mindestens ein und anschließend mindestens zwei Argumente und ruft nach der Argumentumwandlung den Helfer bei `0x352AA0` auf.
+Noch offen:
 
-Binär und durch die neue Funktionsanalyse bestätigt:
-
-```text
-initLevelTransition: 0x35267C–0x352AA0
-  265 erkannte Instruktionen
-  78 Basic Blocks
-  38 direkte Calls
-
-Helper: 0x352AA0–0x352D28
-  154 erkannte Instruktionen
-  27 Basic Blocks
-  29 direkte Calls
-  direkter Aufrufer: 0x352850
-```
-
-Der lokale Datenflusstracer beweist für die Prüfung bei `0x352C4C`:
-
-```text
-x19 stammt aus arg0
-w8 = load32(arg0 + 0x840)
-cmp w8, 2
-b.ne 0x352CEC
-```
-
-Damit ist die Bedingung exakt als `load32(arg0+0x840) != 2` beschrieben. Der
-Quellname dieses Objektfelds ist weiterhin **nicht** bewiesen und wird deshalb noch
-nicht als `PlayerCount` bezeichnet.
-
-Weitere Zugriffe derselben Übergangsklasse:
-
-```text
-0x351B88: load32(arg0+0x840) == 2
-0x3525C4: 32-Bit-Lesezugriff auf arg0+0x840
-0x352C4C: load32(arg0+0x840) != 2
-```
+- direkte Aktion aus dem AVM2-Callback-Inspector
+- automatische Übergabe von Callbackname und Argumentbeispielen
+- allgemeine Bewertung mehrdeutiger Callbacktabellen
 
 ---
 
@@ -231,136 +101,129 @@ Weitere Zugriffe derselben Übergangsklasse:
 
 ## Schritt 6 – Lokaler Register-/Konstanten-Tracer
 
-Status: **implementiert – konservative lokale Baseline**
+Status: **Baseline implementiert**
 
-Unterstützt:
-
-```text
-MOV
-MOVZ, MOVN, MOVK
-ADR, ADRP
-ADD, SUB immediate
-LDR, STR immediate
-CMP immediate/register
-B.cond nach einem erkannten Vergleich
-BL/BLR mit AAPCS64-Clobbering von x0–x18
-```
-
-Der Tracer beginnt mit `arg0` bis `arg7`, bewahrt callee-saved Register und gibt
-Speicherzugriffe ohne erfundene Symbolnamen aus. Beispiel aus dem realen Build:
+Unterstützte Kernfälle:
 
 ```text
-0x352C50 / branch 0x352C54:
-load32(arg0+0x840) != 2 -> 0x352CEC
+MOV, MOVZ, MOVK
+ADRP, ADR, ADD, SUB
+LDR, LDRB, STR, STRB
+CMP, TST
+CBZ, CBNZ
+TBZ, TBNZ
+B.cond, B, BL, RET
 ```
 
-Datei:
+Bereits automatisch erkannt:
 
 ```text
-PAKPY/exefs_dataflow.py
+load32(arg0+0x840) != 2
 ```
-
-Noch auszubauen:
-
-- Zustände an CFG-Joins zusammenführen
-- `TST`, `CSEL`, bitweise Aliase und weitere Load-/Store-Formen
-- Stringpointer bis durch Helferaufrufe verfolgen
-- benannte Objektfelder erst nach zusätzlichem Beweis speichern
 
 ## Schritt 7 – Bedingungsanalyse
 
-Geplant:
+Status: **teilweise implementiert**
 
-- Branchbedingung lesbar darstellen
-- True-/False-Ziel zeigen
-- Vergleichskonstante und Registerherkunft zeigen
-- Vorschläge: immer nehmen, nie nehmen, invertieren, Konstante ändern
-- zunächst ausschließlich Vorschau, keine automatische Änderung
+- Branchbedingungen und Ziele sichtbar
+- einfache Registerherkunft sichtbar
+
+Offen:
+
+- generische Vorschläge für immer/nie/invertieren
+- Vergleichskonstante gezielt ändern
+- Konfidenz und Unsicherheiten ausgeben
 
 ## Schritt 8 – Globale Daten- und Schreibzugriffsansicht
 
-Geplant:
+Status: **teilweise implementiert**
 
-- alle Leser und Schreiber einer globalen Adresse
-- mutmaßliche Variablen wie `PlayerCount`, `Char_P1`, `Char_P2`, `GameMode`
-- zeitlich relevante Schreibpfade vor Leveltransition/Spawn
-- benannte globale Daten in der Projektdatei speichern
+- Leser/Schreiber nach Feldoffset suchen
+- Hard-Mode-Felder `+0x2698`, `+0x269C`, `+0x26A0` verbunden
+
+Offen:
+
+- projektweit benannte globale Daten
+- zeitliche Schreibpfade
+- systematische Watchpoint-/Hook-Vorschläge
 
 ---
 
 # Phase C – Patch-Erzeugung
 
-## Schritt 9 – ARM64-Patch-Editor
+## Schritt 9 – Universeller ARM64-Patchprojekt-Editor
 
-Status: **Baseline implementiert**
+Status: **implementiert**
 
-Umfang:
-
-- erwartete Originalbytes gegen das dekomprimierte NSO prüfen
-- neue Bytes gleichlang validieren
-- Disassembly vorher/nachher anzeigen
-- Segmentgrenzen und BSS ausschließen
-- vollständige Build ID und `main`-SHA-256 im Projektbericht festhalten
-- Patchüberschneidungen erkennen
-- geladene `main` niemals verändern
-- GUI unter `Werkzeuge → ExeFS Patchvorschau / IPS32`
-- erstes eingebautes Profil: `Hard Mode: P2 aktiv halten – Test 1`
-
-Dateien:
+GUI:
 
 ```text
-PAKPY/exefs_patch.py
-PAKPY/exefs_patch_gui_patch.py
-PAKPY/test_exefs_patch.py
+Werkzeuge -> ExeFS Patchprojekt / IPS32
+Ctrl+Shift+P
 ```
+
+Funktionen:
+
+- beliebige NSO-VA
+- beliebige erwartete und neue Bytes
+- beliebig viele Einträge
+- Hinzufügen, Bearbeiten, Entfernen
+- Originalbyte- und Segmentprüfung
+- Build-ID-Bindung
+- Disassembly vorher/nachher
+- Überlappungsprüfung
+- JSON laden/speichern
+
+Wichtig: Es gibt keine fest eingebaute Profilregistry und keine DKCTF-Patchfunktion mehr.
 
 ## Schritt 10 – ARM64-Hilfsaktionen
 
-Geplant:
+Status: **geplant**
 
 ```text
 NOP
 Return false / true / Konstante
 Branch immer / nie / invertieren
-CBZ ↔ CBNZ
-B.EQ ↔ B.NE
+CBZ <-> CBNZ
+B.EQ <-> B.NE
 MOV-Konstante ändern
 BL-Ziel ersetzen
 ```
 
-PAKPY erzeugt die Instruktionsbytes, zeigt sie aber vor der Übernahme vollständig an.
+Die Aktionen erzeugen nur editierbare Projektzeilen und müssen Originalbytes anzeigen.
 
 ## Schritt 11 – Code-Cave-/Trampolin-Builder
 
-Geplant:
+Status: **geplant**
 
-- freie Paddingbereiche finden
-- Reichweite von `B`/`BL` prüfen
-- überschriebene Originalinstruktionen übernehmen
-- Register sichern/wiederherstellen
-- 16-Byte-Stackausrichtung prüfen
+- Paddingbereiche finden
+- Branch-Reichweite prüfen
+- Originalinstruktionen übernehmen
+- Register und 16-Byte-Stackausrichtung sichern
 - kontrollierter Rücksprung
-- Konfliktprüfung zwischen mehreren Trampolinen
+- Konflikte mehrerer Trampoline
 
-## Schritt 12 – IPS-/IPS32-Export
+## Schritt 12 – IPS32-Export
 
-Status: **IPS32-Baseline implementiert**
+Status: **implementiert**
 
-Umfang:
+- Build ID und Originalbytes vor Export zwingend validiert
+- Atmosphère-Offsetregel `NSO-VA + 0x100`
+- generischer Direkt-Export
+- Emulator-Modroot-Export:
 
-- Atmosphère-Struktur `atmosphere/exefs_patches/<Gruppe>/` erzeugen
-- Dateiname aus vollständiger Build ID
-- IPS32-Header, Records und `EEOF`-Footer
-- korrekte Atmosphère-Regel `IPS-Offset = NSO-VA + 0x100`
-- Manifest mit Original-SHA-256, Offsets und Disassembly
-- Markdown-Patchbericht
-- Export nur nach erfolgreicher Originalbyte-Validierung
+```text
+<Mod>/exefs/<Build-ID>.ips
+```
 
-Noch offen:
+- Atmosphère-Export:
 
-- klassischer IPS-Export für Adressen unter dem 24-Bit-Limit
-- mehrere frei editierbare Patcheinträge in der GUI
-- Titel-ID-Verwaltung im Patchprojekt
+```text
+atmosphere/exefs_patches/<Patchgruppe>/<Build-ID>.ips
+```
+
+- `manifest.json` und `README.md`
+- geladene `main` bleibt unverändert
 
 ---
 
@@ -368,49 +231,36 @@ Noch offen:
 
 ## Schritt 13 – Build- und Spielversionsprofile
 
-Pro `main` speichern:
-
-```text
-Build ID
-Datei-SHA-256
-Segment-SHA-256
-Modulname
-bekannte Symbole
-Kommentare
-Bookmarks
-Patchstatus
-```
+Status: **Projekt-Build-ID vorhanden; vollständige Analyseprofile offen**
 
 ## Schritt 14 – Binärvergleich zweier Builds
 
-Geplant:
+Status: **geplant**
 
-- verschobene, aber ähnliche Funktionen erkennen
+- verschobene ähnliche Funktionen
 - geänderte Konstanten und Branches
 - neue/entfernte Strings
 - verschobene Callbacktabellen
-- bekannte Patchstelle im neuen Build suchen
+- bekannte Patchstellen im neuen Build
 
 ## Schritt 15 – Pattern-/Signatursystem
 
-Geplant:
+Status: **geplant**
 
 - Bytepatterns mit Wildcards
 - Segmentbegrenzung
 - erwartete Trefferzahl
-- Kontextbytes
-- Instruktionsbedingungen
-- keine Anwendung bei mehrdeutigen Treffern
+- Kontextbytes und Instruktionsbedingungen
+- keine Anwendung bei Mehrdeutigkeit
 
 ## Schritt 16 – Funktions-Fingerprints
 
-Geplant:
+Status: **geplant**
 
 - normalisierte Instruktionsfolge
 - Basic-Block-Struktur
 - Strings und Callziele
-- Hash ohne absolute Adressen
-- Wiedererkennung über Builds hinweg
+- Wiedererkennung über Builds
 
 ---
 
@@ -418,63 +268,42 @@ Geplant:
 
 ## Schritt 17 – Runtime-Trace-Patch-Generator
 
-Geplant für Fälle, die statisch nicht eindeutig sind:
+Status: **geplant**
 
-- temporären Hook erzeugen
-- Callbackargumente und Zustände protokollieren
-- Ringpuffer oder vorhandene interne Logfunktion verwenden
-- klar als Diagnosepatch markieren
-- vollständige Rückbauinformation speichern
-
-Beispielziel:
-
-```text
-initLevelTransition aufgerufen
-mode = HARD
-Char_P1 = DIDDY
-PlayerCount vorher = 2
-PlayerCount nachher = 1
-```
+- temporäre Hooks
+- Callbackargumente und Zustände
+- Ringpuffer oder vorhandene Logfunktion
+- vollständige Rückbauinformationen
 
 ## Schritt 18 – Watchpoint-/Hook-Planer
 
-Geplant:
+Status: **geplant**
 
-- alle Schreibzugriffe auf ausgewählte globale Daten sammeln
+- alle Schreibzugriffe sammeln
 - geeignete Hookpunkte vorschlagen
-- Register-/Stackanforderungen anzeigen
-- mehrere mögliche Schreibpfade vergleichbar machen
+- Register-/Stackanforderungen
 
 ## Schritt 19 – Crash-Report-Mapper
 
-Geplant:
+Status: **geplant**
 
-- Atmosphère-Crashreport einlesen
-- Build ID, PC, LR, Register und Backtrace erfassen
-- Adressen auf NSO-Funktion und Offset abbilden
-- betroffenen PAKPY-Patch benennen
+- Atmosphère-Crashreport
+- Build ID, PC, LR, Register, Backtrace
+- Zuordnung zu Funktion, Offset und Patchprojekt
 
 ---
 
-# Phase F – Projektverwaltung und Dokumentation
+# Phase F – Projektverwaltung
 
 ## Schritt 20 – Analyseprojekt pro Build
 
-Geplante Struktur:
+Status: **geplant**
 
-```text
-analysis/<build-id>/
-  profile.json
-  symbols.json
-  comments.json
-  bookmarks.json
-  function_signatures.json
-  patches.json
-```
-
-Die originale `main`-Datei wird nicht verändert.
+Die originale `main` wird niemals im Analyseprojekt verändert oder gespeichert.
 
 ## Schritt 21 – Patchprojekte und Abhängigkeiten
+
+Status: **JSON-Einzelprojekte implementiert; Abhängigkeiten offen**
 
 Beispiel:
 
@@ -483,85 +312,61 @@ HardModeMultiplayer
 ├─ UI_EnableButton
 ├─ UI_EnableNavigation
 ├─ UI_P2CharacterSelector
-├─ ExeFS_PreservePlayerCount
-└─ ExeFS_EnableP2Spawn
-```
-
-Statuswerte:
-
-```text
-nicht angewendet
-teilweise angewendet
-angewendet
-Konflikt
-falsche Build ID
-nicht im Spiel bestätigt
-im Spiel bestätigt
+├─ ExeFS_PreserveP2Active
+└─ ExeFS_PreserveP2Character
 ```
 
 ## Schritt 22 – Automatischer Patchbericht
 
-Jeder Export soll dokumentieren:
+Status: **Baseline implementiert**
+
+Jeder Export dokumentiert:
 
 - Build ID
-- Datei- und virtuelle Adresse
+- NSO-VA und IPS32-Offset
 - erwartete und neue Bytes
 - Disassembly vorher/nachher
-- Funktions-/Symbolname
-- Zweck des Patches
-- statischer Prüfstatus
-- Spielteststatus
+- Beschreibung
+- Quell-SHA-256
+
+Offen:
+
+- Spielteststatus direkt im Projekt
+- Abhängigkeiten und Konflikte mehrerer Projekte
 
 ---
 
-# Arbeitsregeln
-
-1. Analyse und Schreiben bleiben getrennte Modi.
-2. Absolute Offsets gelten nur für die dokumentierte Build ID.
-3. Originalbytes werden vor jeder Änderung exakt geprüft.
-4. Komprimierte NSO-Segmente besitzen keine direkte Byte-für-Byte-Dateioffset-Zuordnung.
-5. Jede Adresse wird ausdrücklich als Dateioffset, NSO-VA oder Runtime-Adresse bezeichnet.
-6. Ein statisch plausibler Patch ist nicht automatisch im Spiel bestätigt.
-7. Code-Caves und Trampoline werden erst nach einem dokumentierten Kontrollfluss gebaut.
-8. PAK-/AVM2- und ExeFS-Änderungen werden in einem gemeinsamen Patchprojekt, aber als getrennte Dateien geführt.
-
 # Aktuelles Untersuchungsziel
-
-Teil 3 des KONG-Select-Projekts:
 
 ```text
 Hard Mode im 2-Spieler-Modus
 ```
 
-Bereits UI-seitig bestätigt:
+Binär bestätigt:
 
-- Hard-Mode-Button im Multiplayer aktiviert
-- Hard Mode in die Navigation aufgenommen
-- `map.menu_hardmode.inputSelect` ruft `initLevelTransition("HARD", currentKong)` auf
-- SWF setzt vor dem Übergang nur `Char_P1`
+- Hard Mode setzt nur P1 aktiv.
+- Testpatch 1 erhält ein bereits aktives P2-Bit.
+- P2-Charakterübernahme ist ein separater späterer Patch.
 
-Aktueller technischer Stand:
-
-```text
-initLevelTransition wurde bis 0x35267C und in den Helper 0x352AA0 verfolgt.
-Der Hard-Mode-Zweig ruft die Initialisierung bei 0x1E6FC0 auf.
-UpdateCharacterTypes beweist P1/P2-Felder +0x2698/+0x269C sowie die Aktivbits
-bei +0x26A0. Hard Mode löscht Bit 1 und erzwingt dadurch P1-only.
-```
-
-Erster Testpatch:
+Konkrete Beweise:
 
 ```text
-NSO-VA 0x1E7018
-29 15 1E 12  AND W9,W9,#0xFC
-29 19 1F 12  AND W9,W9,#0xFE
+PAKPY/EXEFS_HARDMODE_FINDINGS.md
 ```
 
-Ziel des ersten Tests ist ausschließlich, das bereits aktive P2-Bit zu erhalten.
-Die automatische P2-Figur des nativen Hard-Mode-Pfads bleibt zunächst unverändert.
-Details und Bestätigungsstatus stehen in `EXEFS_HARDMODE_FINDINGS.md`.
+Konkretes Testprojekt, ausschließlich als Daten:
 
-# Formatquellen
+```text
+PAKPY/exefs_profiles/dkctf_hardmode_p2_test1.json
+```
 
-- NSO0-Übersicht: https://switchbrew.org/wiki/NSO
-- Atmosphère ExeFS-Patches: https://github.com/Atmosphere-NX/Atmosphere
+# Arbeitsregeln
+
+1. Analyse und Schreiben bleiben getrennt.
+2. Absolute Offsets gelten nur für die dokumentierte Build ID.
+3. Originalbytes werden vor jedem Export exakt geprüft.
+4. Komprimierte NSO-Segmente besitzen keine direkte Byte-für-Byte-Dateioffset-Zuordnung.
+5. Jede Adresse wird als Dateioffset, NSO-VA oder Runtime-Adresse bezeichnet.
+6. Binär plausibel ist nicht gleich im Spiel bestätigt.
+7. Spielbezogene Patchdaten bleiben außerhalb des Python-Codes.
+8. Jede neue Funktion aktualisiert Roadmap und relevante Findings-Dokumentation.
