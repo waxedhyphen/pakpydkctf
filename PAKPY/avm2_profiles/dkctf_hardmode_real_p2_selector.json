@@ -7,8 +7,8 @@
       "method_index": 488,
       "code_offset": "0xC",
       "expected": "83 00 00",
-      "replacement": "E1 00 00",
-      "note": "Move the initial dispatch target forward by the total 94-byte insertion in the PLAY path."
+      "replacement": "DC 00 00",
+      "note": "Move the initial dispatch target forward by the corrected total 89-byte insertion in the PLAY path."
     },
     {
       "module_name": "<unbenannt>",
@@ -16,8 +16,8 @@
       "method_index": 488,
       "code_offset": "0x2E",
       "expected": "60 F4 08",
-      "replacement": "60 BF 07 D0 24 02 46 F3 07 01 66 81 04 73 66 8A 0A D7 60 B7 01 2C CB 10 2C F2 07 2C DA 09 D3 4F EC 06 04 60 F4 08 2C C9 07 24 00 24 06 46 98 09 02 2C 83 09 24 00 24 09 46 98 09 02 A0 2C E6 07 24 06 24 04 46 98 09 02 A0 2C E6 07 24 05 24 01 46 98 09 02 A0 D0 66 BF 03 D3 4F F5 08 03 60 F4 08",
-      "note": "Map chooseKongP2.currentState to its Kong string, store it in mRuntimeData.Char_P2, then call the native UpdateCharacterTypes(P1, P2) callback before initLevelTransition. The callback name is assembled from existing constant-pool strings so no ABC pool entry is added."
+      "replacement": "60 BF 07 D0 24 02 46 F3 07 01 66 81 04 73 66 8A 0A D7 60 B7 01 2C CB 10 2C F2 07 2C DA 09 D3 4F EC 06 04 60 F4 08 2C C9 07 24 00 24 06 46 98 09 02 2C 83 09 24 00 24 09 46 98 09 02 A0 2C E6 07 24 06 24 04 46 98 09 02 A0 2C E6 07 24 05 24 01 46 98 09 02 A0 4F F5 08 01 60 F4 08",
+      "note": "Map chooseKongP2.currentState to its Kong string, store it in mRuntimeData.Char_P2, then invoke the native UpdateCharacterTypes callback with the same zero-argument call shape used by the original game before initLevelTransition."
     },
     {
       "module_name": "<unbenannt>",
@@ -25,8 +25,8 @@
       "method_index": 488,
       "code_offset": "0xC6",
       "expected": "4E FF FF",
-      "replacement": "F0 FE FF",
-      "note": "Correct the PLAY case of the final lookupswitch after the total 94-byte insertion: offset changes from -178 to -272."
+      "replacement": "F5 FE FF",
+      "note": "Correct the PLAY case of the final lookupswitch after the total 89-byte insertion: offset changes from -178 to -267."
     }
   ]
 }
