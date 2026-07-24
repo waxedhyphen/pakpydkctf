@@ -34,6 +34,11 @@ class Arm64DecoderTests(unittest.TestCase):
         self.assertDecoded(0x2A0003F5, 0x40, "mov", "w21, w0")
         self.assertDecoded(0xEB09011F, 0x44, "cmp", "x8, x9")
 
+    def test_logical_immediates(self):
+        self.assertDecoded(0x121E1529, 0, "and", "#0xFC")
+        self.assertDecoded(0x121F1929, 0, "and", "#0xFE")
+        self.assertDecoded(0x32000129, 0, "orr", "#0x1")
+
     def test_unknown_is_preserved(self):
         mnemonic, operands, *_ = decode_word(0, 0)
         self.assertEqual(mnemonic, ".word")
