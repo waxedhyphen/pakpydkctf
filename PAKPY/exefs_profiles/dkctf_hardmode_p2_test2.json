@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "name": "DKCTF Hard Mode – independent P2 test 2",
+  "patch_group": "DKCTF_HardMode_P2_Test2",
+  "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
+  "notes": "Second isolated in-game test. Keeps the P2 slot bit and prevents Hard Mode from clearing the separate state byte at +0x26AF that gates the independent P2 path. P2 character preservation is still not addressed.",
+  "entries": [
+    {
+      "memory_offset": "0x1E6FEC",
+      "expected": "7F 6A 28 38",
+      "replacement": "1F 20 03 D5",
+      "description": "Do not clear the +0x26AF state byte during Hard Mode initialization. Replaces STRB WZR, [X19, X8] with NOP."
+    },
+    {
+      "memory_offset": "0x1E7018",
+      "expected": "29 15 1E 12",
+      "replacement": "29 19 1F 12",
+      "description": "Preserve an already active P2 slot bit while Hard Mode initializes the active-slot mask."
+    }
+  ]
+}
