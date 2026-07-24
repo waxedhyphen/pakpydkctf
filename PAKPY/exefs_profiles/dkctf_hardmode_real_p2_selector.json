@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "name": "DKCTF Hard Mode – real independent P2 selector",
+  "patch_group": "DKCTF_HardMode_Real_P2_Selector",
+  "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
+  "notes": "Activates independent P2 and preserves the Char_P2 value written by the second Hard Mode selector instead of replacing it with the automatic DK/Diddy partner.",
+  "entries": [
+    {
+      "memory_offset": "0x1E6FEC",
+      "expected": "7F 6A 28 38",
+      "replacement": "1F 20 03 D5",
+      "description": "Do not clear the +0x26AF state byte during Hard Mode initialization."
+    },
+    {
+      "memory_offset": "0x1E700C",
+      "expected": "68 9E 26 B9",
+      "replacement": "1F 20 03 D5",
+      "description": "Preserve the P2 character field at +0x269C instead of overwriting it with the automatic DK/Diddy partner."
+    },
+    {
+      "memory_offset": "0x1E7018",
+      "expected": "29 15 1E 12",
+      "replacement": "29 19 1F 12",
+      "description": "Preserve an already active P2 slot bit during Hard Mode initialization."
+    }
+  ]
+}
