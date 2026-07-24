@@ -1,6 +1,6 @@
 """Nintendo Switch NSO0 parsing and address translation.
 
-This module is deliberately independent from the PAK reader. It provides the
+This module is deliberately independent from the PAK reader.  It provides the
 foundation for the ExeFS Lab: validated NSO metadata, segment extraction and
 safe translation between file offsets, module-relative virtual addresses and
 runtime addresses.
@@ -132,8 +132,8 @@ class NsoImage:
             file_offset, memory_offset, memory_size = struct.unpack_from(
                 "<III", raw, header_offset
             )
-            compressed = bool(flags & (1 << (flag_index * 4)))
-            hash_enabled = bool(flags & (1 << (12 + flag_index * 4)))
+            compressed = bool(flags & (1 << flag_index))
+            hash_enabled = bool(flags & (1 << (3 + flag_index)))
             if memory_size and stored_size == 0:
                 raise NsoError(f"Segment {name} hat Größe, aber keine gespeicherte Länge")
             if stored_size and file_offset < NSO_HEADER_SIZE:
@@ -196,12 +196,7 @@ class NsoImage:
 
     def segment(self, name: str) -> NsoSegment:
         key = str(name).strip().lower()
-        aliases = {
-            "ro": "rodata",
-            ".rodata": "rodata",
-            ".text": "text",
-            ".data": "data",
-        }
+        aliases = {"ro": "rodata", ".rodata": "rodata", ".text": "text", ".data": "data"}
         key = aliases.get(key, key)
         for segment in self.segments:
             if segment.name == key:
@@ -230,6 +225,19 @@ class NsoImage:
                     f"{actual.hex().upper()} != {segment.expected_hash.hex().upper()}"
                 )
         return result
+
+    def suggested_code_start(self) -> int:
+        """Return a conservative first code address inside the text segment.
+
+        Switch NSOs commonly begin text with an eight-byte prefix followed by a
+        MOD0 header. Its fixed header ends at text+0x24; when that marker is not
+        present the text segment start is returned unchanged.
+        """
+        segment = self.segment("text")
+        data = self.read_segment("text")
+        if len(data) >= 0x24 and data[8:12] == b"MOD0":
+            return segment.memory_offset + 0x24
+        return segment.memory_offset
 
     def verify_enabled_hashes(self) -> dict[str, bool]:
         result: dict[str, bool] = {}
@@ -384,8 +392,6 @@ def parse_int(value: str | int, label: str = "Wert") -> int:
         elif text.lower().startswith(("0x", "+0x")):
             parsed = int(text, 16)
         else:
-            # Reverse-engineering addresses are hexadecimal by default. Decimal
-            # input remains available explicitly through the 0d prefix.
             parsed = int(text, 16)
     except ValueError as exc:
         raise NsoError(f"{label} ist keine gültige Zahl: {value!r}") from exc
@@ -407,9 +413,6 @@ def _require_non_negative(value: int, label: str) -> int:
 def _read_module_name(raw: bytes, offset: int, size: int) -> str:
     if size == 0 or offset == 0:
         return ""
-    # Some valid NSOs use placeholder values when no useful module name is
-    # present. The field is informational and must not prevent analysis of
-    # otherwise valid executable segments.
     if offset < NSO_HEADER_SIZE or offset + size > len(raw):
         return ""
     value = raw[offset:offset + size].split(b"\0", 1)[0]
