@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "name": "DKCTF Hard Mode – direct P2 selector",
+  "name": "DKCTF Hard Mode – P2 through initializer",
   "patch_group": "DKCTF_HardMode_Real_P2_Selector",
   "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
-  "notes": "In-game-confirmed Try 6 selector only. UIPak(21) already passes chooseKongP2.currentState as the third initLevelTransition argument. The native parser reads entries+0x20, maps selector 0..4 to internal Kong IDs, writes state+0x269C, and disables the automatic DK/default P2 store. Try 7 and Try 8 return-restore changes in UpdateCharacterTypes failed for manual level quit and are excluded.",
+  "notes": "Try 9 keeps the confirmed third-argument parser but no longer writes the selected Kong directly to state+0x269C. The callback stores the mapped P2 ID temporarily at state+0x26C0. Hard Mode initialization loads that temporary ID at 0x1E7000 and performs the original P2 store at 0x1E700C, in the same initializer that stores P1. This removes the failed UpdateCharacterTypes quit-restore approach and tests whether using the normal initializer lifecycle prevents the Hard Mode Kong from persisting after manual quit.",
   "entries": [
     {
       "memory_offset": "0x1E6FEC",
@@ -12,10 +12,16 @@
       "description": "Preserve the confirmed independent-P2 Hard Mode state."
     },
     {
-      "memory_offset": "0x1E700C",
-      "expected": "68 9E 26 B9",
+      "memory_offset": "0x1E7000",
+      "expected": "E8 03 00 32",
+      "replacement": "68 C2 66 B9",
+      "description": "Load the mapped Hard Mode P2 ID from temporary state+0x26C0 instead of generating automatic P2 ID 1."
+    },
+    {
+      "memory_offset": "0x1E7004",
+      "expected": "08 15 88 1A",
       "replacement": "1F 20 03 D5",
-      "description": "Do not overwrite the P2 ID written by initLevelTransition with the automatic DK/default partner."
+      "description": "Remove the DK-specific increment; W8 already contains the exact selected P2 ID."
     },
     {
       "memory_offset": "0x1E7018",
@@ -27,13 +33,19 @@
       "memory_offset": "0x3526EC",
       "expected": "8B 0A 00 54",
       "replacement": "8B 05 00 54",
-      "description": "For a missing first argument, retain the original w21=0 fallback before entering the compact parser."
+      "description": "Retain the compact parser control flow for the existing third initLevelTransition argument."
     },
     {
       "memory_offset": "0x3527A0",
       "expected": "C8 02 40 B9 1F 09 00 71 CB 04 00 54 C8 06 40 F9 16 0D 40 F9 E8 63 00 91 E0 03 16 AA B3 C9 F2 97 80 8E 00 90 00 FC 13 91 E8 03 00 91 AF C9 F2 97 E0 63 00 91 E1 03 00 91 7D 96 F3 97 E8 07 40 F9 F7 03 00 2A 28 01 00 B4 08 21 00 91 09 FD 5F 88 29 05 00 71 09 FD 0A 88 AA FF FF 35 61 00 00 54 E0 07 40 F9 75 2E F3 97 E8 13 40 F9 28 01 00 B4 08 21 00 91 09 FD 5F 88 29 05 00 71 09 FD 0A 88 AA FF FF 35 61 00 00 54 E0 13 40 F9 6B 2E F3 97 77 02 00 36 E3 03 1F 2A 03 00 00 14 F5 03 1F 2A 03 00 80 12",
-      "replacement": "C8 02 40 B9 1F 09 00 71 EB 00 00 54 C8 06 40 F9 00 0D 40 F9 EC 89 FA 97 AB A5 FC 97 F7 03 00 2A 02 00 00 14 17 00 80 12 C8 02 40 B9 1F 0D 00 71 6B 01 00 54 C8 06 40 F9 00 81 00 91 0E 10 0C 94 99 A5 FC 97 1F 04 00 31 A0 00 00 54 F6 03 00 2A E0 03 14 AA 9E 73 FF 97 16 9C 26 B9 E3 03 17 2A 11 00 00 14 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5",
-      "description": "Parse the existing third initLevelTransition argument, map the Hard Mode P2 slider, and write state+0x269C."
+      "replacement": "C8 02 40 B9 1F 09 00 71 EB 00 00 54 C8 06 40 F9 00 0D 40 F9 EC 89 FA 97 AB A5 FC 97 F7 03 00 2A 02 00 00 14 17 00 80 12 C8 02 40 B9 1F 0D 00 71 6B 01 00 54 C8 06 40 F9 00 81 00 91 0E 10 0C 94 99 A5 FC 97 1F 04 00 31 A0 00 00 54 F6 03 00 2A E0 03 14 AA 9E 73 FF 97 16 C0 26 B9 E3 03 17 2A 11 00 00 14 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5",
+      "description": "Parse and map the existing P2 slider, but store the result temporarily at state+0x26C0 instead of changing the persistent current-P2 field before initialization."
+    },
+    {
+      "memory_offset": "0x352B18",
+      "expected": "1F C0 26 B9",
+      "replacement": "1F 20 03 D5",
+      "description": "Keep the temporary P2 ID alive until the Hard Mode initializer consumes it."
     }
   ]
 }
