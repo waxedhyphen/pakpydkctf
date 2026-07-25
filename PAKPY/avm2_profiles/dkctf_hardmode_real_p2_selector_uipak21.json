@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "patches": [
+    {
+      "module_name": "<unbenannt>",
+      "source": "root",
+      "method_index": 488,
+      "code_offset": "0xC",
+      "expected": "8E 00 00",
+      "replacement": "E7 00 00",
+      "note": "UIPak(21)-Zwischenstand: verschiebe das anfängliche Dispatch-Ziel um die 89 zusätzlich eingefügten Bytes. Das ursprüngliche Ziel liegt bereits 11 Bytes später als im generischen Profil."
+    },
+    {
+      "module_name": "<unbenannt>",
+      "source": "root",
+      "method_index": 488,
+      "code_offset": "0x2E",
+      "expected": "60 F4 08",
+      "replacement": "60 BF 07 D0 24 02 46 F3 07 01 66 81 04 73 66 8A 0A D7 60 B7 01 2C CB 10 2C F2 07 2C DA 09 D3 4F EC 06 04 60 F4 08 2C C9 07 24 00 24 06 46 98 09 02 2C 83 09 24 00 24 09 46 98 09 02 A0 2C E6 07 24 06 24 04 46 98 09 02 A0 2C E6 07 24 05 24 01 46 98 09 02 A0 4F F5 08 01 60 F4 08",
+      "note": "Lies chooseKongP2.currentState, mappe ihn über kongMapping, schreibe den Kong-String nach mRuntimeData.Char_P2 und rufe anschließend den nativen Callback UpdateCharacterTypes() mit seiner verifizierten Null-Argument-Signatur auf."
+    },
+    {
+      "module_name": "<unbenannt>",
+      "source": "root",
+      "method_index": 488,
+      "code_offset": "0xD1",
+      "expected": "43 FF FF",
+      "replacement": "EA FE FF",
+      "note": "UIPak(21)-Zwischenstand: korrigiere den PLAY-Fall des finalen lookupswitch nach der 89-Byte-Einfügung. Der Switch wandert von 0xCC nach 0x125; das Ziel bleibt 0x0F, daher wird der Offset -278."
+    }
+  ]
+}
