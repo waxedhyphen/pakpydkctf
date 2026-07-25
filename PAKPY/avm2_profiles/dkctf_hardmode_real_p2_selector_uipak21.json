@@ -1,32 +1,5 @@
 {
   "schema": 1,
-  "patches": [
-    {
-      "module_name": "<unbenannt>",
-      "source": "root",
-      "method_index": 488,
-      "code_offset": "0xC",
-      "expected": "8E 00 00",
-      "replacement": "A3 00 00",
-      "note": "UIPak(21): move the initial dispatch target forward by the 21-byte net insertion. The target moves from 0x9D to 0xB2."
-    },
-    {
-      "module_name": "<unbenannt>",
-      "source": "root",
-      "method_index": 488,
-      "code_offset": "0x2E",
-      "expected": "60 F4 08",
-      "replacement": "60 F4 08 2C DA 09 D0 24 02 46 F3 07 01 66 81 04 73 4F F5 08 02 60 F4 08",
-      "note": "Immediately before the original initLevelTransition call, invoke the renamed native callback Char_P2 with chooseKongP2.currentState as its single argument. No mRuntimeData.Char_P2 write is used."
-    },
-    {
-      "module_name": "<unbenannt>",
-      "source": "root",
-      "method_index": 488,
-      "code_offset": "0xD1",
-      "expected": "43 FF FF",
-      "replacement": "2E FF FF",
-      "note": "Correct the PLAY lookupswitch case after the 21-byte net insertion. The switch moves from 0xCC to 0xE1, its PLAY target remains 0x0F, and the new relative offset is -210."
-    }
-  ]
+  "patches": [],
+  "note": "Try 6 intentionally applies no AVM2 patch. UIPak(21) already passes chooseKongP2.currentState as the third argument of initLevelTransition. The previous Try-5 Char_P2 callback insertion must not be applied."
 }
