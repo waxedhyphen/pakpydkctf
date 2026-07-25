@@ -24,7 +24,6 @@ jobs:
           import hashlib
           import json
           import struct
-          import zipfile
 
           profile_path = Path('PAKPY/exefs_profiles/dkctf_hardmode_real_p2_selector.json')
           profile = json.loads(profile_path.read_text(encoding='utf-8'))
@@ -65,8 +64,7 @@ jobs:
           ips_path = exefs / f'{build_id}.ips'
           ips_path.write_bytes(ips)
 
-          readme = root / 'README.txt'
-          readme.write_text(
+          (root / 'README.txt').write_text(
               'DKCTF Hard Mode P2 Try 9\n'
               '=============================\n\n'
               'Replace the previous IPS completely. Do not combine IPS files.\n'
@@ -91,19 +89,12 @@ jobs:
               report.append(f'  {va:#010x}: {len(replacement):3d} bytes | {description}')
           (root / 'VALIDATION.txt').write_text('\n'.join(report) + '\n', encoding='utf-8')
           print('\n'.join(report))
-
-          zip_path = Path('out/DKCTF_HardMode_P2_Try9.zip')
-          with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-              for path in sorted(root.rglob('*')):
-                  if path.is_file():
-                      zf.write(path, path.relative_to(root.parent))
-          print(f'ZIP SHA-256: {hashlib.sha256(zip_path.read_bytes()).hexdigest()}')
           PY
 
       - name: Upload Try 9 package
         uses: actions/upload-artifact@v4
         with:
           name: DKCTF_HardMode_P2_Try9
-          path: out/DKCTF_HardMode_P2_Try9.zip
+          path: out/DKCTF_HardMode_P2_Try9
           if-no-files-found: error
           retention-days: 7
