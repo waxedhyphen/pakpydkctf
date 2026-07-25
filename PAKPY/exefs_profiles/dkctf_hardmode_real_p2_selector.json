@@ -3,7 +3,7 @@
   "name": "DKCTF Hard Mode – P2 through initializer",
   "patch_group": "DKCTF_HardMode_Real_P2_Selector",
   "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
-  "notes": "Try 9 keeps the confirmed third-argument parser but no longer writes the selected Kong directly to state+0x269C. The callback stores the mapped P2 ID temporarily at state+0x26C0. Hard Mode initialization loads that temporary ID at 0x1E7000 and performs the original P2 store at 0x1E700C, in the same initializer that stores P1. This removes the failed UpdateCharacterTypes quit-restore approach and tests whether using the normal initializer lifecycle prevents the Hard Mode Kong from persisting after manual quit.",
+  "notes": "In-game-confirmed Try 9. UIPak(21) passes chooseKongP2.currentState as the third initLevelTransition argument. The callback maps the selected Kong and stores the temporary P2 ID at state+0x26C0. Hard Mode initialization loads it at 0x1E7000 and performs the original P2 store at 0x1E700C, in the same initializer lifecycle as P1. Confirmed behavior: the selected P2 Kong spawns correctly, manual level quit succeeds, and the pre-Hard-Mode normal P2 Kong is restored instead of the Hard Mode Kong persisting.",
   "entries": [
     {
       "memory_offset": "0x1E6FEC",
