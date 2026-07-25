@@ -4,166 +4,181 @@ Arbeitsstand: 2026-07-25
 
 Ziel: `chooseKongP2` soll nicht nur visuell rotieren, sondern die tatsächliche Figur von Spieler 2 beim Start des Hard Mode bestimmen.
 
-## Test 1 – hochgeladene ExeFS und aktueller PAK-Stand
-
-Eingaben:
+## Feste Arbeitsgrundlage
 
 ```text
-UIPak(21).pak
-exefs(11).zip
-```
-
-### ExeFS-Prüfung
-
-`exefs(11).zip` enthält eine unveränderte `main`. Das ist beim PAKPY-Workflow korrekt: Die `main` dient ausschließlich als validierte Quelle; exportiert wird eine IPS32-Datei.
-
-Verifiziert:
-
-```text
+UI:    UIPak(21).pak
+ExeFS: exefs(11).zip / main
 Build ID:
 F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000
-
-NSO-VA 0x1E6FEC:
-7F 6A 28 38
-
-NSO-VA 0x1E700C:
-68 9E 26 B9
-
-NSO-VA 0x1E7018:
-29 15 1E 12
 ```
 
-Damit passt die hochgeladene `main` exakt zum Profil `dkctf_hardmode_real_p2_selector.json`. Ein IPS32-Export ist gegen Build ID und Originalbytes möglich.
+Die `main` bleibt unverändert. PAKPY validiert daran die Originalbytes und exportiert anschließend ausschließlich IPS32.
 
-### Native Callback-Prüfung
+## Bereits im Spiel bestätigt
 
-Die Callback-Registrierung wurde direkt aus `main` verifiziert:
+Das vorhandene Zwei-Spieler-Fundament benutzt diese beiden ExeFS-Änderungen:
 
 ```text
-Name: UpdateCharacterTypes
-Callback: 0x3457A8
-Argumentzahl: 0
+0x1E6FEC
+7F 6A 28 38 -> 1F 20 03 D5
+
+0x1E7018
+29 15 1E 12 -> 29 19 1F 12
 ```
 
-`UpdateCharacterTypes()` liest die beiden Runtime-Werte über die internen IDs `0x65` und `0x66`, wandelt sie in Kong-IDs um und schreibt sie nach `+0x2698` und `+0x269C`. Der korrigierte AVM2-Aufruf mit null Argumenten entspricht damit der realen nativen Signatur.
+Bestätigtes Ergebnis dieses Fundaments:
 
-`InitLevelTransition` erhält keine separate P2-Auswahl aus einem dritten UI-Argument. Im Hard-Mode-Pfad überschreibt es P2 später automatisch. Deshalb bleiben die drei ExeFS-Einträge erforderlich:
+- zwei echte Spieler starten im Hard Mode;
+- P2 ist separat steuerbar;
+- die Figur von P2 wird ohne weitere Auswahlübergabe noch automatisch bestimmt.
 
-```text
-0x1E6FEC: Initialisierungsbyte nicht löschen
-0x1E700C: P2-Feld +0x269C nicht automatisch überschreiben
-0x1E7018: aktives P2-Slot-Bit erhalten
-```
+## Test 1 – statische Prüfung des Uploads
 
-### PAK-Prüfung
-
-`UIPak(21).pak` enthält zwar `chooseKongP2`, aber Methode 488 besitzt einen eigenen Zwischenstand:
+`UIPak(21).pak` enthält `chooseKongP2` und getrennte visuelle Eingabe. Methode 488 besitzt folgenden eigenen Zwischenstand:
 
 ```text
-Methode 488 Länge: 219 Bytes
+Methode 488: 219 Bytes
 Dispatch bei 0x0C: 8E 00 00
 PLAY-Einfügepunkt bei 0x2E: 60 F4 08
 PLAY-lookupswitch-Fall bei 0xD1: 43 FF FF
 ```
 
-Dieser Stand unterscheidet sich um 11 Bytes von den Ausgangsbytes des generischen Repo-Profils. Das Profil darf deshalb nicht unverändert auf `UIPak(21).pak` angewendet werden. Es braucht einen exakt angepassten Patch mit neu berechneten Sprungzielen.
+Das generische AVM2-Profil passt deshalb nicht bytegenau auf diesen PAK.
 
-### Ergebnis
-
-Ausgeschlossen:
-
-- Die unveränderte `main` ist kein Fehler; sie ist die korrekte IPS-Quelle.
-- `UpdateCharacterTypes()` erwartet keine P1/P2-Argumente.
-- Ein Hook in `InitLevelTransition`, der UI-Args lesen soll, ist der falsche Ansatz.
-- Das generische AVM2-Profil passt bytegenau nicht auf `UIPak(21).pak`.
-
-Noch nicht im Spiel bestätigt:
-
-- angepasster AVM2-Patch für Methode 488;
-- erzeugte IPS32-Datei;
-- tatsächliche Übernahme der P2-Auswahl im Level.
-
-## Test 2 – angepasster PAK-Patch und IPS32-Export
-
-### AVM2-Patch für `UIPak(21).pak`
-
-Neues Profil:
+Zusätzlich wurde verifiziert:
 
 ```text
-PAKPY/avm2_profiles/dkctf_hardmode_real_p2_selector_uipak21.json
+UpdateCharacterTypes callback: 0x3457A8
+registrierte Argumentzahl: 0
 ```
 
-Änderungen an Methode 488:
+## Test 2 – 92-Byte-AVM2-Block und drei ExeFS-Records
+
+Verwendete Idee:
+
+1. `chooseKongP2.currentState` über `kongMapping` in einen Kong-String umwandeln;
+2. den String nach `mRuntimeData.Char_P2` schreiben;
+3. zusätzlich `UpdateCharacterTypes()` aufrufen;
+4. anschließend `initLevelTransition` aufrufen;
+5. bei `0x1E700C` die automatische temporäre P2-Zuweisung mit NOP entfernen.
+
+Erzeugter Stand:
 
 ```text
-0x0C: 8E 00 00 -> E7 00 00
-0x2E: 60 F4 08 -> 92-Byte-Block
-0xD1: 43 FF FF -> EA FE FF
+Methode 488: 219 -> 308 Bytes
+IPS32-Records: 3
 ```
 
-Der eingefügte Block:
+### In-Game-Ergebnis
 
-1. liest `chooseKongP2.currentState`;
-2. mappt den Zustand über `kongMapping` auf den Kong-String;
-3. schreibt den String nach `mRuntimeData.Char_P2`;
-4. ruft `UpdateCharacterTypes()` ohne Figurenargumente auf;
-5. setzt anschließend den ursprünglichen `initLevelTransition`-Ablauf fort.
+```text
+FEHLGESCHLAGEN
+```
 
-Strukturell verifiziert:
+Der Nutzer hat bestätigt, dass die P2-Auswahl nicht übernommen wird. Dieser kombinierte Ansatz ist damit ausgeschlossen.
+
+### Nachanalyse des fehlgeschlagenen Tests
+
+Der originale AVM2-Stand übergibt bereits vier Werte an ExternalInterface:
+
+```text
+initLevelTransition("HARD", currentKong, chooseKongP2.currentState)
+```
+
+Der native Callback bei `0x35267C` wertet den dritten UI-Wert jedoch nicht als P2-Figur aus. Er bestimmt aus dem P1-String nur den Parameter für `CProductionFrontEnd::InitLevelTransition`.
+
+Entscheidend ist ein späterer bereits vorhandener nativer Pfad:
+
+```text
+0x352C74: Runtime-Daten-ID 0x66 lesen
+0x352C90: String -> interne Kong-ID
+0x352CA0: Ergebnis nach +0x269C schreiben
+```
+
+ID `0x66` ist `Char_P2`. Dieser Block läuft, wenn der unabhängige P2-Pfad über `+0x26AF` aktiv bleibt. Genau das stellt der bereits bestätigte Patch bei `0x1E6FEC` sicher.
+
+Daraus folgen zwei Korrekturen:
+
+- `UpdateCharacterTypes()` ist an dieser Stelle nicht erforderlich;
+- der zusätzliche NOP bei `0x1E700C` ist nicht erforderlich und wird aus dem nächsten Versuch entfernt.
+
+## Test 3 – minimaler vorhandener Runtime-Datenpfad
+
+### AVM2
+
+Methode 488 schreibt unmittelbar vor dem originalen `initLevelTransition`-Aufruf nur:
+
+```text
+mRuntimeData.Char_P2 = kongMapping[int(chooseKongP2.currentState)]
+```
+
+Kein zusätzlicher nativer Callback wird aufgerufen.
+
+Byteänderungen für `UIPak(21).pak`:
+
+```text
+0x0C: 8E 00 00 -> B1 00 00
+0x2E: 60 F4 08 -> 38-Byte-Block
+0xD1: 43 FF FF -> 20 FF FF
+```
+
+Strukturell geprüft:
 
 ```text
 Methode 488 vorher: 219 Bytes
-Methode 488 nachher: 308 Bytes
-Einfügung:            +89 Bytes
+Methode 488 nachher: 254 Bytes
+Einfügung:            +35 Bytes
+max_stack:            weiterhin 5
+locals:               weiterhin 4
 
-anfängliches Sprungziel:
-0x9D -> 0xF6
+anfängliches Ziel:
+0x9D -> 0xC0
 
-finaler lookupswitch:
-Position 0xCC -> 0x125
+lookupswitch:
+Position 0xCC -> 0xEF
 PLAY-Ziel bleibt 0x0F
-neuer relativer Offset: -278
+neuer Offset: -224
 ```
 
-Das gepatchte `MapHUD.swf` wurde nach dem Umbau erneut vollständig geparst. Methode 488, DoABC-Länge, SWF-Dateilänge, eingebettetes `MasterShell`-Asset und PAK-Offsets wurden erneut validiert.
+### ExeFS
 
-### IPS32
-
-Die unveränderte `main` wurde nur zur Prüfung verwendet. Exportiert wurde eine 39 Byte große IPS32-Datei mit exakt drei Records:
+Try 3 benutzt ausschließlich die zwei bereits im Spiel bestätigten Multiplayer-Änderungen:
 
 ```text
-IPS32 0x1E70EC -> 1F 20 03 D5
-IPS32 0x1E710C -> 1F 20 03 D5
-IPS32 0x1E7118 -> 29 19 1F 12
+0x1E6FEC -> NOP
+0x1E7018 -> AND #0xFE
 ```
 
-Diese IPS32-Offets entsprechen jeweils:
+Nicht mehr enthalten:
 
 ```text
-NSO-VA + 0x100 NSO-Header
+0x1E700C -> NOP
 ```
 
-Die IPS-Datei wurde anschließend erneut geparst; Header, drei Recordlängen, Offsets, Ersatzbytes und `EEOF`-Footer stimmen.
+Die stockmäßige temporäre DK/Diddy-Zuweisung darf zunächst stattfinden. Danach liest der vorhandene Block bei `0x352C74` den zuvor gesetzten Wert `Char_P2` und ersetzt die temporäre Figur.
 
 ### Erzeugte Testdateien
 
 ```text
-UIPak21_hardmode_p2_fixed.pak
+UIPak21_hardmode_p2_try3.pak
 exefs/F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000.ips
 ```
 
-### Ergebnis
+Validierung außerhalb des Spiels:
 
-Bestätigt außerhalb des Spiels:
+```text
+PAK-Methode 488 vollständig erneut geparst
+DoABC- und SWF-Längen erneut geparst
+MasterShell-Asset und PAK-Offsets erneut geparst
+IPS32: 29 Bytes, zwei Records, EEOF korrekt
+IPS-Originalbytes stimmen mit der hochgeladenen main überein
+```
 
-- PAK passt exakt auf den hochgeladenen `UIPak(21)`-Zwischenstand;
-- `Char_P2` wird vor dem Levelstart geschrieben;
-- der native Null-Argument-Callback wird danach aufgerufen;
-- die IPS verhindert anschließend die automatische P2-Ersetzung;
-- die Original-`main` wird nicht verändert oder ausgeliefert.
+### Status
 
-Noch offen und nur im Spiel prüfbar:
+```text
+Noch nicht im Spiel bestätigt.
+```
 
-- ob der Emulator die IPS aus dem verwendeten Modordner lädt;
-- ob die gewählte P2-Figur im Level erscheint;
-- Verhalten aller fünf P2-Auswahlen und doppelter Kong-Kombinationen.
+Bei einem weiteren Fehlschlag ist der nächste ausgeschlossene Punkt eindeutig: Das Schreiben von `mRuntimeData.Char_P2` vor `initLevelTransition` erreicht den späteren nativen Reload bei `0x352C74` nicht oder wird zwischen beiden Stellen ersetzt.
