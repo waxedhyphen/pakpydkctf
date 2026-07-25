@@ -12,9 +12,32 @@ main SHA-256:
 018d157673bfd932813555a5991e4257b57f52f89039a0b6685356767e62cd21
 Build ID:
 F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000
+korrigierter kombinierter Try-9+10-IPS SHA-256:
+b52d3e37fcf4ffe4d14c4cc341461c404943ce1b17e6afe76301a23ba2e4346f
 ```
 
 Der bestätigte kombinierte Try-9+10-Patch bleibt unverändert. Für diesen neuen Fehler wurde noch kein ExeFS-Record aktiviert.
+
+Unverhandelbare bestehende Patchbelegung:
+
+```text
+0x1E6FEC   Try 9
+0x1E7000   Try 9
+0x1E7004   Try 9
+0x1E7018   Try 9
+0x1E7520   Try 10
+0x3526EC   Try 9
+0x3527A0   Try 9 Parser + Try 10 Helper-Tail
+0x352B18   Try 9
+```
+
+Zusätzlich gilt:
+
+- `0x1E700C` bleibt der originale P2-Store;
+- Try 7 und Try 8 bleiben ausgeschlossen;
+- `0x3527A0..0x352840` ist keine freie Code-Cave;
+- zukünftige IPS32-Records müssen mit dem für Ryujinx bestätigten `+0x100`-Bias exportiert werden;
+- UI und bestehende PAK-Änderungen werden durch Try 11 nicht ersetzt.
 
 ## In-Game-Ausgangslage
 
@@ -125,6 +148,40 @@ P2:
 
 Sind beide IDs gleich, zeigen beide Resultate auf dasselbe `CPlayer`-Objekt. Der Checkpointpfad resetet/spawnt damit denselben Actor zweimal, statt zwei unabhängige Spieler wiederherzustellen.
 
+## Vollständiger Kong-ID-Referenzkatalog
+
+Der vollständige statische Katalog liegt in:
+
+```text
+PAKPY/UI_DUPLICATE_PRIMARY_CHARACTER_REFERENCE_MAP.md
+PAKPY/reference_maps/
+```
+
+Erfasste direkte Referenzen:
+
+| Kernfunktion/Feld | Anzahl |
+|---|---:|
+| `CPlayer::GetCharacterType` | 282 |
+| `CPlayer::GetPlayerIndex` | 17 |
+| `CGameState::GetPlayerIndexByCharacterType` | 19 |
+| const `GetPrimaryPlayerByCharacterType` | 138 |
+| mutable `PrimaryPlayerByCharacterType` | 44 |
+| `GetPrimaryPlayer(EPrimaryPlayer,...)` | 16 |
+| mutable `PrimaryPlayer(EPrimaryPlayer,...)` | 19 |
+| `SetPrimaryPlayer` | 1 |
+| `ClearPrimaryPlayer` | 1 |
+| `state+0x2698` | 145 |
+| `state+0x269C` | 106 |
+| CharacterType-/PrimaryPlayer-Symbole | 82 |
+
+Zusätzlich sind `CanSpawnPlayer`, `SpawnOtherPlayer`, Checkpoint, Lifecycle, CharacterType-Bitfields und Konvertierer vollständig als direkte `B`-/`BL`-Xrefs aufgeführt.
+
+Methodische Grenze:
+
+- direkte `B`-/`BL`-Referenzen und direkte Feldzugriffe sind vollständig katalogisiert;
+- indirekte `BLR`-/Vtable-/Funktionspointer-Aufrufe lassen sich nicht allein aus dem Callsite-Instruktionsziel zuordnen und werden deshalb nicht fälschlich als direkte Referenz ausgegeben;
+- diese indirekten Pfade werden später pro Vtable/Callback-Tabelle separat aufgelöst.
+
 ## Strukturelle Schlussfolgerung
 
 Das Problem ist kein einzelner Duplikat-Guard und kein reines HP-Problem.
@@ -148,25 +205,48 @@ P2 erneut HP geben
 
 Jeder dieser Einzelpatches ließe mindestens Pointer-, Spawn-, Checkpoint- oder Controller-Kollisionen bestehen.
 
-## Erforderliche Implementierungsrichtung
+## Festgelegte Implementierungsrichtung
 
-Für echte Duplikate muss Identität von Darstellung/CharacterType getrennt werden. Zwei grundsätzlich mögliche Wege bleiben:
+Primärer Plan ist ein **ExeFS-only Slotmechanismus**, nicht der visuelle Carrier-Ansatz.
 
-### Weg A – echter zweiter Player-Actor desselben CharacterType
+Zielarchitektur:
 
-- zweites `CPlayerGOC`/`CPlayer`-Objekt erzeugen oder klonen;
-- unabhängigen P1/P2-Slot am Objekt führen;
-- PrimaryPlayer-Registry auf zwei Slot-Pointer erweitern;
-- slotabhängige Kern-Lookups in Spawn, Wechsel, Checkpoint, Tod und Controller umstellen;
-- CharacterType-Lookups für Systeme erhalten, die bewusst irgendeinen Actor dieses Typs suchen.
+```text
+CharacterType = echter Kong, unverändert für Modell/Fähigkeiten/Animationen
+PlayerSlot    = P1 oder P2, unabhängig vom CharacterType
+```
 
-### Weg B – vorhandenen anderen Actor als P2-Carrier verwenden
+Dafür wird voraussichtlich benötigt:
 
-- P2 intern auf einem anderen, eindeutig registrierten Kong-Actor belassen;
-- Modell, Animationen, Module und Fähigkeiten auf den ausgewählten Duplikat-Kong aliasen;
-- logische P2-Slot-Identität vom dargestellten CharacterType trennen.
+1. zusätzliche P1/P2-Actor-Registry neben der bestehenden CharacterType-Registry;
+2. verlässliche Slotzuordnung beim `CPlayer::EntityLoaded`-/Spawn-Lifecycle;
+3. slotbasierter `CPlayer::GetPlayerIndex`-Pfad;
+4. slotbasierte Actor-Lookups für Spawnziel, Checkpoint, Respawn, Controller und HP;
+5. Erhalt der bestehenden CharacterType-Lookups für Gameplay, Fähigkeiten, Animationen, Mount/Rider, Effekte und alle Systeme, die bewusst einen Kongtyp suchen.
 
-Weg B vermeidet einen Runtime-Objektclone, benötigt aber eine vollständige Alias-Schicht für Fähigkeiten und Ressourcen. Ein reiner Modeltausch wäre kein echter gleicher spielbarer Kong.
+Der Carrier-Ansatz bleibt nur Fallback, falls die Actor-Erzeugung oder Registry keine zwei gleichartigen `CPlayer`-Objekte zulässt.
+
+## Klassifizierungsregel vor Try 11
+
+Die 182 direkten CharacterType-Player-Lookups werden vor jedem Patch einzeln in zwei Gruppen sortiert:
+
+### Typbasiert behalten
+
+- Modell und Animation;
+- Kongfähigkeiten;
+- Rider-/Mount-Logik;
+- Effekte, Sounds und Portraits;
+- Gegner-/Zielsysteme, die bewusst einen bestimmten Kongtyp suchen.
+
+### Slotbasiert umstellen
+
+- PlayerIndex;
+- Actor-Registrierung und -Entfernung;
+- P1/P2-Spawnziel;
+- Checkpoint und Respawn;
+- Controllerzuordnung;
+- HP-/Inventarslot;
+- eindeutig P1/P2-semantische UI- und Lifecycle-Pfade.
 
 ## Status
 
@@ -177,8 +257,9 @@ Weg B vermeidet einen Runtime-Objektclone, benötigt aber eine vollständige Ali
 - `SpawnOtherPlayer` wählt das Zielobjekt nach CharacterType;
 - `CCheckpointGOC::SpawnPlayer` löst P1 und P2 nach CharacterType auf;
 - P2s Totzustand ist ein Symptom kollidierender Player-Identität und nicht nur fehlender HP;
+- sämtliche direkten Kern-Xrefs und P1/P2-Kongfeldzugriffe sind katalogisiert;
 - Try 9 und Try 10 sind nicht die Ursache und bleiben unverändert.
 
 ### Noch nicht gepatcht
 
-Es existiert noch kein sicherer Try-11-IPS-Record. Vor einem Patch muss feststehen, ob ein vorhandenes zweites Actor-Objekt als vollständiger Carrier umgebaut werden kann oder ob ein echter Clone samt slotbasierter Registry erforderlich ist.
+Es existiert noch kein sicherer Try-11-IPS-Record. Vor dem ersten Record werden die direkten Lookups klassifiziert, ein vorhandener sicherer Speicherplatz für die zusätzliche Slotregistry bestimmt und jeder Hook gegen den vollständigen Referenzkatalog sowie die bestehende Try-9+10-Belegung geprüft.
