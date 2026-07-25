@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "name": "DKCTF Hard Mode – direct initLevelTransition P2 selector",
+  "name": "DKCTF Hard Mode – direct P2 selector with normal-state restore",
   "patch_group": "DKCTF_HardMode_Real_P2_Selector",
   "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
-  "notes": "Try 6 preserves the original UpdateCharacterTypes routine and callback registration. UIPak(21) already passes chooseKongP2.currentState as the third initLevelTransition argument. The compact native parser reads the correct third 16-byte GFX argument entry at entries+0x20, maps selector 0..4 to internal Kong IDs, writes state+0x269C directly, and disables only the later automatic DK/default P2 store.",
+  "notes": "Try 7 keeps the confirmed Try 6 direct initLevelTransition selector. UpdateCharacterTypes already restores P1 by reloading runtime ID 0x65 into state+0x2698. P2 has the equivalent runtime ID 0x66 reload, but stock gates it through a temporary player-object activity test. Try 7 changes only that 8-byte gate to use the persistent two-player flag at state+0x26AF, so the existing Char_P2 reload restores the normal P2 Kong after returning from Hard Mode.",
   "entries": [
     {
       "memory_offset": "0x1E6FEC",
@@ -15,13 +15,19 @@
       "memory_offset": "0x1E700C",
       "expected": "68 9E 26 B9",
       "replacement": "1F 20 03 D5",
-      "description": "Do not overwrite the P2 ID already written by initLevelTransition with the automatic DK/default partner."
+      "description": "Do not overwrite the P2 ID written by initLevelTransition with the automatic DK/default partner."
     },
     {
       "memory_offset": "0x1E7018",
       "expected": "29 15 1E 12",
       "replacement": "29 19 1F 12",
       "description": "Preserve the active P2 slot bit during Hard Mode initialization."
+    },
+    {
+      "memory_offset": "0x345848",
+      "expected": "4D BF FF 97 40 05 00 36",
+      "replacement": "00 3F 40 39 40 05 00 34",
+      "description": "In UpdateCharacterTypes, use state+0x26AF instead of the temporary player-object activity result to gate the existing Char_P2 reload. LDRB W0,[X24,#0xF]; CBZ W0,0x3458F4."
     },
     {
       "memory_offset": "0x3526EC",
@@ -33,7 +39,7 @@
       "memory_offset": "0x3527A0",
       "expected": "C8 02 40 B9 1F 09 00 71 CB 04 00 54 C8 06 40 F9 16 0D 40 F9 E8 63 00 91 E0 03 16 AA B3 C9 F2 97 80 8E 00 90 00 FC 13 91 E8 03 00 91 AF C9 F2 97 E0 63 00 91 E1 03 00 91 7D 96 F3 97 E8 07 40 F9 F7 03 00 2A 28 01 00 B4 08 21 00 91 09 FD 5F 88 29 05 00 71 09 FD 0A 88 AA FF FF 35 61 00 00 54 E0 07 40 F9 75 2E F3 97 E8 13 40 F9 28 01 00 B4 08 21 00 91 09 FD 5F 88 29 05 00 71 09 FD 0A 88 AA FF FF 35 61 00 00 54 E0 13 40 F9 6B 2E F3 97 77 02 00 36 E3 03 1F 2A 03 00 00 14 F5 03 1F 2A 03 00 80 12",
       "replacement": "C8 02 40 B9 1F 09 00 71 EB 00 00 54 C8 06 40 F9 00 0D 40 F9 EC 89 FA 97 AB A5 FC 97 F7 03 00 2A 02 00 00 14 17 00 80 12 C8 02 40 B9 1F 0D 00 71 6B 01 00 54 C8 06 40 F9 00 81 00 91 0E 10 0C 94 99 A5 FC 97 1F 04 00 31 A0 00 00 54 F6 03 00 2A E0 03 14 AA 9E 73 FF 97 16 9C 26 B9 E3 03 17 2A 11 00 00 14 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5 1F 20 03 D5",
-      "description": "Replace only the old P1-string comparison block: parse P1 compactly, read the existing third ExternalInterface argument correctly, map it to a Kong ID, and write state+0x269C."
+      "description": "Parse the existing third initLevelTransition argument, map the Hard Mode P2 slider, and write state+0x269C."
     }
   ]
 }
