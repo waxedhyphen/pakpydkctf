@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "name": "DKCTF Hard Mode – direct P2 selector",
+  "name": "DKCTF Hard Mode – direct P2 selector with return restore",
   "patch_group": "DKCTF_HardMode_Real_P2_Selector",
   "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
-  "notes": "Stable in-game-confirmed Try 6 selector. UIPak(21) already passes chooseKongP2.currentState as the third initLevelTransition argument. The compact native parser reads the correct third 16-byte GFX argument entry at entries+0x20, maps selector 0..4 to internal Kong IDs, writes state+0x269C directly, and disables the later automatic DK/default P2 store. Normal-P2 restoration after manually quitting a level is not solved by this profile.",
+  "notes": "Try 8 keeps the in-game-confirmed Try 6 selector and makes the existing UpdateCharacterTypes Char_P2 reload unconditional. Try 7 still gated the reload through state+0x26AF, but that byte is already zero on the manual level-quit return path. NOPing the stock skip at 0x34584C makes the same refresh that restores P1 from Char_P1 also restore P2 from Char_P2, regardless of the transient P2-active result.",
   "entries": [
     {
       "memory_offset": "0x1E6FEC",
@@ -22,6 +22,12 @@
       "expected": "29 15 1E 12",
       "replacement": "29 19 1F 12",
       "description": "Preserve the active P2 slot bit during Hard Mode initialization."
+    },
+    {
+      "memory_offset": "0x34584C",
+      "expected": "40 05 00 36",
+      "replacement": "1F 20 03 D5",
+      "description": "Always execute the existing Char_P2 reload whenever UpdateCharacterTypes restores Char_P1. This covers manual quit even after the transient +0x26AF flag was cleared."
     },
     {
       "memory_offset": "0x3526EC",
