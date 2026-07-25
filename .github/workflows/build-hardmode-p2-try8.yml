@@ -1,0 +1,64 @@
+name: Build Hard Mode P2 Try 8
+
+on:
+  pull_request:
+    paths:
+      - 'PAKPY/exefs_profiles/dkctf_hardmode_real_p2_selector.json'
+      - '.github/workflows/build-hardmode-p2-try8.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build IPS32 package
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+
+          profile_path = Path('PAKPY/exefs_profiles/dkctf_hardmode_real_p2_selector.json')
+          profile = json.loads(profile_path.read_text(encoding='utf-8'))
+          build_id = profile['expected_build_id']
+
+          out = bytearray(b'IPS32')
+          records = []
+          for entry in profile['entries']:
+              memory_offset = int(entry['memory_offset'], 0)
+              patch_offset = memory_offset + 0x100
+              payload = bytes.fromhex(entry['replacement'])
+              if not payload or len(payload) > 0xFFFF:
+                  raise SystemExit(f'invalid record at {entry["memory_offset"]}')
+              out += patch_offset.to_bytes(4, 'big')
+              out += len(payload).to_bytes(2, 'big')
+              out += payload
+              records.append((memory_offset, patch_offset, len(payload)))
+          out += b'EEOF'
+
+          package = Path('build/DKCTF_HardMode_P2_Try8')
+          exefs = package / 'exefs'
+          exefs.mkdir(parents=True, exist_ok=True)
+          ips_path = exefs / f'{build_id}.ips'
+          ips_path.write_bytes(out)
+
+          expected_offsets = [0x1E6FEC, 0x1E700C, 0x1E7018, 0x34584C, 0x3526EC, 0x3527A0]
+          actual_offsets = [item[0] for item in records]
+          if actual_offsets != expected_offsets:
+              raise SystemExit(f'unexpected offsets: {actual_offsets!r}')
+          if len(out) != 229:
+              raise SystemExit(f'unexpected IPS size: {len(out)}')
+
+          sha = hashlib.sha256(out).hexdigest()
+          readme = f'''DKCTF Hard Mode P2 Try 8\n\nBuild ID:\n{build_id}\n\nUse the unchanged UIPak(21)/Try-6-or-Try-7 PAK. Replace the old IPS completely with the IPS in exefs/. Do not combine IPS files.\n\nTry 8 keeps the confirmed direct Hard Mode P2 selector and changes one additional instruction:\n0x34584C: 40 05 00 36 -> 1F 20 03 D5\n\nThis removes the stock skip before the existing Char_P2 reload. Whenever UpdateCharacterTypes restores P1 from Char_P1, it now also restores P2 from Char_P2 even if the transient P2-active result is already false during manual level quit.\n\nIPS32 records: {len(records)}\nIPS32 size: {len(out)} bytes\nIPS SHA-256: {sha}\n'''
+          (package / 'README.txt').write_text(readme, encoding='utf-8', newline='\n')
+          print(readme)
+          PY
+      - name: Upload Try 8
+        uses: actions/upload-artifact@v4
+        with:
+          name: DKCTF_HardMode_P2_Try8
+          path: build/DKCTF_HardMode_P2_Try8
+          if-no-files-found: error
+          retention-days: 7
