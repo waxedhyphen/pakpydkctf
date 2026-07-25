@@ -82,3 +82,88 @@ Noch nicht im Spiel bestätigt:
 - angepasster AVM2-Patch für Methode 488;
 - erzeugte IPS32-Datei;
 - tatsächliche Übernahme der P2-Auswahl im Level.
+
+## Test 2 – angepasster PAK-Patch und IPS32-Export
+
+### AVM2-Patch für `UIPak(21).pak`
+
+Neues Profil:
+
+```text
+PAKPY/avm2_profiles/dkctf_hardmode_real_p2_selector_uipak21.json
+```
+
+Änderungen an Methode 488:
+
+```text
+0x0C: 8E 00 00 -> E7 00 00
+0x2E: 60 F4 08 -> 92-Byte-Block
+0xD1: 43 FF FF -> EA FE FF
+```
+
+Der eingefügte Block:
+
+1. liest `chooseKongP2.currentState`;
+2. mappt den Zustand über `kongMapping` auf den Kong-String;
+3. schreibt den String nach `mRuntimeData.Char_P2`;
+4. ruft `UpdateCharacterTypes()` ohne Figurenargumente auf;
+5. setzt anschließend den ursprünglichen `initLevelTransition`-Ablauf fort.
+
+Strukturell verifiziert:
+
+```text
+Methode 488 vorher: 219 Bytes
+Methode 488 nachher: 308 Bytes
+Einfügung:            +89 Bytes
+
+anfängliches Sprungziel:
+0x9D -> 0xF6
+
+finaler lookupswitch:
+Position 0xCC -> 0x125
+PLAY-Ziel bleibt 0x0F
+neuer relativer Offset: -278
+```
+
+Das gepatchte `MapHUD.swf` wurde nach dem Umbau erneut vollständig geparst. Methode 488, DoABC-Länge, SWF-Dateilänge, eingebettetes `MasterShell`-Asset und PAK-Offsets wurden erneut validiert.
+
+### IPS32
+
+Die unveränderte `main` wurde nur zur Prüfung verwendet. Exportiert wurde eine 39 Byte große IPS32-Datei mit exakt drei Records:
+
+```text
+IPS32 0x1E70EC -> 1F 20 03 D5
+IPS32 0x1E710C -> 1F 20 03 D5
+IPS32 0x1E7118 -> 29 19 1F 12
+```
+
+Diese IPS32-Offets entsprechen jeweils:
+
+```text
+NSO-VA + 0x100 NSO-Header
+```
+
+Die IPS-Datei wurde anschließend erneut geparst; Header, drei Recordlängen, Offsets, Ersatzbytes und `EEOF`-Footer stimmen.
+
+### Erzeugte Testdateien
+
+```text
+UIPak21_hardmode_p2_fixed.pak
+exefs/F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000.ips
+```
+
+### Ergebnis
+
+Bestätigt außerhalb des Spiels:
+
+- PAK passt exakt auf den hochgeladenen `UIPak(21)`-Zwischenstand;
+- `Char_P2` wird vor dem Levelstart geschrieben;
+- der native Null-Argument-Callback wird danach aufgerufen;
+- die IPS verhindert anschließend die automatische P2-Ersetzung;
+- die Original-`main` wird nicht verändert oder ausgeliefert.
+
+Noch offen und nur im Spiel prüfbar:
+
+- ob der Emulator die IPS aus dem verwendeten Modordner lädt;
+- ob die gewählte P2-Figur im Level erscheint;
+- Verhalten aller fünf P2-Auswahlen und doppelter Kong-Kombinationen.
