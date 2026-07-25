@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "name": "DKCTF Hard Mode – direct P2 selector with normal-state restore",
+  "name": "DKCTF Hard Mode – direct P2 selector",
   "patch_group": "DKCTF_HardMode_Real_P2_Selector",
   "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
-  "notes": "Try 7 keeps the confirmed Try 6 direct initLevelTransition selector. UpdateCharacterTypes already restores P1 by reloading runtime ID 0x65 into state+0x2698. P2 has the equivalent runtime ID 0x66 reload, but stock gates it through a temporary player-object activity test. Try 7 changes only that 8-byte gate to use the persistent two-player flag at state+0x26AF, so the existing Char_P2 reload restores the normal P2 Kong after returning from Hard Mode.",
+  "notes": "Stable in-game-confirmed Try 6 selector. UIPak(21) already passes chooseKongP2.currentState as the third initLevelTransition argument. The compact native parser reads the correct third 16-byte GFX argument entry at entries+0x20, maps selector 0..4 to internal Kong IDs, writes state+0x269C directly, and disables the later automatic DK/default P2 store. Normal-P2 restoration after manually quitting a level is not solved by this profile.",
   "entries": [
     {
       "memory_offset": "0x1E6FEC",
@@ -22,12 +22,6 @@
       "expected": "29 15 1E 12",
       "replacement": "29 19 1F 12",
       "description": "Preserve the active P2 slot bit during Hard Mode initialization."
-    },
-    {
-      "memory_offset": "0x345848",
-      "expected": "4D BF FF 97 40 05 00 36",
-      "replacement": "00 3F 40 39 40 05 00 34",
-      "description": "In UpdateCharacterTypes, use state+0x26AF instead of the temporary player-object activity result to gate the existing Char_P2 reload. LDRB W0,[X24,#0xF]; CBZ W0,0x3458F4."
     },
     {
       "memory_offset": "0x3526EC",
