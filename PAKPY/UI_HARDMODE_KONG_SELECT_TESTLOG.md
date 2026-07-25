@@ -48,7 +48,7 @@ Ladebildschirm-P2-Icon = Charakter aus der normalen 2-Spieler-Auswahl
 
 Ladebildschirm und endgültiger Spawn benutzen daher nicht zuverlässig denselben Zustand.
 
-Die Spawn-Paarung stammt aus:
+Die automatische Spawn-Paarung stammt aus:
 
 ```text
 0x1E6FF4  P1-Wert konvertieren
@@ -61,20 +61,7 @@ Die Spawn-Paarung stammt aus:
 
 ## AVM2-Ausgangsstand
 
-`UIPak(21).pak` enthält `chooseKongP2` und getrennte visuelle Eingabe.
-
-Methode 488:
-
-```text
-Länge:                         219 Bytes
-Dispatch bei 0x0C:             8E 00 00
-PLAY-Einfügepunkt bei 0x2E:    60 F4 08
-PLAY-lookupswitch bei 0xD1:    43 FF FF
-max_stack:                      5
-locals:                         4
-```
-
-Der Ausgangsstand übergibt bereits einen dritten Wert:
+`UIPak(21).pak` enthält `chooseKongP2` und übergibt dessen Zustand bereits an den nativen Übergang:
 
 ```actionscript
 ExternalInterface.call(
@@ -85,9 +72,9 @@ ExternalInterface.call(
 );
 ```
 
-Der stockmäßige native Callback `0x35267C` verwendet diesen dritten Wert jedoch nicht als P2-Auswahl.
+Der Slider ist damit bereits das dritte Callback-Argument. Das Problem liegt in der nativen Auswertung, nicht in einer fehlenden UI-Übergabe.
 
-## Test 2 – Runtime-String, zusätzlicher Callback und NOP bei 0x1E700C
+## Test 2 – Runtime-String und zusätzlicher UpdateCharacterTypes-Aufruf
 
 Ansatz:
 
@@ -95,11 +82,6 @@ Ansatz:
 2. String nach `mRuntimeData.Char_P2` schreiben;
 3. `UpdateCharacterTypes()` zusätzlich aufrufen;
 4. automatische Zuweisung bei `0x1E700C` entfernen.
-
-```text
-Methode 488: 219 -> 308 Bytes
-IPS32-Records: 3
-```
 
 ### In-Game-Ergebnis
 
@@ -110,7 +92,7 @@ FEHLGESCHLAGEN
 Ausgeschlossen:
 
 - zusätzlicher `UpdateCharacterTypes()`-Aufruf;
-- bloßes NOP bei `0x1E700C`;
+- bloßes Schreiben nach `mRuntimeData.Char_P2` in diesem Ablauf;
 - der 92-Byte-AVM2-Block.
 
 ## Test 3 – ausschließlich mRuntimeData.Char_P2 schreiben
@@ -149,14 +131,7 @@ Zusätzlicher ExeFS-Eintrag:
 20 02 00 36 -> 1F 20 03 D5
 ```
 
-Damit wurde der Branch entfernt, der den vorhandenen Block übersprang:
-
-```text
-0x352C74  Runtime-ID 0x66 lesen
-0x352C88  Char_P2-String lesen
-0x352C90  String in interne Kong-ID umwandeln
-0x352CA0  Ergebnis nach +0x269C schreiben
-```
+Dadurch wurde der Branch entfernt, der den stockmäßigen `Char_P2`-Reload übersprang.
 
 ### In-Game-Ergebnis
 
@@ -164,196 +139,197 @@ Damit wurde der Branch entfernt, der den vorhandenen Block übersprang:
 FEHLGESCHLAGEN
 ```
 
-Der Nutzer hat bestätigt, dass auch Try 4 die Sliderauswahl nicht übernimmt.
+Der vom Hard-Mode-Menü gesetzte Wert erreicht diesen Pfad nicht, oder Runtime-ID `0x66` enthält dort weiterhin den normalen P2-Auswahlwert. Der gesamte `mRuntimeData.Char_P2`-Ansatz ist damit ausgeschlossen.
 
-Damit ist ausgeschlossen:
+## Test 5 – umgewidmeter UpdateCharacterTypes-Callback
 
-- der vom Hard-Mode-Menü gesetzte `mRuntimeData.Char_P2`-Wert erreicht diesen Pfad nicht; oder
-- Runtime-ID `0x66` enthält dort weiterhin den normalen P2-Auswahlwert.
+Ansatz:
 
-Der gesamte `mRuntimeData.Char_P2`-Ansatz wird ab Test 5 nicht mehr verwendet.
+- zusätzlichen AVM2-Aufruf `Char_P2(slider)` einfügen;
+- Callback-Registrierung `UpdateCharacterTypes` in `Char_P2` umbenennen;
+- Originalroutine bei `0x3457A8` durch eigenen 100-Byte-Handler ersetzen;
+- Slider-ID in `state+0x26C0` zwischenspeichern;
+- automatische Paarung aus diesem Feld laden.
 
-## Test 5 – direkter nativer Sliderpfad
-
-Test 5 umgeht vollständig:
-
-- `mRuntimeData.Char_P2`;
-- den normalen 2-Spieler-Charakterwert;
-- den Ladebildschirm-P2-Zustand;
-- den stockmäßigen `Char_P2`-Reload;
-- die automatische DK/default-Paarung als endgültige Quelle.
-
-### 1. AVM2
-
-Unmittelbar vor dem originalen `initLevelTransition`-Aufruf wird ausgeführt:
-
-```actionscript
-ExternalInterface.call(
-    "Char_P2",
-    int(getChildAt(2).currentState)
-);
-```
-
-Danach folgt unverändert der originale `initLevelTransition`-Aufruf.
-
-Byteänderungen in Methode 488:
+### In-Game-Ergebnis
 
 ```text
-0x0C: 8E 00 00 -> A3 00 00
-
-0x2E:
-60 F4 08
-->
-60 F4 08 2C DA 09 D0 24 02 46 F3 07 01
-66 81 04 73 4F F5 08 02 60 F4 08
-
-0xD1: 43 FF FF -> 2E FF FF
+FEHLGESCHLAGEN: GAME-CRASH
 ```
 
-Strukturell:
+Zusätzlich beobachtet:
 
 ```text
-Methode 488 vorher: 219 Bytes
-Methode 488 nachher: 240 Bytes
-Nettoeinfügung:      +21 Bytes
-max_stack:            5
-locals:               4
-anfängliches Ziel:    0x9D -> 0xB2
-lookupswitch:         0xCC -> 0xE1
-PLAY-Ziel:            weiterhin 0x0F
-neuer Offset:         -210
+Beim Hinzufügen von Spieler 2 erscheint keine Join-Animation mehr.
 ```
 
-### 2. Native Callback-Registrierung
-
-Der vorhandene, von den analysierten SWFs nicht verwendete Callback-Slot `UpdateCharacterTypes` wird umgewidmet.
+Ryujinx lädt alle sieben Try-5-IPS-Records. Der Absturz erfolgt später auf dem MainThread während des Ladeübergangs:
 
 ```text
-Callback-Tabelle bei NSO-VA 0x193B638
-
-Name:
-UpdateCharacterTypes -> Char_P2
-
-Argumentzahl:
-0 -> 1
-
-Funktionsadresse:
-bleibt 0x3457A8
+CProductionLoadingScreen::TimerTick(float)
+CTransitionScene::CheckObjectsLoaded()
+Invalid memory access at virtual address 0x0
 ```
 
-Byteänderung:
+### Nachanalyse von Test 5
+
+Try 5 hatte zwei konkrete Fehler.
+
+#### Fehler 1: aktive Originalroutine überschrieben
+
+`0x3457A8` ist keine freie Code-Cave. Dort liegt die echte, aktive Routine `UpdateCharacterTypes()`.
+
+Die Originalroutine:
+
+- liest P1/P2-Runtimewerte;
+- schreibt die Charakter-IDs;
+- aktualisiert Slot- und Spielerzustände;
+- löst weitere Character- und Join-Abläufe aus.
+
+Das Überschreiben dieser Routine erklärt die fehlende Join-Animation und kann einen unvollständigen Übergangszustand erzeugen. Ab Test 6 bleiben Routine und Callback-Registrierung vollständig stock.
+
+#### Fehler 2: Callback-Argument falsch gelesen
+
+Die ExternalInterface-Callback-Struktur ist:
 
 ```text
-90 07 52 01 00 00 00 00 00 00 00 00 00 00 00 00
-->
-48 66 51 01 00 00 00 00 01 00 00 00 00 00 00 00
+[x2 + 0x00] = Argumentanzahl
+[x2 + 0x08] = Zeiger auf 16-Byte-Argumenteinträge
 ```
 
-### 3. Neuer Callback bei 0x3457A8
+Try 5 behandelte `[x2+0x08]` fälschlich direkt als Sliderargument. Das war nur der Zeiger auf das Argument-Array.
 
-Der neue Handler:
-
-1. prüft, dass mindestens ein Argument vorhanden ist;
-2. liest den Sliderwert als Integer;
-3. mappt ihn mit der echten nativen Funktion `0x27BE44`;
-4. erhält dadurch exakt diese internen IDs:
+Für `initLevelTransition("HARD", P1, P2Slider)` liegt der Slider korrekt bei:
 
 ```text
-Slider 0 -> 1  DK
-Slider 1 -> 2  Diddy
-Slider 2 -> 6  Dixie
-Slider 3 -> 7  Cranky
-Slider 4 -> 8  Funky
+entries + 0x20
 ```
 
-5. lädt den Frontend-State über `0x32F66C`;
-6. schreibt die fertige interne P2-ID nach `state + 0x26C0`.
+Damit konnte Try 5 einen falschen Wert als Kong-ID in den Übergang schreiben.
 
-Der Callback schreibt keinen String und verwendet keine Runtime-Daten-ID.
+### Konsequenz
 
-### 4. Stash bis zur Hard-Mode-Initialisierung erhalten
+Vollständig gestrichen:
 
-Stock löscht `+0x26C0` vor der Transition:
+- AVM2-Aufruf `Char_P2`;
+- Callback-Umbenennung bei `0x193B638`;
+- Überschreiben von `UpdateCharacterTypes()` bei `0x3457A8`;
+- Stash `+0x26C0`;
+- Patch bei `0x352B18`;
+- Try-5-Änderungen bei `0x1E7000` und `0x1E7004`.
+
+## Test 6 – drittes initLevelTransition-Argument direkt auswerten
+
+Test 6 verwendet den bereits in `UIPak(21)` vorhandenen Aufruf. Es wird kein neuer ExternalInterface-Callback eingeführt.
+
+### PAK / AVM2
 
 ```text
-0x352B18
-1F C0 26 B9 -> 1F 20 03 D5
+UIPak21_hardmode_p2_try6.pak ist byteidentisch zu UIPak(21).pak.
+Keine AVM2-Änderung.
 ```
 
-Dadurch bleibt die vom Slider gesetzte ID erhalten.
-
-### 5. Automatische Paarung durch die gestashte ID ersetzen
-
-Stock:
+PAK:
 
 ```text
-0x1E7000  automatische P2-ID 1 erzeugen
-0x1E7004  bei P1=DK auf 2 erhöhen
+Größe: 72.654.598 Bytes
+SHA-256:
+58ce2f8a1ee15f02ccd3edd5b3b3ea06126059da3ef1ac0f20d5538743783fe3
 ```
 
-Test 5:
+### Native Auswertung im vorhandenen Callback
+
+Der vorhandene Callback `initLevelTransition` bei `0x35267C` wird nur innerhalb seines bisherigen P1-Vergleichsblocks erweitert.
+
+Ablauf:
 
 ```text
-0x1E7000
-E8 03 00 32 -> 68 C2 66 B9
+1. P1-String wie bisher in die interne P1-ID umwandeln.
+2. Argumentanzahl auf mindestens 3 prüfen.
+3. Argumenteinträge über [x22+0x08] laden.
+4. Dritten Eintrag über entries+0x20 adressieren.
+5. Sliderwert als Integer lesen.
+6. Slider 0..4 mit der stockmäßigen Tabelle mappen.
+7. Interne P2-ID direkt nach state+0x269C schreiben.
+8. Originalen initLevelTransition-Aufruf und Epilog unverändert fortsetzen.
 ```
 
-Das lädt `W8 = [X19 + 0x26C0]`.
+Stockmäßige Zuordnung:
 
 ```text
-0x1E7004
-08 15 88 1A -> 1F 20 03 D5
+Slider 0 -> DK     -> interne ID 1
+Slider 1 -> Diddy  -> interne ID 2
+Slider 2 -> Dixie  -> interne ID 6
+Slider 3 -> Cranky -> interne ID 7
+Slider 4 -> Funky  -> interne ID 8
 ```
 
-Die DK-Sondererhöhung wird entfernt.
-
-Der originale Store bleibt bestehen:
+### ExeFS-Records
 
 ```text
+0x1E6FEC
+7F 6A 28 38 -> 1F 20 03 D5
+
 0x1E700C
-STR W8, [X19, #0x269C]
+68 9E 26 B9 -> 1F 20 03 D5
+
+0x1E7018
+29 15 1E 12 -> 29 19 1F 12
+
+0x3526EC
+8B 0A 00 54 -> 8B 05 00 54
+
+0x3527A0
+164-Byte-P1-Vergleichsblock -> 164-Byte-Kompaktparser
 ```
 
-Damit schreibt der Hard-Mode-Start exakt die zuvor nativ gemappte Slider-ID als endgültigen P2.
+`0x1E700C` wird entfernt, weil der Callback die ausgewählte P2-ID bereits direkt nach `+0x269C` geschrieben hat. Die automatische DK/default-Paarung darf sie danach nicht ersetzen.
 
-### 6. Weiterhin enthaltenes Zwei-Spieler-Fundament
+### Unverändert gegenüber Stock
 
 ```text
-0x1E6FEC -> NOP
-0x1E7018 -> AND #0xFE
+UpdateCharacterTypes-Routine 0x3457A8: vollständig unverändert
+UpdateCharacterTypes-Registrierung: vollständig unverändert
+Join-/Character-Update-Pfad: nicht gepatcht
+initLevelTransition-Call und Epilog ab 0x352844: unverändert
 ```
 
 ### Erzeugte Dateien
 
 ```text
-UIPak21_hardmode_p2_try5.pak
+UIPak21_hardmode_p2_try6.pak
 exefs/F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000.ips
+```
+
+IPS32:
+
+```text
+Größe: 219 Bytes
+Records: 5
+SHA-256:
+e7ccb0da541b88d61b5bd3cc6559d6ce08954aed8d320c4fd093e569cf77d9ee
+```
+
+Paket:
+
+```text
+SHA-256:
+a012a66b85178f9ae32c1c010e44e90fbfc82ba48d1a1988c10753237b664e83
 ```
 
 ### Validierung außerhalb des Spiels
 
-```text
-PAK-Größe: 72.654.302 Bytes
-PAK SHA-256:
-16dca8a8747130426b6788a4e5ec51791aaaa13a9266e44fb4e52670371cebc0
-
-IPS32-Größe: 187 Bytes
-IPS32-Records: 7
-IPS SHA-256:
-2c774e5164388d38670ded112a4513a3678a3ff96f2e0a14e1b09d26b41203f5
-```
-
 Geprüft:
 
-- PAK, eingebettetes `MasterShell`, `MapHUD.swf` und DoABC erneut vollständig geparst;
-- Methode 488 erneut geparst;
-- alle Sprungziele und `lookupswitch`-Offsets geprüft;
-- Callback-Code als ARM64 assembliert und disassembliert;
-- Callback ruft `0x656814`, `0x27BE44` und `0x32F66C` mit den vorgesehenen Registern auf;
-- alle sieben IPS-Originalbytes stimmen mit der hochgeladenen `main` überein;
-- IPS32 erneut geparst, alle Records und `EEOF` stimmen;
-- Callback-Tabelle zeigt nach Anwendung auf `Char_P2`, Argumentzahl 1, Funktion `0x3457A8`;
-- die Hard-Mode-Initialisierung lädt nach Anwendung die ID aus `+0x26C0`.
+- Try-6-PAK ist byteidentisch zum hochgeladenen `UIPak(21).pak`;
+- IPS32 enthält genau fünf Records und einen korrekten `EEOF`-Footer;
+- alle Originalbytes stimmen mit der hochgeladenen `main` überein;
+- `UpdateCharacterTypes()` ist byteidentisch zu Stock;
+- Callback-Registrierung ist byteidentisch zu Stock;
+- der dritte GFX-Argumenteintrag wird über `entries+0x20` gelesen;
+- der neue Inline-Block wurde als ARM64 assembliert und disassembliert;
+- alle Branch-Ziele bleiben innerhalb des vorgesehenen Callback-Ablaufs;
+- der originale `initLevelTransition`-Call und Epilog bleiben unverändert.
 
 ### Status
 
@@ -361,8 +337,9 @@ Geprüft:
 Noch nicht im Spiel bestätigt.
 ```
 
-Bei einem Fehlschlag von Test 5 ist der nächste eindeutig ausgeschlossene Punkt nicht mehr `Char_P2`, sondern entweder:
+Prüfpunkte für den In-Game-Test:
 
-- der AVM2-Callback `Char_P2` wird vor `initLevelTransition` nicht aufgerufen;
-- der Frontend-State von `0x32F66C` ist nicht dasselbe Objekt, das später als `X19` in `0x1E6FC0` verwendet wird;
-- oder `+0x26C0` wird an einer weiteren, bislang nicht erfassten Stelle überschrieben.
+1. Beim Hinzufügen von P2 muss die Join-Animation wieder vorhanden sein.
+2. Das Spiel darf beim Ladeübergang nicht abstürzen.
+3. Der gespawnte P2 muss dem Hard-Mode-Slider entsprechen.
+4. Testmatrix: P1=DK und P1!=DK jeweils mit mindestens zwei verschiedenen P2-Auswahlen.
