@@ -107,6 +107,26 @@ Solange kein globaler Respawn aktiv ist, verarbeitet `CPlayerModuleRiseFromTheGr
 
 Dieser normale individuelle Rejoinpfad wird durch Try 10 nicht gepatcht.
 
+## Stock-HP-Restore beim Rejoin
+
+Beim erneuten Aktivieren eines Spielers ruft `CPlayer::OnActivationStateChanged` den vorhandenen HP-Restore auf:
+
+```text
+0x1F8838  CPlayer::AddPlayerHitPoints
+```
+
+Für PlayerIndex 1 verwendet `CPlayer::AddPlayerHitPoints` Item 3:
+
+```text
+0x1FA424  Item 3 auswählen
+0x1FA42C  GetInventoryCount(Item 3)
+0x1FA450  Item 3 auswählen
+0x1FA458  GetInventoryCapacity(Item 3)
+0x1FA47C  SetInventoryCount(Item 3, capacity)
+```
+
+Damit ist strukturell bestätigt, dass der vorhandene Rejoin P2 aus Item 3s Kapazität wiederbelebt. Try 10s Kapazität `1` wird vom Stock-Pfad zu genau einem Lebenspunkt zurückgeschrieben; hierfür ist kein weiterer Respawn-Hook erforderlich.
+
 ## Hard-Mode-Abweichung
 
 Der `BONS`/Hard-Block bei `0x1E7510` initialisiert stock:
@@ -197,6 +217,7 @@ aa267f17b0dbfc480d6495a05dc891ff0aa57cab4810ed58b7f8982d0c8c6206
 - normale 2P-HP-Initialisierung disassembliert;
 - normaler Schadens-/Todespfad disassembliert;
 - normaler individueller Barrel-Rejoin disassembliert;
+- Stock-HP-Restore beim Reaktivieren von P2 disassembliert;
 - exakter globale-Tod-Branch `0x42372C` bestätigt;
 - Hard-Mode-Abweichung Item 3 = 0 bestätigt;
 - Try-9-Kompatibilität bytegenau geprüft;
