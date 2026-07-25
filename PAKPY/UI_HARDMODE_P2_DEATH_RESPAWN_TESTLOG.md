@@ -139,6 +139,8 @@ Item 3 count          = nicht positiv gesetzt
 
 Try 9 erhält zwar das P2-Aktivbit, ändert aber diese HP-Initialisierung nicht. Deshalb bleibt Item 3 strukturell null. Sobald P1s Item 2 null wird, muss `0x42372C` in den globalen Pfad springen, auch wenn Try 9 einen echten steuerbaren P2 erzeugt hat.
 
+Die In-Game-Beobachtung zeigte zusätzlich einen zweiten Effekt derselben Fehlinitialisierung: P2 starb beim Start des Hard-Mode-Levels automatisch. Auch hierfür fehlte P2 vor Try 10 ein positives Item-3-Gesundheitsinventar.
+
 ## Try 10 – P2-HP nur bei aktivem P2 initialisieren
 
 Try 10 patcht keine Todes- oder Respawnroutine. Stattdessen stellt es die normale Multiplayer-Invariante bereits im Hard-Mode-Initializer her.
@@ -199,16 +201,25 @@ Records:
 0x352B18   4 Bytes   Try 9
 ```
 
-Lokaler IPS32-Bau:
+## IPS32-Export
+
+Der erste manuell erzeugte Try-10-IPS war ungültig: Die IPS32-Records enthielten nicht den für Ryujinx erforderlichen `+0x100`-Adressbias. Ryujinx wendete dadurch jeden Record exakt `0x100` zu niedrig an, beispielsweise `0x1E6EEC` statt `0x1E6FEC`. Dieser Export beschädigte ausführbaren Stock-Code und verursachte einen Game-Crash. Er ist verworfen und darf nicht verwendet werden.
+
+Korrigierter kombinierter IPS32:
 
 ```text
+Dateiname:
+F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000.ips
+
 Records: 8
 Größe: 249 Bytes
 Header: IPS32
 Footer: EEOF
 SHA-256:
-aa267f17b0dbfc480d6495a05dc891ff0aa57cab4810ed58b7f8982d0c8c6206
+b52d3e37fcf4ffe4d14c4cc341461c404943ce1b17e6afe76301a23ba2e4346f
 ```
+
+Die im Ryujinx-Log bestätigten angewendeten Adressen entsprechen nach dem korrigierten Bias exakt den acht oben dokumentierten Memory-Offets.
 
 ## Status
 
@@ -222,14 +233,26 @@ aa267f17b0dbfc480d6495a05dc891ff0aa57cab4810ed58b7f8982d0c8c6206
 - Hard-Mode-Abweichung Item 3 = 0 bestätigt;
 - Try-9-Kompatibilität bytegenau geprüft;
 - Solo-Hard-Mode-Pfad im Helper erhalten;
-- IPS32-Records, Branchziele und Roundtrip validiert.
+- korrigierte IPS32-Records und Branchziele validiert.
 
-### Noch nicht im Spiel bestätigt
+### Im Spiel bestätigt
 
-- P1 stirbt, lebender P2 bleibt aktiv und kann P1 wiederholen/rejoinen;
-- P2-Tod und P2-Rejoin bleiben unverändert;
-- wenn beide tot sind, endet der Run weiterhin;
+```text
+BESTÄTIGT: FUNKTIONIERT
+```
+
+Mit dem korrigierten kombinierten Try-9+10-IPS wurde bestätigt:
+
+- der bisherige globale Tod bei P1-Tod im Hard-Mode-2P ist behoben;
+- der getestete Zwei-Spieler-Todes-/Fortsetzungspfad funktioniert;
+- P2 stirbt beim Start des Hard-Mode-Levels nicht mehr automatisch;
+- Try 10 behebt damit neben dem ursprünglichen P1-Tod-Problem auch diesen vorher vorhandenen P2-Starttod-Bug.
+
+Die zusätzliche Behebung des P2-Starttods bestätigt die strukturelle Analyse: P2 benötigte bereits beim Levelstart ein positives Item-3-Inventar und nicht erst während des späteren Respawnpfads.
+
+### Weiterhin getrennt zu prüfen
+
+- P2-Tod und P2-Rejoin über sämtliche Levelzustände;
+- wenn beide Spieler gleichzeitig oder nacheinander tot sind, endet der Run weiterhin korrekt;
 - Solo Hard Mode endet weiterhin bei P1-Tod;
-- manueller Quit und Restore des normalen P2 bleiben regressionsfrei.
-
-Bis diese Punkte getestet sind, ist Try 10 ausschließlich strukturell bestätigt und darf nicht als In-Game-Erfolg dokumentiert werden.
+- manueller Quit und Restore des normalen P2 bleiben mit dem kombinierten Try-9+10-IPS regressionsfrei.
