@@ -156,12 +156,21 @@ Benötigt wird stattdessen eine neue slotbasierte API/Helper-Cave und eine selek
 
 `state+0x2698` besitzt 145 direkte Zugriffe; `state+0x269C` besitzt 106. Diese Zugriffe dürfen nicht pauschal ersetzt werden: viele brauchen weiterhin die echte Kong-ID, während Spawn-/Registry-/Checkpoint-Pfade den Slot benötigen.
 
+## Vollständige Referenzanhänge
 
-## Appendices
+Alle Listen liegen einzeln unter `PAKPY/reference_maps/`, damit sie durchsucht, verglichen und später pro Aufrufer klassifiziert werden können:
 
-- `UI_DUPLICATE_PRIMARY_CHARACTER_XREFS.md` – alle direkten B/BL-Xrefs.
-- `UI_DUPLICATE_PRIMARY_CHARACTER_STATE_FIELDS.md` – alle direkten state+0x2698/+0x269C-Zugriffe.
-- `UI_DUPLICATE_PRIMARY_CHARACTER_SYMBOLS.md` – vollständiges CharacterType/PrimaryPlayer-Symbolinventar.
+- `duplicate_kong_get_character_type_xrefs_01.md`
+- `duplicate_kong_get_character_type_xrefs_02.md`
+- `duplicate_kong_get_character_type_xrefs_03.md`
+- `duplicate_kong_identity_xrefs.md`
+- `duplicate_kong_character_lookup_xrefs_const.md`
+- `duplicate_kong_character_lookup_xrefs_mutable_and_lifecycle.md`
+- `duplicate_kong_state_2698_refs.md`
+- `duplicate_kong_state_269c_refs.md`
+- `duplicate_kong_character_symbols.md`
+
+Die Anhänge enthalten die vollständigen direkten Referenzen. Indirekte `BLR`-/Vtable-Aufrufe sind methodisch getrennt und werden erst nach Auflösung der jeweiligen Tabelle ergänzt; sie werden nicht als direkte Xrefs ausgegeben.
 
 ## Patchentscheidung
 
