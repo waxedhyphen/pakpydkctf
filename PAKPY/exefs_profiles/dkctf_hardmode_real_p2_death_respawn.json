@@ -3,7 +3,7 @@
   "name": "DKCTF Hard Mode – Try 9 P2 selector + symmetric death/respawn",
   "patch_group": "DKCTF_HardMode_Real_P2_Selector_DeathRespawn",
   "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
-  "notes": "Combined Try 9 plus structurally verified Try 10. Try 9 remains unchanged through its active parser. Try 10 redirects the Hard-mode Item-3 initialization at 0x1E7520 into the previously unreachable Try-9 NOP tail at 0x352804. If GameState+0x26A0 bit 1 is clear, the helper exactly reproduces the stock solo Item-3 capacity=0 call. If bit 1 is set by Try 9, it sets P2 health Item 3 capacity/count to 1. This restores the normal multiplayer invariant used by CPlayerRespawnGOC::OnAction_NotifyOfPlayerDeath. Structural validation complete; in-game death/revive behavior still requires testing.",
+  "notes": "In-game-confirmed combined Try 9 plus Try 10. Try 9 remains unchanged through its active parser. Try 10 redirects the Hard-mode Item-3 initialization at 0x1E7520 into the previously unreachable Try-9 NOP tail at 0x352804. If GameState+0x26A0 bit 1 is clear, the helper reproduces the stock solo Item-3 capacity=0 call. If bit 1 is set by Try 9, it sets P2 health Item 3 capacity/count to 1. Confirmed in game with the corrected IPS32 export: P1 death no longer forces the global death path while P2 is alive, and P2 no longer dies automatically when the Hard-mode level starts. The first manually generated IPS32 omitted Ryujinx's required +0x100 encoded-address bias and crashed by patching every address 0x100 too low; that export is invalid and must not be used.",
   "entries": [
     {
       "memory_offset": "0x1E6FEC",
