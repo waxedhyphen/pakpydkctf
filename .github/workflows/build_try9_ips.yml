@@ -1,0 +1,109 @@
+name: Build Hard Mode P2 Try 9
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - PAKPY/exefs_profiles/dkctf_hardmode_real_p2_selector.json
+      - .github/workflows/build_try9_ips.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and validate IPS32
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import struct
+          import zipfile
+
+          profile_path = Path('PAKPY/exefs_profiles/dkctf_hardmode_real_p2_selector.json')
+          profile = json.loads(profile_path.read_text(encoding='utf-8'))
+          build_id = profile['expected_build_id']
+
+          entries = []
+          for entry in profile['entries']:
+              va = int(entry['memory_offset'], 16)
+              expected = bytes.fromhex(entry['expected'])
+              replacement = bytes.fromhex(entry['replacement'])
+              if len(expected) != len(replacement):
+                  raise SystemExit(f"length mismatch at {va:#x}: {len(expected)} != {len(replacement)}")
+              entries.append((va, expected, replacement, entry['description']))
+
+          entries.sort(key=lambda item: item[0])
+          for (va_a, _, repl_a, _), (va_b, _, _, _) in zip(entries, entries[1:]):
+              if va_a + len(repl_a) > va_b:
+                  raise SystemExit(f"overlapping records at {va_a:#x} and {va_b:#x}")
+
+          parser = next(item for item in entries if item[0] == 0x3527A0)
+          if len(parser[2]) != 164:
+              raise SystemExit(f"parser replacement is {len(parser[2])} bytes, expected 164")
+          if bytes.fromhex('16 C0 26 B9') not in parser[2]:
+              raise SystemExit('parser does not store W22 to state+0x26C0')
+          if any(item[0] == 0x1E700C for item in entries):
+              raise SystemExit('Try 9 must keep the original P2 store at 0x1E700C')
+
+          ips = bytearray(b'IPS32')
+          for va, _, replacement, _ in entries:
+              ips += struct.pack('>I', va + 0x100)
+              ips += struct.pack('>H', len(replacement))
+              ips += replacement
+          ips += b'EEOF'
+
+          root = Path('out/DKCTF_HardMode_P2_Try9')
+          exefs = root / 'exefs'
+          exefs.mkdir(parents=True, exist_ok=True)
+          ips_path = exefs / f'{build_id}.ips'
+          ips_path.write_bytes(ips)
+
+          readme = root / 'README.txt'
+          readme.write_text(
+              'DKCTF Hard Mode P2 Try 9\n'
+              '=============================\n\n'
+              'Replace the previous IPS completely. Do not combine IPS files.\n'
+              'Keep UIPak(21).pak / the byte-identical Try-6-or-later PAK.\n\n'
+              'Try 9 no longer writes the selected Hard Mode P2 directly to state+0x269C.\n'
+              'It stores the mapped selector ID temporarily at state+0x26C0, then lets the\n'
+              'normal Hard Mode initializer perform its original P2 store at 0x1E700C,\n'
+              'parallel to the P1 store.\n\n'
+              'Status: structurally validated; not yet confirmed in game.\n',
+              encoding='utf-8'
+          )
+          (root / 'profile.json').write_text(json.dumps(profile, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+          sha = hashlib.sha256(ips).hexdigest()
+          report = [
+              f'IPS32 size: {len(ips)} bytes',
+              f'IPS32 records: {len(entries)}',
+              f'IPS32 SHA-256: {sha}',
+              'Records:'
+          ]
+          for va, expected, replacement, description in entries:
+              report.append(f'  {va:#010x}: {len(replacement):3d} bytes | {description}')
+          (root / 'VALIDATION.txt').write_text('\n'.join(report) + '\n', encoding='utf-8')
+          print('\n'.join(report))
+
+          zip_path = Path('out/DKCTF_HardMode_P2_Try9.zip')
+          with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+              for path in sorted(root.rglob('*')):
+                  if path.is_file():
+                      zf.write(path, path.relative_to(root.parent))
+          print(f'ZIP SHA-256: {hashlib.sha256(zip_path.read_bytes()).hexdigest()}')
+          PY
+
+      - name: Upload Try 9 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DKCTF_HardMode_P2_Try9
+          path: out/DKCTF_HardMode_P2_Try9.zip
+          if-no-files-found: error
+          retention-days: 7
