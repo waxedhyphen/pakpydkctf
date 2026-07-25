@@ -13,9 +13,9 @@ Build ID:
 F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000
 ```
 
-PAKPY validiert die unveränderte `main` und exportiert ausschließlich IPS32.
+PAKPY validiert die unveränderte `main` und exportiert IPS32.
 
-## Im Spiel bestätigtes Zwei-Spieler-Fundament
+## Bestätigtes Zwei-Spieler-Fundament
 
 ```text
 0x1E6FEC
@@ -25,7 +25,7 @@ PAKPY validiert die unveränderte `main` und exportiert ausschließlich IPS32.
 29 15 1E 12 -> 29 19 1F 12
 ```
 
-Bestätigt:
+Im Spiel bestätigt:
 
 - zwei echte Spieler starten im Hard Mode;
 - P2 ist separat steuerbar;
@@ -33,23 +33,12 @@ Bestätigt:
 
 ## Ursprüngliche automatische Paarung
 
-Vor dem funktionierenden Selector-Patch galt:
-
 ```text
 P1 = DK      -> P2 = normaler/default P2-Kong
 P1 != DK     -> P2 = DK
 ```
 
-Die Paarung wurde hier erzeugt:
-
-```text
-0x1E6FF4  P1 konvertieren
-0x1E6FFC  P1 mit DK vergleichen
-0x1E7000  automatischen P2-Wert 1 erzeugen
-0x1E7004  bei P1=DK auf Wert 2 erhöhen
-0x1E7008  P1 nach state+0x2698 schreiben
-0x1E700C  P2 nach state+0x269C schreiben
-```
+Die automatische P2-ID wurde bei `0x1E700C` nach `state+0x269C` geschrieben.
 
 ## UI-Ausgangsstand
 
@@ -64,83 +53,49 @@ ExternalInterface.call(
 );
 ```
 
-Das Problem lag in der nativen Auswertung, nicht in der UI.
+Das Problem lag in der nativen Auswertung.
 
-## Fehlgeschlagene Versuche
+## Fehlgeschlagene Tests 2 bis 5
 
-### Test 2 – `mRuntimeData.Char_P2` plus `UpdateCharacterTypes()`
+### Test 2
 
-```text
-FEHLGESCHLAGEN
-```
-
-Ausgeschlossen:
-
-- zusätzlicher `UpdateCharacterTypes()`-Aufruf vor dem Start;
-- bloßes Schreiben nach `mRuntimeData.Char_P2`;
-- zugehöriger 92-Byte-AVM2-Block.
-
-### Test 3 – ausschließlich `mRuntimeData.Char_P2`
+`mRuntimeData.Char_P2` schreiben und zusätzlich `UpdateCharacterTypes()` aufrufen.
 
 ```text
 FEHLGESCHLAGEN
 ```
 
-Ladebildschirm und Spawn verwendeten weiterhin den normalen beziehungsweise automatisch ermittelten P2-Wert.
+### Test 3
 
-### Test 4 – stockmäßigen `Char_P2`-Reload erzwingen
-
-```text
-0x352C60
-20 02 00 36 -> 1F 20 03 D5
-```
+Nur `mRuntimeData.Char_P2` schreiben.
 
 ```text
 FEHLGESCHLAGEN
 ```
 
-Der gesamte `mRuntimeData.Char_P2`-Umweg ist ausgeschlossen.
+### Test 4
 
-### Test 5 – `UpdateCharacterTypes` als eigenen Callback verwenden
+Stockmäßigen `Char_P2`-Reload bei `0x352C60` erzwingen.
+
+```text
+FEHLGESCHLAGEN
+```
+
+Damit ist der gesamte indirekte Runtime-String-Umweg ausgeschlossen.
+
+### Test 5
+
+`UpdateCharacterTypes()` bei `0x3457A8` als eigenen Callback überschreiben.
 
 ```text
 FEHLGESCHLAGEN: GAME-CRASH
 ```
 
-Beobachtungen:
+Zusätzlich fehlte die Join-Animation. `0x3457A8` ist die aktive Originalroutine und keine freie Code-Cave. Außerdem wurde der ExternalInterface-Argumentzeiger falsch als Wert interpretiert. Test 5 wurde vollständig entfernt.
 
-- Join-Animation fehlte;
-- Crash in `CTransitionScene::CheckObjectsLoaded()`;
-- Nullzugriff auf Adresse `0x0`.
+## Test 6 – funktionierender direkter Selector
 
-Ursachen:
-
-1. `0x3457A8` ist die aktive Originalroutine `UpdateCharacterTypes()`, keine freie Code-Cave.
-2. Try 5 interpretierte `[x2+0x08]` falsch; dort liegt der Zeiger auf die Argumenteinträge.
-3. Das dritte Argument liegt bei `entries+0x20`.
-
-Try 5 wurde vollständig entfernt.
-
-## Test 6 – funktionierender direkter P2-Selector
-
-### PAK / AVM2
-
-```text
-UIPak21_hardmode_p2_try6.pak ist byteidentisch zu UIPak(21).pak.
-Keine zusätzliche AVM2-Änderung.
-```
-
-### Nativer Ablauf
-
-```text
-1. P1 wie stock auswerten.
-2. Drittes initLevelTransition-Argument über entries+0x20 lesen.
-3. Slider 0..4 in die interne Kong-ID umwandeln.
-4. P2-ID direkt nach state+0x269C schreiben.
-5. Originalen initLevelTransition-Aufruf fortsetzen.
-```
-
-Zuordnung:
+Der vorhandene native Callback liest das dritte Argument korrekt über `entries+0x20`, mappt Slider `0..4` auf die internen IDs und schreibt die ausgewählte P2-ID nach `state+0x269C`.
 
 ```text
 0 -> DK     -> ID 1
@@ -160,8 +115,6 @@ ExeFS:
 0x3527A0 -> 164-Byte-Kompaktparser
 ```
 
-### In-Game-Ergebnis
-
 ```text
 BESTÄTIGT: FUNKTIONIERT
 ```
@@ -170,128 +123,119 @@ Bestätigt:
 
 - kein Crash;
 - ausgewählter Hard-Mode-P2-Kong wird gespawnt;
-- automatische DK/Default-Paarung überschreibt ihn nicht mehr.
+- automatische DK/Default-Paarung überschreibt ihn nicht.
 
-### Bestätigter Nebeneffekt
+Bestätigter Nebeneffekt: Nach dem Verlassen des Hard Mode blieb der Hard-Mode-Kong als aktueller P2 gesetzt.
 
-Nach dem Verlassen des Hard Mode blieb der Hard-Mode-Kong als aktueller P2 gesetzt.
+## P1- und P2-Reload in UpdateCharacterTypes
 
-Grund:
-
-```text
-Try 6 schreibt die temporäre Hard-Mode-Auswahl direkt nach state+0x269C.
-```
-
-Dieses Feld ist der echte aktuelle P2-Zustand. Der normale P2-Wert wurde nach der Rückkehr nicht erneut geladen.
-
-## Analyse des P1-Rückkehrverhaltens
-
-P1 wird nicht über ein separates Spawn-Objekt zurückgetauscht. Der normale Frontend-Refresh `UpdateCharacterTypes()` lädt P1 erneut aus Runtime-ID `0x65` (`Char_P1`):
+P1 wird beim normalen Character-Refresh immer aus `Char_P1` zurückgeladen:
 
 ```text
-0x3457E0  Runtime-Datenquelle laden
-0x3457EC  ID 0x65 = Char_P1
-0x3457FC  String in interne Kong-ID umwandeln
-0x345814  nach state+0x2698 schreiben
+0x3457E0  Runtime-Datenquelle
+0x3457EC  Runtime-ID 0x65 = Char_P1
+0x3457FC  String -> Kong-ID
+0x345814  Store state+0x2698
 ```
-
-Dadurch überschreibt der normale P1-Wert nach der Rückkehr die temporäre Hard-Mode-P1-ID.
 
 P2 besitzt bereits denselben Reload:
 
 ```text
-0x345850  Runtime-Datenquelle laden
-0x34585C  ID 0x66 = Char_P2
-0x34586C  String in interne Kong-ID umwandeln
-0x34588C  nach state+0x269C schreiben
+0x345850  Runtime-Datenquelle
+0x34585C  Runtime-ID 0x66 = Char_P2
+0x34586C  String -> Kong-ID
+0x34588C  Store state+0x269C
 ```
 
-Stock wird dieser P2-Block jedoch nur ausgeführt, wenn `0x33557C` den temporären P2-Player-Status als aktiv meldet. Beim Rückkehr-Refresh kann diese zusätzliche Prüfung false sein, obwohl der echte Zwei-Spieler-Zustand weiterhin aktiv ist. Deshalb wurde P1 zurückgesetzt, P2 aber nicht.
-
-## Test 7 – P2 beim Refresh wie P1 neu laden
-
-Try 7 behält den bestätigten Try-6-Selector vollständig bei und ändert nur das Gate vor dem bereits vorhandenen P2-Reload.
-
-### Änderung in `UpdateCharacterTypes()`
-
-Stock:
+Stock liegt davor jedoch ein Skip:
 
 ```text
-0x345848: BL 0x33557C
-0x34584C: TBZ W0,#0,0x3458F4
+0x345848  BL 0x33557C
+0x34584C  TBZ W0,#0,0x3458F4
 ```
 
-Try 7:
+## Test 7 – Reload über state+0x26AF gaten
+
+Test 7 ersetzte die Stockprüfung durch:
 
 ```text
-0x345848: LDRB W0,[X24,#0xF]   ; state+0x26AF
-0x34584C: CBZ  W0,0x3458F4
+0x345848  LDRB W0,[X24,#0xF]   ; state+0x26AF
+0x34584C  CBZ  W0,0x3458F4
 ```
 
-Bytes:
+### In-Game-Ergebnis
 
 ```text
-0x345848
-4D BF FF 97 40 05 00 36
+FEHLGESCHLAGEN FÜR MANUELLEN LEVEL-QUIT
+```
+
+Beobachtung:
+
+- Hard-Mode-Selector funktioniert weiterhin;
+- beim manuellen Verlassen des Levels bleibt der Hard-Mode-P2-Kong aktiv;
+- regulärer Levelabschluss wurde mit diesem Test nicht geprüft.
+
+Schlussfolgerung:
+
+```text
+Beim manuellen Quit ist state+0x26AF bereits 0,
+bevor der Character-Refresh den normalen P2-Wert laden könnte.
+```
+
+Try 7 ersetzte damit nur eine false liefernde Prüfung durch eine andere false liefernde Prüfung. Die acht Byte bei `0x345848` werden nicht weiterverwendet.
+
+## Test 8 – vorhandenen Char_P2-Reload unbedingt ausführen
+
+Try 8 behält den im Spiel bestätigten Try-6-Selector unverändert und entfernt ausschließlich den Skip vor dem bereits vorhandenen `Char_P2`-Reload:
+
+```text
+0x34584C
+40 05 00 36
 ->
-00 3F 40 39 40 05 00 34
+1F 20 03 D5
 ```
 
-`X24` zeigt in dieser Routine bereits auf `state+0x26A0`; `X24+0xF` ist daher exakt `state+0x26AF`.
+Der Aufruf bei `0x345848` bleibt stock. Nur sein false-Ergebnis darf den P2-Block nicht mehr überspringen.
 
-Neues Verhalten:
+Neuer Ablauf bei einem Character-Refresh:
 
 ```text
-state+0x26AF = 0 -> stockmäßiger Inaktiv-P2-Pfad
-state+0x26AF != 0 -> vorhandenen Char_P2-Reload ausführen
+Char_P1 -> interne ID -> state+0x2698
+Char_P2 -> interne ID -> state+0x269C
 ```
 
-Damit wird bei verbundenem P2 nach der Rückkehr derselbe Mechanismus verwendet wie bei P1:
+Damit wird P2 exakt im selben Refresh wie P1 wieder aus seinem normalen Runtime-Wert hergestellt. Das temporäre Flag `+0x26AF` ist dafür nicht mehr relevant.
 
-```text
-normaler Runtime-Kong -> interne ID -> aktueller Frontend-Zustand
-```
+Nicht geändert:
 
-Es wird kein eigener Backup-Slot und kein zusätzlicher Exit-Hook eingeführt.
+- kein Backup-Slot;
+- kein neuer Exit-Hook;
+- kein AVM2-Patch;
+- PAK bleibt byteidentisch zu `UIPak(21).pak`;
+- Selectorparser aus Test 6 bleibt unverändert;
+- `UpdateCharacterTypes()`-Reload-Body bleibt unverändert;
+- Join-/Character-Update-Code nach dem Gate bleibt unverändert.
 
-### Try-7-ExeFS-Records
+### Try-8-ExeFS-Records
 
 ```text
 0x1E6FEC   4 Bytes
 0x1E700C   4 Bytes
 0x1E7018   4 Bytes
-0x345848   8 Bytes
+0x34584C   4 Bytes
 0x3526EC   4 Bytes
 0x3527A0 164 Bytes
 ```
 
-### Unverändert
-
-- PAK ist byteidentisch zu `UIPak(21).pak` und Try 6;
-- Try-6-Selectorparser bleibt unverändert;
-- vorhandener `Char_P2`-Reload-Body bleibt unverändert;
-- Join-/Character-Update-Code nach dem Gate bleibt unverändert;
-- Callback-Registrierung bleibt unverändert;
-- originaler Transition-Call und Epilog bleiben unverändert.
-
-### Dateien
+IPS32:
 
 ```text
-UIPak21_hardmode_p2_try7.pak
-exefs/F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000.ips
+Records: 6
+Größe: 229 Bytes
+Footer: EEOF
 ```
 
-```text
-PAK SHA-256:
-58ce2f8a1ee15f02ccd3edd5b3b3ea06126059da3ef1ac0f20d5538743783fe3
-
-IPS-Größe: 233 Bytes
-IPS SHA-256:
-0d44f9ceae96db0d5a3282e0c09a358dfdde1f542f72870ebc1df6241bb25871
-
-Paket SHA-256:
-2e418551d40f82700bbf0c2ff4eeb8b4eb002be58c3cfa16a549f673ca746805
-```
+Der Build wurde in GitHub Actions erfolgreich erzeugt und als Artefakt validiert.
 
 ### Status
 
@@ -303,6 +247,7 @@ Prüfung:
 
 1. normalen P2-Kong auswählen;
 2. im Hard Mode einen anderen P2-Kong wählen;
-3. Hard Mode verlassen;
-4. nach der Rückkehr muss wieder der vorherige normale P2-Kong aktiv sein;
-5. Hard-Mode-Auswahl, Join-Animation und Übergang dürfen nicht regressieren.
+3. Level manuell verlassen;
+4. nach der Rückkehr muss wieder der normale P2-Kong aktiv sein;
+5. Hard-Mode-Auswahl, Join-Animation und Übergang dürfen nicht regressieren;
+6. regulären Levelabschluss getrennt prüfen.
