@@ -186,7 +186,7 @@ Try 7 ersetzte damit nur eine false liefernde Prüfung durch eine andere false l
 
 ## Test 8 – vorhandenen Char_P2-Reload unbedingt ausführen
 
-Try 8 behält den im Spiel bestätigten Try-6-Selector unverändert und entfernt ausschließlich den Skip vor dem bereits vorhandenen `Char_P2`-Reload:
+Try 8 behielt den im Spiel bestätigten Try-6-Selector unverändert und entfernte ausschließlich den Skip vor dem bereits vorhandenen `Char_P2`-Reload:
 
 ```text
 0x34584C
@@ -195,59 +195,68 @@ Try 8 behält den im Spiel bestätigten Try-6-Selector unverändert und entfernt
 1F 20 03 D5
 ```
 
-Der Aufruf bei `0x345848` bleibt stock. Nur sein false-Ergebnis darf den P2-Block nicht mehr überspringen.
+Der Aufruf bei `0x345848` blieb stock. Nur sein false-Ergebnis durfte den P2-Block nicht mehr überspringen.
 
-Neuer Ablauf bei einem Character-Refresh:
+Erwarteter Ablauf bei einem Character-Refresh:
 
 ```text
 Char_P1 -> interne ID -> state+0x2698
 Char_P2 -> interne ID -> state+0x269C
 ```
 
-Damit wird P2 exakt im selben Refresh wie P1 wieder aus seinem normalen Runtime-Wert hergestellt. Das temporäre Flag `+0x26AF` ist dafür nicht mehr relevant.
+### In-Game-Ergebnis
 
-Nicht geändert:
+```text
+FEHLGESCHLAGEN FÜR MANUELLEN LEVEL-QUIT
+```
 
-- kein Backup-Slot;
-- kein neuer Exit-Hook;
+Auch der ungefilterte `Char_P2`-Reload stellte P2 beim manuellen Quit nicht wieder her. Daraus folgt, dass `UpdateCharacterTypes()` im relevanten Quit-Rückkehrpfad nicht als Restore-Mechanismus verwendet werden kann. Der Try-8-Patch bei `0x34584C` wurde aus dem aktiven Profil entfernt.
+
+## Test 9 – P2 über denselben Hard-Mode-Initializer wie P1
+
+Try 9 behält die bestätigte Auswertung des dritten `initLevelTransition`-Arguments, schreibt die gewählte P2-ID aber nicht mehr vorzeitig direkt nach `state+0x269C`.
+
+Neuer Ablauf:
+
+```text
+chooseKongP2.currentState
+-> drittes ExternalInterface-Argument bei entries+0x20
+-> Slider 0..4 auf interne Kong-ID mappen
+-> temporärer Store state+0x26C0
+-> Hard-Mode-Initializer lädt state+0x26C0 bei 0x1E7000
+-> originaler P2-Store bei 0x1E700C schreibt state+0x269C
+```
+
+ExeFS:
+
+```text
+0x1E6FEC -> P2-Zustand erhalten
+0x1E7000 -> P2-ID aus state+0x26C0 laden
+0x1E7004 -> DK-spezifisches Inkrement entfernen
+0x1E7018 -> P2-Slot-Bit erhalten
+0x3526EC -> Parser-Kontrollfluss
+0x3527A0 -> P2-Slider parsen und nach state+0x26C0 schreiben
+0x352B18 -> temporäre P2-ID bis zum Initializer erhalten
+```
+
+Wichtig:
+
+- `0x1E700C` bleibt original und schreibt P2 innerhalb des normalen Hard-Mode-Initializers;
+- kein `UpdateCharacterTypes()`-Restore-Patch;
 - kein AVM2-Patch;
-- PAK bleibt byteidentisch zu `UIPak(21).pak`;
-- Selectorparser aus Test 6 bleibt unverändert;
-- `UpdateCharacterTypes()`-Reload-Body bleibt unverändert;
-- Join-/Character-Update-Code nach dem Gate bleibt unverändert.
+- `UIPak(21).pak` bleibt unverändert.
 
-### Try-8-ExeFS-Records
+### In-Game-Ergebnis
 
 ```text
-0x1E6FEC   4 Bytes
-0x1E700C   4 Bytes
-0x1E7018   4 Bytes
-0x34584C   4 Bytes
-0x3526EC   4 Bytes
-0x3527A0 164 Bytes
+BESTÄTIGT: FUNKTIONIERT
 ```
 
-IPS32:
+Bestätigt:
 
-```text
-Records: 6
-Größe: 229 Bytes
-Footer: EEOF
-```
+- der in `chooseKongP2` ausgewählte Kong wird als echter, separat steuerbarer P2 gespawnt;
+- kein Crash beim Start oder manuellen Verlassen des Levels;
+- nach manuellem Quit bleibt der Hard-Mode-P2-Kong nicht persistent;
+- der vor dem Hard Mode ausgewählte normale P2-Kong wird wiederhergestellt.
 
-Der Build wurde in GitHub Actions erfolgreich erzeugt und als Artefakt validiert.
-
-### Status
-
-```text
-Noch nicht im Spiel bestätigt.
-```
-
-Prüfung:
-
-1. normalen P2-Kong auswählen;
-2. im Hard Mode einen anderen P2-Kong wählen;
-3. Level manuell verlassen;
-4. nach der Rückkehr muss wieder der normale P2-Kong aktiv sein;
-5. Hard-Mode-Auswahl, Join-Animation und Übergang dürfen nicht regressieren;
-6. regulären Levelabschluss getrennt prüfen.
+Damit ist das ursprüngliche Ziel für den getesteten manuellen Quit-Pfad erreicht. Ein regulärer Levelabschluss wurde weiterhin nicht separat bestätigt.
