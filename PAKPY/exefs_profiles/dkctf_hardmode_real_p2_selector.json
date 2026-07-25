@@ -3,19 +3,25 @@
   "name": "DKCTF Hard Mode – real independent P2 selector",
   "patch_group": "DKCTF_HardMode_Real_P2_Selector",
   "expected_build_id": "F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000",
-  "notes": "Keeps the independently active P2 path available during Hard Mode initialization. The selector writes mRuntimeData.Char_P2 before initLevelTransition; the stock native block at 0x352C74 then reloads runtime data ID 0x66 and replaces the temporary automatic partner. The failed 0x1E700C NOP is intentionally not included.",
+  "notes": "Keeps the confirmed two-player Hard Mode foundation and forces the existing native Char_P2 reload at 0x352C74. The automatic DK/default pairing at 0x1E700C remains temporary and is overwritten from runtime data ID 0x66 before the transition continues.",
   "entries": [
     {
       "memory_offset": "0x1E6FEC",
       "expected": "7F 6A 28 38",
       "replacement": "1F 20 03 D5",
-      "description": "Do not clear the +0x26AF state byte that gates the independent P2 path during Hard Mode initialization."
+      "description": "Preserve the +0x26AF multiplayer state during Hard Mode initialization."
     },
     {
       "memory_offset": "0x1E7018",
       "expected": "29 15 1E 12",
       "replacement": "29 19 1F 12",
-      "description": "Preserve an already active P2 slot bit while the temporary automatic partner is initialized."
+      "description": "Preserve the active P2 slot bit while the temporary automatic partner is initialized."
+    },
+    {
+      "memory_offset": "0x352C60",
+      "expected": "20 02 00 36",
+      "replacement": "1F 20 03 D5",
+      "description": "Do not skip the stock Char_P2 reload at 0x352C74. Force runtime data ID 0x66 to replace the temporary automatic DK/default partner."
     }
   ]
 }
