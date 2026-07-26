@@ -1,19 +1,28 @@
-# DKCTF – doppelter DK im Normalmodus und Hard Mode
+# DKCTF – doppelte Kongs im Normalmodus und Hard Mode
 
-Diese Datei trennt bestätigtes Laufzeitverhalten von rein statisch validierten Änderungen.
+Diese Datei trennt bestätigtes Laufzeitverhalten von statisch validierten Änderungen.
 
-## Ziel
+## Gesamtziel
 
-Beide Spieler sollen DK unabhängig voneinander im normalen Zwei-Spieler-Modus und im Hard Mode auswählen können:
+P1 und P2 sollen unabhängig jeden Kong wählen können:
 
 ```text
-P1 = DK
-P2 = DK
+DK, Funky, Diddy, Dixie, Cranky
+```
+
+Auch gleiche Kombinationen sollen funktionieren:
+
+```text
+DK + DK
+Diddy + Diddy
+Dixie + Dixie
+Cranky + Cranky
+Funky + Funky
 ```
 
 Beide Figuren müssen getrennte Spieler mit unabhängiger Steuerung, Tod-, Respawn- und Checkpoint-Logik bleiben.
 
-## Aktuelle UI- und ExeFS-Grundlage
+## Grundlage
 
 Build ID:
 
@@ -21,75 +30,47 @@ Build ID:
 F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000
 ```
 
-UI-Grundlage:
+UIPak SHA-256:
 
 ```text
-UIPak SHA-256:
 58ce2f8a1ee15f02ccd3edd5b3b3ea06126059da3ef1ac0f20d5538743783fe3
 ```
 
-Die UI übergibt getrennte P1- und P2-Auswahlen. Die Duplicate-Implementierung erzeugt für P2 logisch einen DK, verwendet intern aber Diddy als physischen P2-Trägerslot.
+## Bestätigter Stand
 
-## Bestätigter Laufzeitstand
-
-### Normaler Zwei-Spieler-Modus
+### Normalmodus `DK + DK`
 
 Status: **im Spiel bestätigt**
 
-Der Live-Hook des Normalmodus liegt bei:
+Der Live-Hook liegt bei:
 
 ```text
 0x345898
 CProductionFrontEnd::UpdateCharacterTypes-Pfad
 ```
 
-Er läuft nach dem nativen `Char_P2`-Store und vor dem P2-Character-Change-Event. Wenn beide gespeicherten CharacterTypes DK sind, aktiviert er den Duplicate-Replay-Zustand und ändert nur den internen P2-Träger auf Diddy.
+Bestätigt:
 
-Bestätigtes Ergebnis:
+- zwei sichtbare DK-Actors;
+- beide Spieler unabhängig steuerbar;
+- bisher beste bestätigte Duplicate-Grundlage.
 
-- normales Zwei-Spieler-`DK + DK` funktioniert;
-- zwei sichtbare DK-Actors existieren;
-- beide Spieler sind unabhängig steuerbar;
-- dies ist derzeit die beste bestätigte Duplicate-Character-Grundlage.
-
-### Hard Mode vor dem aktuellen Fix
+### Hard-Mode-Abhängigkeit
 
 Status: **Bug im Spiel bestätigt**
 
 Beobachtet:
 
-- `DK + DK` im Hard Mode erzeugte P2 DK nicht zuverlässig;
-- P2 DK existierte nur, wenn zuvor im normalen Kong-Select `DK + DK` eingestellt war;
-- nach einer normalen Nicht-Duplikat-Auswahl wie `DK + Diddy` fehlte P2 DK beim anschließenden Hard-Mode-Start mit `DK + DK`.
+- Hard-Mode-`DK + DK` erzeugte P2 DK nur, wenn zuvor im normalen Kong-Select `DK + DK` eingestellt war;
+- nach einer normalen Nicht-Duplikat-Auswahl fehlte P2 DK im Hard Mode.
 
-Diese Abhängigkeit zwischen den beiden Modi war unbeabsichtigt.
+### Andere doppelte Kongs
 
-## Ursache der Hard-Mode-Abhängigkeit
+Status: **nicht implementiert im bestätigten Stand**
 
-Der Hard-Mode-P2-Parser läuft über:
+Der bisher bestätigte Helper war auf CharacterType `1` (`DK`) festgelegt. Daher funktionierten `Diddy + Diddy`, `Dixie + Dixie`, `Cranky + Cranky` und `Funky + Funky` nicht.
 
-```text
-0x3527EC -> Helper 0xA7A798
-```
-
-Der bisherige Helper ersetzte den Hard-Mode-P2-Wert nur dann durch den physischen Diddy-Träger, wenn das globale Duplicate-State-Flag bereits aktiv war.
-
-Dieses Flag wurde vom bestätigten Normalmode-Hook aktiviert. Der Hard-Mode-Argumentparser selbst aktivierte den Duplicate-Zustand nicht anhand seiner eigenen P1- und P2-Auswahl.
-
-Dadurch entstand genau folgende Abhängigkeit:
-
-```text
-normaler Selector zuvor DK + DK
-    -> Duplicate-Flag bereits aktiv
-    -> Hard-Mode-P2-Replay existiert
-
-normaler Selector zuvor nicht DK + DK
-    -> Duplicate-Flag inaktiv
-    -> Hard-Mode-Parser fordert keinen Replay-Actor an
-    -> P2 DK fehlt
-```
-
-## Aktueller Fix
+## Verworfener Hard-Mode-Fix
 
 Artefakt:
 
@@ -97,86 +78,127 @@ Artefakt:
 customkong_dkdk_normal_hardmode_fix
 ```
 
+Status: **im Spiel fehlgeschlagen und verworfen**
+
+Der Fehler war konkret:
+
+- der Helper behandelte `x20` direkt als `GameState`;
+- am Hard-Mode-Parser ist `x20` jedoch das Frontend-Objekt;
+- der echte GameState liegt bei:
+
+```text
+GameState = [[x20 + 0x20] + 0x8]
+```
+
+Dadurch schrieb der Fix P1/P2 an die falsche Struktur.
+
+## Neuer allgemeiner V2-Patch
+
+Artefakt:
+
+```text
+customkong_all_duplicates_v2
+```
+
 IPS SHA-256:
 
 ```text
-bc42c7aa1a2b3575d15c90ae1ead617119c170205f1dd427dca65e1ba3d324d9
+63fee0f425b3676d1b895412ffa52b2c7b267881ec88c921d103bebe56b28446
 ```
 
-Der Fix ändert nur den vorhandenen Helper-Record. Die IPS enthält weiterhin 24 Records.
+Status: **statisch validiert, In-Game-Test offen**
 
-### Änderung am Hard-Mode-Parser
+### 1. Gemeinsamer Duplicate-Trigger
 
-Der Helper bei `0xA7A798`:
-
-1. schreibt die gewählte Hard-Mode-P1-Figur nach `GameState+0x2698`;
-2. schreibt die gewählte Hard-Mode-P2-Figur nach `GameState+0x269C`;
-3. richtet die gemeinsame Duplicate-Routine auf diesen GameState;
-4. springt anschließend in dieselbe `DK + DK`-Aktivierungsroutine wie der funktionierende Normalmode-Pfad.
-
-Für `DK + DK` setzt die gemeinsame Routine:
+Bereich:
 
 ```text
-logischer P1 = DK
-logischer P2 = DK
-physischer P2-Träger = Diddy
+0xA7A734..0xA7A797
 ```
 
-Der physische P2-Typ wird in `W22` an den ursprünglichen Hard-Mode-Parser zurückgegeben. Dieser schreibt anschließend wie bisher das Übergabefeld `GameState+0x26C0`.
+Der Trigger aktiviert den Duplicate-State nun bei jedem gleichen P1/P2-CharacterType.
 
-### Gemeinsame Caller-Behandlung
-
-Der gemeinsame Helper wird von drei Pfaden verwendet:
+Physische Trägerzuordnung:
 
 ```text
-normaler Live-UpdateCharacterTypes-Pfad
-Hard-Mode-Argumentparser
-vorhandener Transition-/Initializer-Pfad
+DK + DK         -> P2-Träger Diddy
+Funky + Funky   -> P2-Träger Diddy
+Diddy + Diddy   -> P2-Träger DK
+Dixie + Dixie   -> P2-Träger DK
+Cranky + Cranky -> P2-Träger DK
 ```
 
-Die Rückkehr unterscheidet diese Caller, ohne den im funktionierenden Normalmode benötigten ursprünglichen `W22`-Wert zu verändern.
+Damit bleibt die interne Paarung jeweils Primär-Kong + Buddy-Kong. Der sichtbare und logische P2 bleibt der ausgewählte Kong.
 
-Unverändert bleiben:
+### 2. Korrigierter Hard-Mode-Parser
 
-- Normalmode-Hook bei `0x345898`;
+Bereich:
+
+```text
+0xA7A798..0xA7A7AF
+```
+
+Der Parser:
+
+1. übernimmt den geparsten P2-Typ;
+2. löst den echten GameState über `[[x20+0x20]+0x8]` auf;
+3. schreibt die eigenen Hard-Mode-P1/P2-Werte nach `+0x2698/+0x269C`;
+4. springt in den gemeinsamen Duplicate-Trigger;
+5. gibt den physischen P2-Träger in `W22` zurück.
+
+Damit hängt Hard Mode nicht mehr vom vorherigen normalen Kong-Select-State ab.
+
+### 3. Allgemeine Replay-Factory
+
+Bereiche:
+
+```text
+0xA7A808..0xA7A81F
+0xA7A854
+```
+
+Die Factory lädt den ausgewählten logischen CharacterType aus dem Duplicate-State und vergleicht den erzeugten Actor dynamisch damit. Der frühere feste Vergleich gegen DK wurde entfernt.
+
+## Unverändert
+
+- bestätigter Normalmode-Hook bei `0x345898`;
 - Transition-Hook bei `0x35236C`;
-- serialisierte Replay-Factory;
+- Replay-Konstruktionsstufen;
 - Player-Pointer- und Player-Index-Hooks;
 - Tod-, Checkpoint-, Barrel- und Respawn-Hooks;
 - modifizierte UIPak-Selectoren.
 
-## Validierungsstatus
+## Statische Validierung
 
-Statisch validiert:
+Bestätigt:
 
 - gültige IPS32-Struktur;
-- alle 24 Records sind sortiert und überlappen nicht;
-- gegenüber der bestätigten Normalmode-Grundlage wurde ausschließlich der Helper-Bereich `0xA7A778..0xA7A7B3` verändert;
-- `0x345898` springt weiterhin nach `0xA7A734`;
-- `0x35236C` springt weiterhin nach `0xA7A734` und behält den ursprünglichen Tail-Pfad nach `0x1B7EC0`;
-- `0x3527EC` ruft weiterhin `0xA7A798` auf;
-- der Hard-Mode-Parser springt nun bei `0xA7A7A4` nach `0xA7A734`, ohne seine ursprüngliche Rücksprungadresse zu zerstören;
-- der Normalmode-Wert in `W22` wird durch die neue Caller-Behandlung nicht überschrieben.
+- weiterhin 24 sortierte, nicht überlappende Records;
+- Helper-Größe unverändert: 968 Bytes;
+- Hard-Mode-Call bei `0x3527EC` erreicht weiterhin `0xA7A798`;
+- Normalmode-Call bei `0x345898` erreicht weiterhin `0xA7A734`;
+- Transition-Call bei `0x35236C` erreicht weiterhin `0xA7A734`;
+- alle fünf Duplicate-/Carrier-Zuordnungen statisch geprüft.
 
-Die neue unabhängige Hard-Mode-Aktivierung ist **noch nicht im Spiel bestätigt**.
-
-## Erforderlicher nächster Test
+## Erforderlicher Test
 
 1. Spiel vollständig neu starten.
-2. Im normalen Kong-Select absichtlich eine Nicht-Duplikat-Kombination wie `DK + Diddy` einstellen.
-3. Hard Mode öffnen.
-4. Dort `DK + DK` auswählen.
-5. Prüfen, ob P2 DK existiert und unabhängig steuerbar ist.
-6. P1- und P2-Tod testen.
-7. Beide Respawn-Barrel-Richtungen testen.
-8. Level verlassen und anschließend erneut normales Zwei-Spieler-`DK + DK` prüfen.
+2. Normalmodus `DK + DK` erneut prüfen.
+3. Normalmodus mit `Diddy + Diddy`, `Dixie + Dixie`, `Cranky + Cranky` und `Funky + Funky` prüfen.
+4. Normalen Selector auf eine Nicht-Duplikat-Auswahl stellen.
+5. Hard Mode öffnen und alle fünf doppelten Kombinationen prüfen.
+6. Für jede Kombination P1- und P2-Tod sowie beide Respawn-Barrel-Richtungen testen.
+7. Level verlassen und anschließend 1P sowie eine normale Nicht-Duplikat-2P-Kombination prüfen.
 
-## Aktuelle Statusübersicht
+## Statusübersicht
 
 ```text
-Normaler 2P-Modus DK + DK                 im Spiel bestätigt
-Alte Hard-Mode-Abhängigkeit               im Spiel bestätigt
-Ursache: Parser aktivierte State nicht    statisch bestätigt
-Neue unabhängige Hard-Mode-Aktivierung    statisch validiert, Test offen
-Andere doppelte Kong-Kombinationen        nicht implementiert
+Normalmodus DK + DK                         im Spiel bestätigt
+Alter Hard-Mode-Abhängigkeitsbug            im Spiel bestätigt
+Vorheriger Hard-Mode-Fix                    fehlgeschlagen, verworfen
+Andere Duplicate-Kongs im alten Stand       nicht implementiert
+V2: allgemeiner Duplicate-Trigger           statisch validiert
+V2: korrekte Hard-Mode-GameState-Auflösung  statisch validiert
+V2: dynamische Replay-Factory               statisch validiert
+V2 gesamt                                    In-Game-Test offen
 ```
