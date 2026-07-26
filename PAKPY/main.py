@@ -65,6 +65,7 @@ from ui_browser_timeline_rename_patch import install as install_ui_browser_timel
 from exefs_gui_patch import install as install_exefs_gui_patch
 from exefs_function_gui_patch import install as install_exefs_function_gui_patch
 from exefs_patch_gui_patch import install as install_exefs_patch_gui_patch
+from pak_merger_gui_patch import install as install_pak_merger_gui
 from mesh_viewer_uv_diagnostics_patch import install as install_mesh_viewer_uv_diagnostics_patch
 from mesh_viewer_selection_patch import install as install_mesh_viewer_selection_patch
 from mesh_viewer_visibility_patch import install as install_mesh_viewer_visibility_patch
@@ -159,6 +160,7 @@ install_ui_browser_timeline_rename_patch()
 install_exefs_gui_patch(App)
 install_exefs_function_gui_patch(App)
 install_exefs_patch_gui_patch(App)
+install_pak_merger_gui(App)
 install_mesh_viewer_uv_diagnostics_patch()
 install_mesh_viewer_selection_patch()
 install_mesh_viewer_visibility_patch()
