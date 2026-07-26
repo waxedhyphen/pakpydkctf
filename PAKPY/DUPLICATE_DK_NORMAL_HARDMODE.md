@@ -1,6 +1,6 @@
 # DKCTF – doppelte Kongs im Normalmodus und Hard Mode
 
-Diese Datei trennt bestätigtes Laufzeitverhalten von statisch validierten Änderungen.
+Diese Datei trennt bestätigtes Laufzeitverhalten, bestätigte Fehler und noch unbestätigte Testpatches.
 
 ## Gesamtziel
 
@@ -36,7 +36,13 @@ UIPak SHA-256:
 58ce2f8a1ee15f02ccd3edd5b3b3ea06126059da3ef1ac0f20d5538743783fe3
 ```
 
-## Bestätigter Stand
+## Bestätigte funktionierende Basis
+
+Basis-IPS SHA-256:
+
+```text
+b5713898d20de69776cbdcbb382c77955d7c47fcdaca815d51184467a4963a83
+```
 
 ### Normalmodus `DK + DK`
 
@@ -55,44 +61,20 @@ Bestätigt:
 - beide Spieler unabhängig steuerbar;
 - bisher beste bestätigte Duplicate-Grundlage.
 
-### Hard-Mode-Abhängigkeit
+### Hard-Mode-Abhängigkeit der Basis
 
 Status: **Bug im Spiel bestätigt**
 
-Beobachtet:
+- Hard-Mode-`DK + DK` erzeugt P2 DK nur, wenn zuvor im normalen Kong-Select `DK + DK` eingestellt war;
+- nach einer normalen Nicht-Duplikat-Auswahl fehlt P2 DK im Hard Mode.
 
-- Hard-Mode-`DK + DK` erzeugte P2 DK nur, wenn zuvor im normalen Kong-Select `DK + DK` eingestellt war;
-- nach einer normalen Nicht-Duplikat-Auswahl fehlte P2 DK im Hard Mode.
+### Andere doppelte Kongs in der Basis
 
-### Andere doppelte Kongs
+Status: **nicht implementiert**
 
-Status: **nicht implementiert im bestätigten Stand**
+Die Basis-Factory und der Trigger sind auf DK festgelegt.
 
-Der bisher bestätigte Helper war auf CharacterType `1` (`DK`) festgelegt. Daher funktionierten `Diddy + Diddy`, `Dixie + Dixie`, `Cranky + Cranky` und `Funky + Funky` nicht.
-
-## Verworfener Hard-Mode-Fix
-
-Artefakt:
-
-```text
-customkong_dkdk_normal_hardmode_fix
-```
-
-Status: **im Spiel fehlgeschlagen und verworfen**
-
-Der Fehler war konkret:
-
-- der Helper behandelte `x20` direkt als `GameState`;
-- am Hard-Mode-Parser ist `x20` jedoch das Frontend-Objekt;
-- der echte GameState liegt bei:
-
-```text
-GameState = [[x20 + 0x20] + 0x8]
-```
-
-Dadurch schrieb der Fix P1/P2 an die falsche Struktur.
-
-## Neuer allgemeiner V2-Patch
+## Verworfener V2-Patch
 
 Artefakt:
 
@@ -106,99 +88,121 @@ IPS SHA-256:
 63fee0f425b3676d1b895412ffa52b2c7b267881ec88c921d103bebe56b28446
 ```
 
+Status: **im Spiel fehlgeschlagen und verworfen**
+
+Bestätigte Fehler:
+
+- `Diddy + Diddy` erzeugt zwar zwei Diddys, zusätzlich bleibt jedoch ein sichtbarer DK bestehen;
+- beim Verlassen des Levels stürzt das Spiel ab;
+- der Patch darf nicht weiter als Arbeitsgrundlage verwendet werden.
+
+Der zusätzliche DK entstand, weil Buddy-Duplikate einen physischen DK-Träger erhielten. Dieser DK wurde als eigener Actor geladen und nicht durch den Replay-Actor ersetzt. Der Exit-Crash trat in genau diesem fehlerhaften Drei-Actor-Zustand auf.
+
+## Neuer Testpatch V3 auf Basis (36)
+
+Artefakt:
+
+```text
+customkong_all_duplicates_v3_basis36
+```
+
+IPS SHA-256:
+
+```text
+ea600fe9fdf30a5b5a91364aa6d27882b106073ff22888d8cfa533ea830b7afa
+```
+
 Status: **statisch validiert, In-Game-Test offen**
 
-### 1. Gemeinsamer Duplicate-Trigger
+V3 wurde direkt aus der bestätigten Basis-IPS `b5713898...` erzeugt. V2 wurde nicht als Grundlage verwendet.
 
-Bereich:
+### Hard-Mode-Aktivierung
 
-```text
-0xA7A734..0xA7A797
-```
-
-Der Trigger aktiviert den Duplicate-State nun bei jedem gleichen P1/P2-CharacterType.
-
-Physische Trägerzuordnung:
+Der Call bei:
 
 ```text
-DK + DK         -> P2-Träger Diddy
-Funky + Funky   -> P2-Träger Diddy
-Diddy + Diddy   -> P2-Träger DK
-Dixie + Dixie   -> P2-Träger DK
-Cranky + Cranky -> P2-Träger DK
+0x3527EC
 ```
 
-Damit bleibt die interne Paarung jeweils Primär-Kong + Buddy-Kong. Der sichtbare und logische P2 bleibt der ausgewählte Kong.
-
-### 2. Korrigierter Hard-Mode-Parser
-
-Bereich:
+springt nun nach:
 
 ```text
-0xA7A798..0xA7A7AF
+0xA7A754
 ```
 
-Der Parser:
+Dieser Pfad verwendet direkt die bereits geparsten Hard-Mode-Werte:
 
-1. übernimmt den geparsten P2-Typ;
-2. löst den echten GameState über `[[x20+0x20]+0x8]` auf;
-3. schreibt die eigenen Hard-Mode-P1/P2-Werte nach `+0x2698/+0x269C`;
-4. springt in den gemeinsamen Duplicate-Trigger;
-5. gibt den physischen P2-Träger in `W22` zurück.
+```text
+P1 = W23
+P2 = W0
+```
 
-Damit hängt Hard Mode nicht mehr vom vorherigen normalen Kong-Select-State ab.
+Es wird kein geratener GameState-Pointer dereferenziert. Bei einer Nicht-Duplikat-Auswahl wird der Duplicate-State deaktiviert und der ursprüngliche P2-Wert zurückgegeben.
 
-### 3. Allgemeine Replay-Factory
+### Physische Trägerzuordnung
 
-Bereiche:
+```text
+DK + DK         -> Diddy
+Funky + Funky   -> Diddy
+Diddy + Diddy   -> Dixie
+Dixie + Dixie   -> Cranky
+Cranky + Cranky -> Diddy
+```
+
+Buddy-Duplikate verwenden damit keinen DK-Träger mehr. Das soll den in V2 bestätigten zusätzlichen DK vermeiden.
+
+### Dynamische Replay-Factory
+
+Geänderte Bereiche:
 
 ```text
 0xA7A808..0xA7A81F
-0xA7A854
+0xA7A854..0xA7A857
 ```
 
-Die Factory lädt den ausgewählten logischen CharacterType aus dem Duplicate-State und vergleicht den erzeugten Actor dynamisch damit. Der frühere feste Vergleich gegen DK wurde entfernt.
+Die Factory liest den ausgewählten logischen CharacterType aus dem Duplicate-State und vergleicht den erzeugten Actor mit diesem Wert. Der feste DK-Vergleich wurde entfernt.
 
-## Unverändert
+### Absichtlich unverändert gegenüber der funktionierenden Basis
 
-- bestätigter Normalmode-Hook bei `0x345898`;
+- Normalmode-Hook bei `0x345898`;
 - Transition-Hook bei `0x35236C`;
-- Replay-Konstruktionsstufen;
+- State-Clear bei `0x352288`;
 - Player-Pointer- und Player-Index-Hooks;
 - Tod-, Checkpoint-, Barrel- und Respawn-Hooks;
-- modifizierte UIPak-Selectoren.
+- Level-Unload-Pfad;
+- UIPak.
 
-## Statische Validierung
-
-Bestätigt:
+## Statische Validierung von V3
 
 - gültige IPS32-Struktur;
 - weiterhin 24 sortierte, nicht überlappende Records;
-- Helper-Größe unverändert: 968 Bytes;
-- Hard-Mode-Call bei `0x3527EC` erreicht weiterhin `0xA7A798`;
-- Normalmode-Call bei `0x345898` erreicht weiterhin `0xA7A734`;
-- Transition-Call bei `0x35236C` erreicht weiterhin `0xA7A734`;
-- alle fünf Duplicate-/Carrier-Zuordnungen statisch geprüft.
+- nur der vorhandene Helper-Record und der bereits gepatchte Hard-Mode-Parser-Record unterscheiden sich von der Basis;
+- Normalmode-Call `0x345898 -> 0xA7A734` bleibt erhalten;
+- Transition-Call `0x35236C -> 0xA7A734` bleibt erhalten;
+- Hard-Mode-Call `0x3527EC -> 0xA7A754`;
+- Original-Tail `0x1B7EC0` bleibt erhalten;
+- Level-Unload-Code wurde nicht verändert.
 
 ## Erforderlicher Test
 
 1. Spiel vollständig neu starten.
-2. Normalmodus `DK + DK` erneut prüfen.
-3. Normalmodus mit `Diddy + Diddy`, `Dixie + Dixie`, `Cranky + Cranky` und `Funky + Funky` prüfen.
-4. Normalen Selector auf eine Nicht-Duplikat-Auswahl stellen.
-5. Hard Mode öffnen und alle fünf doppelten Kombinationen prüfen.
-6. Für jede Kombination P1- und P2-Tod sowie beide Respawn-Barrel-Richtungen testen.
-7. Level verlassen und anschließend 1P sowie eine normale Nicht-Duplikat-2P-Kombination prüfen.
+2. Normalmodus `Diddy + Diddy` testen.
+3. Prüfen, dass genau zwei Diddys und kein DK existieren.
+4. Level normal verlassen und auf Exit-Crash prüfen.
+5. Normalmodus `DK + DK` als Regressionstest prüfen.
+6. Normalen Selector auf `DK + Diddy` stellen.
+7. Hard Mode `DK + DK` testen und prüfen, ob P2 DK unabhängig vom vorherigen Normalmode-State existiert.
+8. Danach Dixie, Cranky und Funky doppelt testen.
+9. Für funktionierende Kombinationen P1-/P2-Tod und beide Revive-Richtungen prüfen.
 
 ## Statusübersicht
 
 ```text
-Normalmodus DK + DK                         im Spiel bestätigt
-Alter Hard-Mode-Abhängigkeitsbug            im Spiel bestätigt
-Vorheriger Hard-Mode-Fix                    fehlgeschlagen, verworfen
-Andere Duplicate-Kongs im alten Stand       nicht implementiert
-V2: allgemeiner Duplicate-Trigger           statisch validiert
-V2: korrekte Hard-Mode-GameState-Auflösung  statisch validiert
-V2: dynamische Replay-Factory               statisch validiert
-V2 gesamt                                    In-Game-Test offen
+Basis: Normalmodus DK + DK                   im Spiel bestätigt
+Basis: Hard-Mode-Abhängigkeit                im Spiel bestätigt
+Basis: andere doppelte Kongs                 nicht implementiert
+V2: Diddy + Diddy plus zusätzlicher DK       im Spiel bestätigt
+V2: Crash beim Level-Exit                    im Spiel bestätigt
+V2 gesamt                                    verworfen
+V3 auf Basis (36)                            statisch validiert, Test offen
 ```
