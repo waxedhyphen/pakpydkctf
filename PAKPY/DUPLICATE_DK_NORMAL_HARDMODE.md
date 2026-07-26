@@ -1,19 +1,19 @@
-# DKCTF – Duplicate DK in Normal Mode and Hard Mode
+# DKCTF – doppelter DK im Normalmodus und Hard Mode
 
-This file records the confirmed runtime state separately from static patch validation.
+Diese Datei trennt bestätigtes Laufzeitverhalten von rein statisch validierten Änderungen.
 
-## Goal
+## Ziel
 
-Both players must be able to select DK independently in normal two-player mode and Hard Mode:
+Beide Spieler sollen DK unabhängig voneinander im normalen Zwei-Spieler-Modus und im Hard Mode auswählen können:
 
 ```text
 P1 = DK
 P2 = DK
 ```
 
-The two actors must remain separate players with independent control, death, revive and checkpoint state.
+Beide Figuren müssen getrennte Spieler mit unabhängiger Steuerung, Tod-, Respawn- und Checkpoint-Logik bleiben.
 
-## Current UI and ExeFS basis
+## Aktuelle UI- und ExeFS-Grundlage
 
 Build ID:
 
@@ -21,77 +21,77 @@ Build ID:
 F48BD40D89B529C114F17C7909FE6AA400000000000000000000000000000000
 ```
 
-UI basis:
+UI-Grundlage:
 
 ```text
 UIPak SHA-256:
 58ce2f8a1ee15f02ccd3edd5b3b3ea06126059da3ef1ac0f20d5538743783fe3
 ```
 
-The UI passes separate P1 and P2 choices. The duplicate implementation uses a logical DK actor for P2 while keeping Diddy as the internal physical P2 carrier.
+Die UI übergibt getrennte P1- und P2-Auswahlen. Die Duplicate-Implementierung erzeugt für P2 logisch einen DK, verwendet intern aber Diddy als physischen P2-Trägerslot.
 
-## Confirmed runtime state
+## Bestätigter Laufzeitstand
 
-### Normal two-player mode
+### Normaler Zwei-Spieler-Modus
 
-Status: **confirmed in game**
+Status: **im Spiel bestätigt**
 
-The live normal-mode hook at:
+Der Live-Hook des Normalmodus liegt bei:
 
 ```text
 0x345898
-CProductionFrontEnd::UpdateCharacterTypes path
+CProductionFrontEnd::UpdateCharacterTypes-Pfad
 ```
 
-runs after the native `Char_P2` store and before the P2 character-change event. When both stored character types are DK, it arms the duplicate replay state and changes only the internal P2 carrier to Diddy.
+Er läuft nach dem nativen `Char_P2`-Store und vor dem P2-Character-Change-Event. Wenn beide gespeicherten CharacterTypes DK sind, aktiviert er den Duplicate-Replay-Zustand und ändert nur den internen P2-Träger auf Diddy.
 
-Confirmed result:
+Bestätigtes Ergebnis:
 
-- normal two-player `DK + DK` starts correctly;
-- two visible DK actors exist;
-- both players are independently controllable;
-- this is the best confirmed duplicate-character baseline so far.
+- normales Zwei-Spieler-`DK + DK` funktioniert;
+- zwei sichtbare DK-Actors existieren;
+- beide Spieler sind unabhängig steuerbar;
+- dies ist derzeit die beste bestätigte Duplicate-Character-Grundlage.
 
-### Hard Mode before the current fix
+### Hard Mode vor dem aktuellen Fix
 
-Status: **bug confirmed in game**
+Status: **Bug im Spiel bestätigt**
 
-Observed behavior:
+Beobachtet:
 
-- selecting `DK + DK` in Hard Mode did not reliably create P2 DK;
-- P2 DK existed only when the normal Kong Select had previously been set to `DK + DK`;
-- a normal non-duplicate selection such as `DK + Diddy` followed by Hard-Mode `DK + DK` left P2 DK missing.
+- `DK + DK` im Hard Mode erzeugte P2 DK nicht zuverlässig;
+- P2 DK existierte nur, wenn zuvor im normalen Kong-Select `DK + DK` eingestellt war;
+- nach einer normalen Nicht-Duplikat-Auswahl wie `DK + Diddy` fehlte P2 DK beim anschließenden Hard-Mode-Start mit `DK + DK`.
 
-This cross-mode dependency was not intended behavior.
+Diese Abhängigkeit zwischen den beiden Modi war unbeabsichtigt.
 
-## Cause of the Hard-Mode dependency
+## Ursache der Hard-Mode-Abhängigkeit
 
-The Hard-Mode P2 parser is reached at:
+Der Hard-Mode-P2-Parser läuft über:
 
 ```text
-0x3527EC -> helper 0xA7A798
+0x3527EC -> Helper 0xA7A798
 ```
 
-The previous helper only replaced the Hard-Mode P2 value with the physical Diddy carrier when the global duplicate-state flag was already active.
+Der bisherige Helper ersetzte den Hard-Mode-P2-Wert nur dann durch den physischen Diddy-Träger, wenn das globale Duplicate-State-Flag bereits aktiv war.
 
-That flag was armed by the confirmed normal-mode hook. The Hard-Mode argument parser itself did not arm duplicate state from its own selected P1 and P2 values.
+Dieses Flag wurde vom bestätigten Normalmode-Hook aktiviert. Der Hard-Mode-Argumentparser selbst aktivierte den Duplicate-Zustand nicht anhand seiner eigenen P1- und P2-Auswahl.
 
-Therefore:
+Dadurch entstand genau folgende Abhängigkeit:
 
 ```text
-normal selector previously DK + DK
-    -> duplicate flag already active
-    -> Hard Mode P2 replay exists
+normaler Selector zuvor DK + DK
+    -> Duplicate-Flag bereits aktiv
+    -> Hard-Mode-P2-Replay existiert
 
-normal selector previously not DK + DK
-    -> duplicate flag inactive
-    -> Hard Mode parser never requests the replay
-    -> P2 DK missing
+normaler Selector zuvor nicht DK + DK
+    -> Duplicate-Flag inaktiv
+    -> Hard-Mode-Parser fordert keinen Replay-Actor an
+    -> P2 DK fehlt
 ```
 
-## Current fix
+## Aktueller Fix
 
-Artifact scope:
+Artefakt:
 
 ```text
 customkong_dkdk_normal_hardmode_fix
@@ -103,80 +103,80 @@ IPS SHA-256:
 bc42c7aa1a2b3575d15c90ae1ead617119c170205f1dd427dca65e1ba3d324d9
 ```
 
-The fix changes only the existing helper record. The IPS remains at 24 records.
+Der Fix ändert nur den vorhandenen Helper-Record. Die IPS enthält weiterhin 24 Records.
 
-### Hard-Mode parser change
+### Änderung am Hard-Mode-Parser
 
-The helper at `0xA7A798` now:
+Der Helper bei `0xA7A798`:
 
-1. stores the selected Hard-Mode P1 type in `GameState+0x2698`;
-2. stores the selected Hard-Mode P2 type in `GameState+0x269C`;
-3. points the shared duplicate routine at this GameState;
-4. tail-branches to the same `DK + DK` activation routine used by the working normal-mode path.
+1. schreibt die gewählte Hard-Mode-P1-Figur nach `GameState+0x2698`;
+2. schreibt die gewählte Hard-Mode-P2-Figur nach `GameState+0x269C`;
+3. richtet die gemeinsame Duplicate-Routine auf diesen GameState;
+4. springt anschließend in dieselbe `DK + DK`-Aktivierungsroutine wie der funktionierende Normalmode-Pfad.
 
-For `DK + DK`, the shared routine:
+Für `DK + DK` setzt die gemeinsame Routine:
 
 ```text
-logical P1 = DK
-logical P2 = DK
-physical P2 carrier = Diddy
+logischer P1 = DK
+logischer P2 = DK
+physischer P2-Träger = Diddy
 ```
 
-It returns the physical P2 type in `W22` to the original Hard-Mode parser, which then writes the existing handoff field at `GameState+0x26C0`.
+Der physische P2-Typ wird in `W22` an den ursprünglichen Hard-Mode-Parser zurückgegeben. Dieser schreibt anschließend wie bisher das Übergabefeld `GameState+0x26C0`.
 
-### Shared caller handling
+### Gemeinsame Caller-Behandlung
 
-The common helper is used by three paths:
+Der gemeinsame Helper wird von drei Pfaden verwendet:
 
 ```text
-normal live UpdateCharacterTypes
-Hard-Mode argument parser
-existing transition/initializer path
+normaler Live-UpdateCharacterTypes-Pfad
+Hard-Mode-Argumentparser
+vorhandener Transition-/Initializer-Pfad
 ```
 
-The return path distinguishes these callers without changing the confirmed normal-mode value held in `W22`.
+Die Rückkehr unterscheidet diese Caller, ohne den im funktionierenden Normalmode benötigten ursprünglichen `W22`-Wert zu verändern.
 
-Unchanged:
+Unverändert bleiben:
 
-- normal hook at `0x345898`;
-- transition hook at `0x35236C`;
-- serialized replay factory;
-- player pointer and index hooks;
-- death, checkpoint, barrel and revive hooks;
-- modified UIPak selectors.
+- Normalmode-Hook bei `0x345898`;
+- Transition-Hook bei `0x35236C`;
+- serialisierte Replay-Factory;
+- Player-Pointer- und Player-Index-Hooks;
+- Tod-, Checkpoint-, Barrel- und Respawn-Hooks;
+- modifizierte UIPak-Selectoren.
 
-## Validation status
+## Validierungsstatus
 
-Static validation passed:
+Statisch validiert:
 
-- IPS32 structure is valid;
-- all 24 records are sorted and non-overlapping;
-- only helper range `0xA7A778..0xA7A7B3` differs from the confirmed normal-mode baseline;
-- `0x345898` still branches to `0xA7A734`;
-- `0x35236C` still branches to `0xA7A734` and preserves the original `0x1B7EC0` tail path;
-- `0x3527EC` still enters `0xA7A798`;
-- the Hard-Mode parser now tail-branches from `0xA7A7A4` to `0xA7A734` while preserving its original return address;
-- normal-mode `W22` is not overwritten by the new caller handling.
+- gültige IPS32-Struktur;
+- alle 24 Records sind sortiert und überlappen nicht;
+- gegenüber der bestätigten Normalmode-Grundlage wurde ausschließlich der Helper-Bereich `0xA7A778..0xA7A7B3` verändert;
+- `0x345898` springt weiterhin nach `0xA7A734`;
+- `0x35236C` springt weiterhin nach `0xA7A734` und behält den ursprünglichen Tail-Pfad nach `0x1B7EC0`;
+- `0x3527EC` ruft weiterhin `0xA7A798` auf;
+- der Hard-Mode-Parser springt nun bei `0xA7A7A4` nach `0xA7A734`, ohne seine ursprüngliche Rücksprungadresse zu zerstören;
+- der Normalmode-Wert in `W22` wird durch die neue Caller-Behandlung nicht überschrieben.
 
-The new Hard-Mode-independent activation is **not yet confirmed in game**.
+Die neue unabhängige Hard-Mode-Aktivierung ist **noch nicht im Spiel bestätigt**.
 
-## Required next test
+## Erforderlicher nächster Test
 
-1. Fully restart the game.
-2. Set the normal Kong Select to a non-duplicate pair such as `DK + Diddy`.
-3. Enter Hard Mode.
-4. Select `DK + DK`.
-5. Verify that P2 DK exists and is independently controllable.
-6. Test P2 death and P1 death.
-7. Test both revive-barrel directions.
-8. Exit the level and confirm that normal two-player `DK + DK` still works.
+1. Spiel vollständig neu starten.
+2. Im normalen Kong-Select absichtlich eine Nicht-Duplikat-Kombination wie `DK + Diddy` einstellen.
+3. Hard Mode öffnen.
+4. Dort `DK + DK` auswählen.
+5. Prüfen, ob P2 DK existiert und unabhängig steuerbar ist.
+6. P1- und P2-Tod testen.
+7. Beide Respawn-Barrel-Richtungen testen.
+8. Level verlassen und anschließend erneut normales Zwei-Spieler-`DK + DK` prüfen.
 
-## Current status summary
+## Aktuelle Statusübersicht
 
 ```text
-Normal 2P DK + DK                         confirmed in game
-Old Hard-Mode cross-mode dependency       confirmed in game
-Cause: Hard-Mode parser did not arm state confirmed statically
-New independent Hard-Mode activation      statically validated, test pending
-Other duplicate Kong combinations         not implemented
+Normaler 2P-Modus DK + DK                 im Spiel bestätigt
+Alte Hard-Mode-Abhängigkeit               im Spiel bestätigt
+Ursache: Parser aktivierte State nicht    statisch bestätigt
+Neue unabhängige Hard-Mode-Aktivierung    statisch validiert, Test offen
+Andere doppelte Kong-Kombinationen        nicht implementiert
 ```
